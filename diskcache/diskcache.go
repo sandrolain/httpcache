@@ -4,10 +4,12 @@ package diskcache
 
 import (
 	"bytes"
-	"crypto/md5"
+	"crypto/sha256"
 	"encoding/hex"
-	"github.com/peterbourgon/diskv"
 	"io"
+
+	"github.com/peterbourgon/diskv"
+	"github.com/sandrolain/httpcache"
 )
 
 // Cache is an implementation of httpcache.Cache that supplements the in-memory map with persistent storage
@@ -28,18 +30,24 @@ func (c *Cache) Get(key string) (resp []byte, ok bool) {
 // Set saves a response to the cache as key
 func (c *Cache) Set(key string, resp []byte) {
 	key = keyToFilename(key)
-	c.d.WriteStream(key, bytes.NewReader(resp), true)
+	if err := c.d.WriteStream(key, bytes.NewReader(resp), true); err != nil {
+		httpcache.GetLogger().Warn("failed to write to disk cache", "key", key, "error", err)
+	}
 }
 
 // Delete removes the response with key from the cache
 func (c *Cache) Delete(key string) {
 	key = keyToFilename(key)
-	c.d.Erase(key)
+	if err := c.d.Erase(key); err != nil {
+		httpcache.GetLogger().Warn("failed to delete from disk cache", "key", key, "error", err)
+	}
 }
 
 func keyToFilename(key string) string {
-	h := md5.New()
-	io.WriteString(h, key)
+	h := sha256.New()
+	// Hash.Write never returns an error according to the interface contract
+	//nolint:errcheck // io.WriteString to hash.Hash never fails
+	_, _ = io.WriteString(h, key)
 	return hex.EncodeToString(h.Sum(nil))
 }
 

@@ -18,8 +18,8 @@ func TestMemCache(t *testing.T) {
 		// TODO: rather than skip the test, fall back to a faked memcached server
 		t.Skipf("skipping test; no server running at %s", testServer)
 	}
-	conn.Write([]byte("flush_all\r\n")) // flush memcache
-	conn.Close()
+	_, _ = conn.Write([]byte("flush_all\r\n")) // flush memcache
+	_ = conn.Close()
 
 	test.Cache(t, New(testServer))
 }

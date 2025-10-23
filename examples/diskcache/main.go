@@ -29,7 +29,7 @@ func main() {
 	client := &http.Client{Transport: transport}
 
 	fmt.Println("Example: Persistent disk cache")
-	fmt.Println("===============================\n")
+	fmt.Println("===============================")
 
 	url := "https://httpbin.org/cache/3600" // Cacheable for 1 hour
 
@@ -73,7 +73,7 @@ func main() {
 
 	// Example: Cache survives client recreation
 	fmt.Println("\nExample: Creating a new client with same cache directory")
-	fmt.Println("=========================================================\n")
+	fmt.Println("=========================================================")
 
 	// Create a new transport and client
 	cache2 := diskcache.New(cacheDir)

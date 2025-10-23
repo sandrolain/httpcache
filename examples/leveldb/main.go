@@ -26,7 +26,7 @@ func main() {
 	}
 
 	fmt.Println("Example: LevelDB persistent cache")
-	fmt.Println("==================================\n")
+	fmt.Println("==================================")
 
 	// Create HTTP transport with LevelDB cache
 	transport := httpcache.NewTransport(cache)
@@ -66,7 +66,7 @@ func main() {
 
 	// Example: Multiple URLs cached
 	fmt.Println("\nExample: Caching multiple URLs")
-	fmt.Println("===============================\n")
+	fmt.Println("===============================")
 
 	urls := []string{
 		"https://httpbin.org/cache/60",

@@ -1,7 +1,6 @@
 package diskcache
 
 import (
-	"io/ioutil"
 	"os"
 	"testing"
 
@@ -9,11 +8,13 @@ import (
 )
 
 func TestDiskCache(t *testing.T) {
-	tempDir, err := ioutil.TempDir("", "httpcache")
+	tempDir, err := os.MkdirTemp("", "httpcache")
 	if err != nil {
-		t.Fatalf("TempDir: %v", err)
+		t.Fatalf("MkdirTemp: %v", err)
 	}
-	defer os.RemoveAll(tempDir)
+	defer func() {
+		_ = os.RemoveAll(tempDir)
+	}()
 
 	test.Cache(t, New(tempDir))
 }

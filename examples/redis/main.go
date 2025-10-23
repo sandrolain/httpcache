@@ -14,7 +14,7 @@ import (
 
 func main() {
 	fmt.Println("Redis Cache Example")
-	fmt.Println("===================\n")
+	fmt.Println("===================")
 
 	// Connect to Redis
 	conn, err := redis.Dial("tcp", "localhost:6379")
@@ -36,7 +36,7 @@ func main() {
 
 	// Clear any existing cache for this example
 	conn.Do("FLUSHDB")
-	fmt.Println("✓ Cleared Redis cache\n")
+	fmt.Println("✓ Cleared Redis cache")
 
 	// Create Redis cache
 	cache := rediscache.NewWithClient(conn)
@@ -96,7 +96,7 @@ func main() {
 
 	// Example with connection pool (recommended for production)
 	fmt.Println("\nExample: Using connection pool (production setup)")
-	fmt.Println("=================================================\n")
+	fmt.Println("=================================================")
 
 	pool := &redis.Pool{
 		MaxIdle:     3,

@@ -163,11 +163,11 @@ func (c *TTLCache) Stop() {
 
 func main() {
 	fmt.Println("Custom Cache Backends Example")
-	fmt.Println("==============================\n")
+	fmt.Println("==============================")
 
 	// Example 1: Cache with statistics
 	fmt.Println("Example 1: Cache with Statistics")
-	fmt.Println("---------------------------------\n")
+	fmt.Println("---------------------------------")
 
 	// Wrap the memory cache with stats
 	baseCache := httpcache.NewMemoryCache()
@@ -209,7 +209,7 @@ func main() {
 
 	// Example 2: Cache with TTL
 	fmt.Println("\n\nExample 2: Cache with TTL (Time-To-Live)")
-	fmt.Println("-----------------------------------------\n")
+	fmt.Println("-----------------------------------------")
 
 	ttlCache := NewTTLCache(3 * time.Second)
 	defer ttlCache.Stop()

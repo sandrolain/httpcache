@@ -29,12 +29,16 @@ func (c cache) Get(key string) (resp []byte, ok bool) {
 
 // Set saves a response to the cache as key.
 func (c cache) Set(key string, resp []byte) {
-	c.Do("SET", cacheKey(key), resp)
+	if _, err := c.Do("SET", cacheKey(key), resp); err != nil {
+		httpcache.GetLogger().Warn("failed to write to redis cache", "key", key, "error", err)
+	}
 }
 
 // Delete removes the response with key from the cache.
 func (c cache) Delete(key string) {
-	c.Do("DEL", cacheKey(key))
+	if _, err := c.Do("DEL", cacheKey(key)); err != nil {
+		httpcache.GetLogger().Warn("failed to delete from redis cache", "key", key, "error", err)
+	}
 }
 
 // NewWithClient returns a new Cache with the given redis connection.

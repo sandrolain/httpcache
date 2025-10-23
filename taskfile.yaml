@@ -14,9 +14,7 @@ tasks:
     cmds:
       - brew install golangci-lint
       - brew install aquasecurity/trivy/trivy
-      - brew install tinygo
-      - brew install protoc-gen-go
-      - brew install protoc-gen-go-grpc
+      - brew install govulncheck
       - go install github.com/google/go-licenses/v2@latest
 
   fmt-check:
@@ -42,6 +40,12 @@ tasks:
     cmds:
       - echo "Running go vet..."
       - go vet ./...
+
+  govulncheck:
+    desc: Run Go vulnerability check with govulncheck
+    cmds:
+      - echo "Running govulncheck..."
+      - govulncheck ./...
 
   test:
     desc: Run tests with race detector and coverage (suppress linker warnings)

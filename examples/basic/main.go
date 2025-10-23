@@ -17,7 +17,7 @@ func main() {
 	url := "https://httpbin.org/cache/300" // Cacheable for 300 seconds
 
 	fmt.Println("Example 1: Basic in-memory caching")
-	fmt.Println("===================================\n")
+	fmt.Println("===================================")
 
 	// First request - will fetch from server
 	fmt.Println("Making first request...")
@@ -56,7 +56,7 @@ func main() {
 
 	// Example with ETag validation
 	fmt.Println("\nExample 2: Cache with ETag validation")
-	fmt.Println("======================================\n")
+	fmt.Println("======================================")
 
 	etagURL := "https://httpbin.org/etag/test-etag"
 

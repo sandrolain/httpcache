@@ -1,4 +1,5 @@
 version: "2"
+
 linters:
   default: standard
   enable:
@@ -28,3 +29,14 @@ linters:
       forbid:
         - pattern: "^fmt\\.Print.*"
           msg: "Use logger instead of fmt.Print*"
+  exclusions:
+    rules:
+      - path: "(.+)_test\\.go"
+        linters:
+          - errcheck
+          - goconst
+          - gocognit
+      - path: "examples/.+\\.go"
+        linters:
+          - errcheck
+          - forbidigo

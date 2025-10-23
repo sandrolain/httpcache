@@ -3,6 +3,7 @@
 package leveldbcache
 
 import (
+	"github.com/sandrolain/httpcache"
 	"github.com/syndtr/goleveldb/leveldb"
 )
 
@@ -23,12 +24,16 @@ func (c *Cache) Get(key string) (resp []byte, ok bool) {
 
 // Set saves a response to the cache as key
 func (c *Cache) Set(key string, resp []byte) {
-	c.db.Put([]byte(key), resp, nil)
+	if err := c.db.Put([]byte(key), resp, nil); err != nil {
+		httpcache.GetLogger().Warn("failed to write to leveldb cache", "key", key, "error", err)
+	}
 }
 
 // Delete removes the response with key from the cache
 func (c *Cache) Delete(key string) {
-	c.db.Delete([]byte(key), nil)
+	if err := c.db.Delete([]byte(key), nil); err != nil {
+		httpcache.GetLogger().Warn("failed to delete from leveldb cache", "key", key, "error", err)
+	}
 }
 
 // New returns a new Cache that will store leveldb in path

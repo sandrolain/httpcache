@@ -11,6 +11,7 @@ package memcache
 
 import (
 	"github.com/bradfitz/gomemcache/memcache"
+	"github.com/sandrolain/httpcache"
 )
 
 // Cache is an implementation of httpcache.Cache that caches responses in a
@@ -40,12 +41,16 @@ func (c *Cache) Set(key string, resp []byte) {
 		Key:   cacheKey(key),
 		Value: resp,
 	}
-	c.Client.Set(item)
+	if err := c.Client.Set(item); err != nil {
+		httpcache.GetLogger().Warn("failed to write to memcache", "key", key, "error", err)
+	}
 }
 
 // Delete removes the response with key from the cache.
 func (c *Cache) Delete(key string) {
-	c.Client.Delete(cacheKey(key))
+	if err := c.Client.Delete(cacheKey(key)); err != nil {
+		httpcache.GetLogger().Warn("failed to delete from memcache", "key", key, "error", err)
+	}
 }
 
 // New returns a new Cache using the provided memcache server(s) with equal
