@@ -13,7 +13,7 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
-        go-version: ["1.21", "1.22", "1.23"]
+        go-version: ["1.23", "1.24", "1.25"]
 
     steps:
       - name: Checkout code
@@ -64,7 +64,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.23"
+          go-version: "1.25"
 
       - name: Run golangci-lint
         uses: golangci/golangci-lint-action@v8
@@ -83,7 +83,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.23"
+          go-version: "1.25"
 
       - name: Check formatting
         run: |
@@ -104,7 +104,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.23"
+          go-version: "1.25"
 
       - name: Build basic example
         run: go build -o /tmp/basic ./examples/basic/main.go
@@ -143,7 +143,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.23"
+          go-version: "1.25"
 
       - name: Run Redis tests
         run: go test -v ./redis/...
@@ -167,7 +167,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.23"
+          go-version: "1.25"
 
       - name: Run Memcache tests
         run: go test -v ./memcache/...
