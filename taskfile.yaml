@@ -1,0 +1,121 @@
+version: "3"
+
+vars:
+  # All Go source files (excluding vendor)
+  GO_FILES:
+    sh: find . -type f -name '*.go' -not -path "./vendor/*"
+  # Package list for analysis scoped to project sources
+  GO_PKGS:
+    sh: go list ./...
+
+tasks:
+  install-tools-mac:
+    desc: Install all required Go tools on macOS
+    cmds:
+      - brew install golangci-lint
+      - brew install aquasecurity/trivy/trivy
+      - brew install tinygo
+      - brew install protoc-gen-go
+      - brew install protoc-gen-go-grpc
+      - go install github.com/google/go-licenses/v2@latest
+
+  fmt-check:
+    desc: Check Go code formatting without making changes
+    cmds:
+      - echo "Running gofmt..."
+      - gofmt -d -e -l -s .
+
+  fmt:
+    desc: Format Go code with simplification
+    cmds:
+      - echo "Running gofmt..."
+      - gofmt -s -l -w .
+
+  lint:
+    desc: Run golangci-lint across the codebase
+    cmds:
+      - echo "Running golangci-lint..."
+      - golangci-lint run
+
+  vet:
+    desc: Run static analysis with go vet
+    cmds:
+      - echo "Running go vet..."
+      - go vet ./...
+
+  test:
+    desc: Run tests with race detector and coverage (suppress linker warnings)
+    cmds:
+      - echo "Running tests with coverage (clean output)..."
+      - |
+        set -o pipefail
+        go test -coverprofile=coverage.out -covermode=atomic ./... 2>&1 | \
+        grep -v "ld: warning.*malformed LC_DYSYMTAB" || \
+        (test ${PIPESTATUS[0]} -eq 0)
+      - go tool cover -html=coverage.out -o coverage.html
+      - echo "Coverage report generated at coverage.html"
+
+  test-verbose:
+    desc: Run tests with race detector and coverage (show all output including warnings)
+    cmds:
+      - echo "Running tests with coverage (verbose mode)..."
+      - go test -race -coverprofile=coverage.out -covermode=atomic ./...
+      - go tool cover -html=coverage.out -o coverage.html
+      - echo "Coverage report generated at coverage.html"
+
+  gosec:
+    desc: Run security checks with gosec
+    vars:
+      GOSEC_INSTALLED:
+        sh: command -v gosec || echo "not_found"
+    cmds:
+      - echo "Running gosec security scanner..."
+      - gosec -exclude-generated ./...
+
+  trivy:
+    desc: Run Trivy filesystem scanner (vuln, secret, misconfig)
+    vars:
+    cmds:
+      - echo "Running Trivy vulnerability scanner..."
+      - trivy fs --scanners vuln,secret,misconfig .
+      - trivy fs --format json --output trivy-results.json .
+
+  licenses:
+    desc: Check for forbidden licenses (GPL-like) and export CSV report
+    cmds:
+      - echo "Checking for forbidden licenses (GPL, LGPL, AGPL)..."
+      - |
+        go-licenses check ./... \
+          --disallowed_types=GPL-2.0,GPL-3.0,LGPL-2.0,LGPL-2.1,LGPL-3.0,AGPL-1.0,AGPL-3.0 \
+          || echo "⚠️  WARNING: Found forbidden licenses!"
+      - echo "Generating CSV license report..."
+      - go-licenses csv ./... > licenses.csv
+      - echo "✅ License report saved to licenses.csv"
+      - echo "Review licenses.csv to verify all dependencies"
+
+  check:
+    desc: Run all checks (fmt, lint, vet, test, gosec, trivy)
+    cmds:
+      - task: fmt
+      - task: lint
+      - task: trivy
+      - task: test
+      - task: licenses
+
+  install-deps:
+    desc: Install and tidy Go module dependencies
+    cmds:
+      - go mod download
+      - go mod tidy
+
+  clean:
+    desc: Clean build and analysis artifacts
+    cmds:
+      - go clean -cache -testcache -modcache
+      - rm -rf bin/
+      - rm -rf dist/
+      - rm -f coverage.out
+      - rm -f coverage.html
+      - rm -f security-report.json
+      - rm -f trivy-results.json
+      - rm -f licenses.csv

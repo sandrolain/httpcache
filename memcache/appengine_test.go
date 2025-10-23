@@ -1,3 +1,4 @@
+//go:build appengine
 // +build appengine
 
 package memcache
@@ -5,8 +6,9 @@ package memcache
 import (
 	"testing"
 
+	"github.com/sandrolain/httpcache/test"
+
 	"appengine/aetest"
-	"github.com/gregjones/httpcache/test"
 )
 
 func TestAppEngine(t *testing.T) {

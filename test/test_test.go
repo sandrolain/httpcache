@@ -3,8 +3,8 @@ package test_test
 import (
 	"testing"
 
-	"github.com/gregjones/httpcache"
-	"github.com/gregjones/httpcache/test"
+	"github.com/sandrolain/httpcache"
+	"github.com/sandrolain/httpcache/test"
 )
 
 func TestMemoryCache(t *testing.T) {
