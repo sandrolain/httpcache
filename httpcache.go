@@ -26,6 +26,12 @@ const (
 
 	methodGET  = "GET"
 	methodHEAD = "HEAD"
+
+	headerXVariedPrefix = "X-Varied-"
+	headerLastModified  = "last-modified"
+	headerETag          = "etag"
+
+	cacheControlOnlyIfCached = "only-if-cached"
 )
 
 // A Cache interface is used by the Transport to store and retrieve responses.
@@ -122,11 +128,178 @@ func (t *Transport) Client() *http.Client {
 func varyMatches(cachedResp *http.Response, req *http.Request) bool {
 	for _, header := range headerAllCommaSepValues(cachedResp.Header, "vary") {
 		header = http.CanonicalHeaderKey(header)
-		if header != "" && req.Header.Get(header) != cachedResp.Header.Get("X-Varied-"+header) {
+		if header != "" && req.Header.Get(header) != cachedResp.Header.Get(headerXVariedPrefix+header) {
 			return false
 		}
 	}
 	return true
+}
+
+// addValidatorsToRequest adds conditional request headers (If-None-Match, If-Modified-Since)
+// to revalidate a stale cached response
+func addValidatorsToRequest(req *http.Request, cachedResp *http.Response) *http.Request {
+	etag := cachedResp.Header.Get(headerETag)
+	lastModified := cachedResp.Header.Get(headerLastModified)
+
+	// Only add validators if they're not already present
+	needsEtag := etag != "" && req.Header.Get(headerETag) == ""
+	needsLastModified := lastModified != "" && req.Header.Get(headerLastModified) == ""
+
+	if !needsEtag && !needsLastModified {
+		return req
+	}
+
+	req2 := cloneRequest(req)
+	if needsEtag {
+		req2.Header.Set("if-none-match", etag)
+	}
+	if needsLastModified {
+		req2.Header.Set("if-modified-since", lastModified)
+	}
+	return req2
+}
+
+// handleCachedResponse processes a cached response based on its freshness
+// Returns the request (possibly modified with validators) and whether to use cache directly
+func (t *Transport) handleCachedResponse(cachedResp *http.Response, req *http.Request) (*http.Request, bool) {
+	if !varyMatches(cachedResp, req) {
+		return req, false
+	}
+
+	freshness := getFreshness(cachedResp.Header, req.Header)
+	if freshness == fresh {
+		return req, true
+	}
+
+	if freshness == stale {
+		return addValidatorsToRequest(req, cachedResp), false
+	}
+
+	return req, false
+}
+
+// handleNotModifiedResponse updates the cached response with new headers from a 304 response
+func handleNotModifiedResponse(cachedResp *http.Response, newResp *http.Response) *http.Response {
+	endToEndHeaders := getEndToEndHeaders(newResp.Header)
+	for _, header := range endToEndHeaders {
+		cachedResp.Header[header] = newResp.Header[header]
+	}
+	return cachedResp
+}
+
+// shouldReturnStaleOnError checks if a stale cached response should be returned due to an error
+func shouldReturnStaleOnError(err error, resp *http.Response, cachedResp *http.Response, req *http.Request) bool {
+	if req.Method != methodGET || cachedResp == nil {
+		return false
+	}
+
+	hasError := err != nil
+	hasServerError := resp != nil && resp.StatusCode >= 500
+
+	if !hasError && !hasServerError {
+		return false
+	}
+
+	return canStaleOnError(cachedResp.Header, req.Header)
+}
+
+// performRequest executes the HTTP request using the provided transport
+func performRequest(transport http.RoundTripper, req *http.Request, onlyIfCached bool) (*http.Response, error) {
+	if onlyIfCached {
+		return newGatewayTimeoutResponse(req), nil
+	}
+	return transport.RoundTrip(req)
+}
+
+// storeVaryHeaders stores the Vary header values in the response for future cache validation
+func storeVaryHeaders(resp *http.Response, req *http.Request) {
+	for _, varyKey := range headerAllCommaSepValues(resp.Header, "vary") {
+		varyKey = http.CanonicalHeaderKey(varyKey)
+		reqValue := req.Header.Get(varyKey)
+		if reqValue != "" {
+			fakeHeader := headerXVariedPrefix + varyKey
+			resp.Header.Set(fakeHeader, reqValue)
+		}
+	}
+}
+
+// setupCachingBody wraps the response body to cache it when fully read
+func (t *Transport) setupCachingBody(resp *http.Response, cacheKey string) {
+	resp.Body = &cachingReadCloser{
+		R: resp.Body,
+		OnEOF: func(r io.Reader) {
+			resp := *resp
+			resp.Body = io.NopCloser(r)
+			respBytes, err := httputil.DumpResponse(&resp, true)
+			if err == nil {
+				t.Cache.Set(cacheKey, respBytes)
+			}
+		},
+	}
+}
+
+// storeCachedResponse caches the response immediately
+func (t *Transport) storeCachedResponse(resp *http.Response, cacheKey string) {
+	respBytes, err := httputil.DumpResponse(resp, true)
+	if err == nil {
+		t.Cache.Set(cacheKey, respBytes)
+	}
+}
+
+// processCachedResponse handles the logic when a valid cached response exists
+func (t *Transport) processCachedResponse(cachedResp *http.Response, req *http.Request, transport http.RoundTripper, cacheKey string) (*http.Response, error) {
+	if t.MarkCachedResponses {
+		cachedResp.Header.Set(XFromCache, "1")
+	}
+
+	modifiedReq, useCache := t.handleCachedResponse(cachedResp, req)
+	if useCache {
+		return cachedResp, nil
+	}
+
+	resp, err := performRequest(transport, modifiedReq, false)
+
+	// Handle 304 Not Modified
+	if err == nil && req.Method == methodGET && resp.StatusCode == http.StatusNotModified {
+		return handleNotModifiedResponse(cachedResp, resp), nil
+	}
+
+	if shouldReturnStaleOnError(err, resp, cachedResp, req) {
+		return cachedResp, nil
+	}
+
+	if err != nil || resp.StatusCode != http.StatusOK {
+		t.Cache.Delete(cacheKey)
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	return resp, nil
+}
+
+// processUncachedRequest handles the logic when no valid cached response exists
+func processUncachedRequest(transport http.RoundTripper, req *http.Request) (*http.Response, error) {
+	reqCacheControl := parseCacheControl(req.Header)
+	_, onlyIfCached := reqCacheControl[cacheControlOnlyIfCached]
+	return performRequest(transport, req, onlyIfCached)
+}
+
+// storeResponseInCache stores the response in cache if applicable
+func (t *Transport) storeResponseInCache(resp *http.Response, req *http.Request, cacheKey string, cacheable bool) {
+	if !cacheable || !canStore(parseCacheControl(req.Header), parseCacheControl(resp.Header)) {
+		t.Cache.Delete(cacheKey)
+		return
+	}
+
+	storeVaryHeaders(resp, req)
+
+	if req.Method == methodGET {
+		t.setupCachingBody(resp, cacheKey)
+	} else {
+		t.storeCachedResponse(resp, cacheKey)
+	}
 }
 
 // RoundTrip takes a Request and returns a Response
@@ -140,11 +313,11 @@ func varyMatches(cachedResp *http.Response, req *http.Request) bool {
 func (t *Transport) RoundTrip(req *http.Request) (resp *http.Response, err error) {
 	cacheKey := cacheKey(req)
 	cacheable := (req.Method == methodGET || req.Method == methodHEAD) && req.Header.Get("range") == ""
+
 	var cachedResp *http.Response
 	if cacheable {
 		cachedResp, err = CachedResponse(t.Cache, req)
 	} else {
-		// Need to invalidate an existing value
 		t.Cache.Delete(cacheKey)
 	}
 
@@ -153,108 +326,22 @@ func (t *Transport) RoundTrip(req *http.Request) (resp *http.Response, err error
 		transport = http.DefaultTransport
 	}
 
+	// Handle cached vs uncached response
 	if cacheable && cachedResp != nil && err == nil {
-		if t.MarkCachedResponses {
-			cachedResp.Header.Set(XFromCache, "1")
-		}
-
-		if varyMatches(cachedResp, req) {
-			// Can only use cached value if the new request doesn't Vary significantly
-			freshness := getFreshness(cachedResp.Header, req.Header)
-			if freshness == fresh {
-				return cachedResp, nil
-			}
-
-			if freshness == stale {
-				var req2 *http.Request
-				// Add validators if caller hasn't already done so
-				etag := cachedResp.Header.Get("etag")
-				if etag != "" && req.Header.Get("etag") == "" {
-					req2 = cloneRequest(req)
-					req2.Header.Set("if-none-match", etag)
-				}
-				lastModified := cachedResp.Header.Get("last-modified")
-				if lastModified != "" && req.Header.Get("last-modified") == "" {
-					if req2 == nil {
-						req2 = cloneRequest(req)
-					}
-					req2.Header.Set("if-modified-since", lastModified)
-				}
-				if req2 != nil {
-					req = req2
-				}
-			}
-		}
-
-		resp, err = transport.RoundTrip(req)
-		if err == nil && req.Method == methodGET && resp.StatusCode == http.StatusNotModified {
-			// Replace the 304 response with the one from cache, but update with some new headers
-			endToEndHeaders := getEndToEndHeaders(resp.Header)
-			for _, header := range endToEndHeaders {
-				cachedResp.Header[header] = resp.Header[header]
-			}
-			resp = cachedResp
-		} else if (err != nil || (cachedResp != nil && resp.StatusCode >= 500)) &&
-			req.Method == methodGET && canStaleOnError(cachedResp.Header, req.Header) {
-			// In case of transport failure and stale-if-error activated, returns cached content
-			// when available
-			return cachedResp, nil
-		} else {
-			if err != nil || resp.StatusCode != http.StatusOK {
-				t.Cache.Delete(cacheKey)
-			}
-			if err != nil {
-				return nil, err
-			}
-		}
+		resp, err = t.processCachedResponse(cachedResp, req, transport, cacheKey)
 	} else {
-		reqCacheControl := parseCacheControl(req.Header)
-		if _, ok := reqCacheControl["only-if-cached"]; ok {
-			resp = newGatewayTimeoutResponse(req)
-		} else {
-			resp, err = transport.RoundTrip(req)
-			if err != nil {
-				return nil, err
-			}
-		}
+		resp, err = processUncachedRequest(transport, req)
 	}
 
-	if cacheable && canStore(parseCacheControl(req.Header), parseCacheControl(resp.Header)) {
-		for _, varyKey := range headerAllCommaSepValues(resp.Header, "vary") {
-			varyKey = http.CanonicalHeaderKey(varyKey)
-			fakeHeader := "X-Varied-" + varyKey
-			reqValue := req.Header.Get(varyKey)
-			if reqValue != "" {
-				resp.Header.Set(fakeHeader, reqValue)
-			}
-		}
-		switch req.Method {
-		case "GET":
-			// Delay caching until EOF is reached.
-			resp.Body = &cachingReadCloser{
-				R: resp.Body,
-				OnEOF: func(r io.Reader) {
-					resp := *resp
-					resp.Body = io.NopCloser(r)
-					respBytes, err := httputil.DumpResponse(&resp, true)
-					if err == nil {
-						t.Cache.Set(cacheKey, respBytes)
-					}
-				},
-			}
-		default:
-			respBytes, err := httputil.DumpResponse(resp, true)
-			if err == nil {
-				t.Cache.Set(cacheKey, respBytes)
-			}
-		}
-	} else {
-		t.Cache.Delete(cacheKey)
+	if err != nil {
+		return nil, err
 	}
+
+	// Store response in cache if applicable
+	t.storeResponseInCache(resp, req, cacheKey, cacheable)
+
 	return resp, nil
-}
-
-// ErrNoDateHeader indicates that the HTTP headers contained no Date header.
+} // ErrNoDateHeader indicates that the HTTP headers contained no Date header.
 var ErrNoDateHeader = errors.New("no Date header")
 
 // Date parses and returns the value of the Date header.
@@ -266,6 +353,84 @@ func Date(respHeaders http.Header) (date time.Time, err error) {
 	}
 
 	return time.Parse(time.RFC1123, dateHeader)
+}
+
+// checkCacheControl checks for no-cache directives and only-if-cached
+func checkCacheControl(respCacheControl, reqCacheControl cacheControl) (int, bool) {
+	if _, ok := reqCacheControl["no-cache"]; ok {
+		return transparent, true
+	}
+	if _, ok := respCacheControl["no-cache"]; ok {
+		return stale, true
+	}
+	if _, ok := reqCacheControl[cacheControlOnlyIfCached]; ok {
+		return fresh, true
+	}
+	return 0, false
+}
+
+// calculateLifetime calculates the response lifetime based on max-age or Expires header
+func calculateLifetime(respCacheControl cacheControl, respHeaders http.Header, date time.Time) time.Duration {
+	var lifetime time.Duration
+	var zeroDuration time.Duration
+
+	// If a response includes both an Expires header and a max-age directive,
+	// the max-age directive overrides the Expires header, even if the Expires header is more restrictive.
+	if maxAge, ok := respCacheControl["max-age"]; ok {
+		parsedLifetime, err := time.ParseDuration(maxAge + "s")
+		if err != nil {
+			lifetime = zeroDuration
+		} else {
+			lifetime = parsedLifetime
+		}
+	} else {
+		expiresHeader := respHeaders.Get("Expires")
+		if expiresHeader != "" {
+			expires, err := time.Parse(time.RFC1123, expiresHeader)
+			if err != nil {
+				lifetime = zeroDuration
+			} else {
+				lifetime = expires.Sub(date)
+			}
+		}
+	}
+
+	return lifetime
+}
+
+// adjustAgeForRequestControls adjusts the current age based on request cache control directives
+func adjustAgeForRequestControls(reqCacheControl cacheControl, currentAge time.Duration, lifetime time.Duration) (time.Duration, time.Duration, bool) {
+	if maxAge, ok := reqCacheControl["max-age"]; ok {
+		// the client is willing to accept a response whose age is no greater than the specified time in seconds
+		parsedLifetime, err := time.ParseDuration(maxAge + "s")
+		if err != nil {
+			// Invalid max-age should force stale
+			lifetime = 0
+		} else {
+			lifetime = parsedLifetime
+		}
+	}
+
+	if minfresh, ok := reqCacheControl["min-fresh"]; ok {
+		//  the client wants a response that will still be fresh for at least the specified number of seconds.
+		minfreshDuration, err := time.ParseDuration(minfresh + "s")
+		if err == nil {
+			currentAge = currentAge + minfreshDuration
+		}
+	}
+
+	if maxstale, ok := reqCacheControl["max-stale"]; ok {
+		// Indicates that the client is willing to accept a response that has exceeded its expiration time.
+		if maxstale == "" {
+			return currentAge, lifetime, true // Return fresh for any stale response
+		}
+		maxstaleDuration, err := time.ParseDuration(maxstale + "s")
+		if err == nil {
+			currentAge = currentAge - maxstaleDuration
+		}
+	}
+
+	return currentAge, lifetime, false
 }
 
 type realClock struct{}
@@ -292,14 +457,10 @@ var clock timer = &realClock{}
 func getFreshness(respHeaders, reqHeaders http.Header) (freshness int) {
 	respCacheControl := parseCacheControl(respHeaders)
 	reqCacheControl := parseCacheControl(reqHeaders)
-	if _, ok := reqCacheControl["no-cache"]; ok {
-		return transparent
-	}
-	if _, ok := respCacheControl["no-cache"]; ok {
-		return stale
-	}
-	if _, ok := reqCacheControl["only-if-cached"]; ok {
-		return fresh
+
+	// Check cache control directives
+	if result, done := checkCacheControl(respCacheControl, reqCacheControl); done {
+		return result
 	}
 
 	date, err := Date(respHeaders)
@@ -308,59 +469,14 @@ func getFreshness(respHeaders, reqHeaders http.Header) (freshness int) {
 	}
 	currentAge := clock.since(date)
 
-	var lifetime time.Duration
-	var zeroDuration time.Duration
+	// Calculate response lifetime
+	lifetime := calculateLifetime(respCacheControl, respHeaders, date)
 
-	// If a response includes both an Expires header and a max-age directive,
-	// the max-age directive overrides the Expires header, even if the Expires header is more restrictive.
-	if maxAge, ok := respCacheControl["max-age"]; ok {
-		lifetime, err = time.ParseDuration(maxAge + "s")
-		if err != nil {
-			lifetime = zeroDuration
-		}
-	} else {
-		expiresHeader := respHeaders.Get("Expires")
-		if expiresHeader != "" {
-			expires, err := time.Parse(time.RFC1123, expiresHeader)
-			if err != nil {
-				lifetime = zeroDuration
-			} else {
-				lifetime = expires.Sub(date)
-			}
-		}
-	}
-
-	if maxAge, ok := reqCacheControl["max-age"]; ok {
-		// the client is willing to accept a response whose age is no greater than the specified time in seconds
-		lifetime, err = time.ParseDuration(maxAge + "s")
-		if err != nil {
-			lifetime = zeroDuration
-		}
-	}
-	if minfresh, ok := reqCacheControl["min-fresh"]; ok {
-		//  the client wants a response that will still be fresh for at least the specified number of seconds.
-		minfreshDuration, err := time.ParseDuration(minfresh + "s")
-		if err == nil {
-			currentAge = time.Duration(currentAge + minfreshDuration)
-		}
-	}
-
-	if maxstale, ok := reqCacheControl["max-stale"]; ok {
-		// Indicates that the client is willing to accept a response that has exceeded its expiration time.
-		// If max-stale is assigned a value, then the client is willing to accept a response that has exceeded
-		// its expiration time by no more than the specified number of seconds.
-		// If no value is assigned to max-stale, then the client is willing to accept a stale response of any age.
-		//
-		// Responses served only because of a max-stale value are supposed to have a Warning header added to them,
-		// but that seems like a  hassle, and is it actually useful? If so, then there needs to be a different
-		// return-value available here.
-		if maxstale == "" {
-			return fresh
-		}
-		maxstaleDuration, err := time.ParseDuration(maxstale + "s")
-		if err == nil {
-			currentAge = time.Duration(currentAge - maxstaleDuration)
-		}
+	// Adjust age based on request controls
+	var returnFresh bool
+	currentAge, lifetime, returnFresh = adjustAgeForRequestControls(reqCacheControl, currentAge, lifetime)
+	if returnFresh {
+		return fresh
 	}
 
 	if lifetime > currentAge {
@@ -371,44 +487,61 @@ func getFreshness(respHeaders, reqHeaders http.Header) (freshness int) {
 }
 
 // Returns true if either the request or the response includes the stale-if-error
+// parseStaleIfError parses the stale-if-error directive from cache control
+func parseStaleIfError(cacheControl cacheControl) (time.Duration, bool, bool) {
+	staleMaxAge, ok := cacheControl["stale-if-error"]
+	if !ok {
+		return 0, false, false
+	}
+
+	if staleMaxAge == "" {
+		return 0, true, true // No value means accept any stale response
+	}
+
+	lifetime, err := time.ParseDuration(staleMaxAge + "s")
+	if err != nil {
+		return 0, false, true // Invalid duration
+	}
+
+	return lifetime, false, true
+}
+
+// checkStaleIfErrorLifetime checks if the response is within the stale-if-error lifetime
+func checkStaleIfErrorLifetime(respHeaders http.Header, lifetime time.Duration) bool {
+	date, err := Date(respHeaders)
+	if err != nil {
+		return false
+	}
+	currentAge := clock.since(date)
+	return lifetime > currentAge
+}
+
 // cache control extension: https://tools.ietf.org/html/rfc5861
 func canStaleOnError(respHeaders, reqHeaders http.Header) bool {
 	respCacheControl := parseCacheControl(respHeaders)
 	reqCacheControl := parseCacheControl(reqHeaders)
 
-	var err error
 	lifetime := time.Duration(-1)
 
-	if staleMaxAge, ok := respCacheControl["stale-if-error"]; ok {
-		if staleMaxAge != "" {
-			lifetime, err = time.ParseDuration(staleMaxAge + "s")
-			if err != nil {
-				return false
-			}
-		} else {
+	// Check response cache control
+	if respLifetime, acceptAny, found := parseStaleIfError(respCacheControl); found {
+		if acceptAny {
 			return true
 		}
-	}
-	if staleMaxAge, ok := reqCacheControl["stale-if-error"]; ok {
-		if staleMaxAge != "" {
-			lifetime, err = time.ParseDuration(staleMaxAge + "s")
-			if err != nil {
-				return false
-			}
-		} else {
-			return true
-		}
+		lifetime = respLifetime
 	}
 
-	if lifetime >= 0 {
-		date, err := Date(respHeaders)
-		if err != nil {
-			return false
-		}
-		currentAge := clock.since(date)
-		if lifetime > currentAge {
+	// Check request cache control
+	if reqLifetime, acceptAny, found := parseStaleIfError(reqCacheControl); found {
+		if acceptAny {
 			return true
 		}
+		lifetime = reqLifetime
+	}
+
+	// Check if within lifetime
+	if lifetime >= 0 {
+		return checkStaleIfErrorLifetime(respHeaders, lifetime)
 	}
 
 	return false
