@@ -272,15 +272,8 @@ Contributions are welcome! Please:
 3. Make your changes with tests
 4. Submit a pull request
 
-See [CONTRIBUTING.md](./context/plan.md) for detailed guidelines.
-
-## Changelog
-
-See [context/changes.md](./context/changes.md) for the list of changes and improvements.
-
 ## Documentation
 
-- [Architecture](./context/architecture.md) - Detailed architecture documentation
 - [GoDoc](https://godoc.org/github.com/sandrolain/httpcache) - API documentation
 - [Examples](./examples/) - Practical usage examples
 
@@ -307,4 +300,3 @@ Copyright (c) 2025 Sandro Lain (fork maintainer)
 - 📖 [Documentation](https://godoc.org/github.com/sandrolain/httpcache)
 - 💬 [Issues](https://github.com/sandrolain/httpcache/issues)
 - 🔧 [Examples](./examples/)
-- 📋 [Architecture Guide](./context/architecture.md)

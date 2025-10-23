@@ -202,4 +202,3 @@ Found a useful pattern or use case? Feel free to contribute additional examples!
 
 - Check the [main README](../README.md) for general information
 - See the [GoDoc](https://godoc.org/github.com/sandrolain/httpcache) for API documentation
-- Review the [architecture documentation](../context/architecture.md) for in-depth details
