@@ -94,6 +94,25 @@ Learn how to create custom cache backends.
 - Building specialized caching strategies
 - Adding monitoring/metrics
 
+### 6. [NATS K/V Cache](./natskv/)
+
+Distributed caching using NATS JetStream Key/Value store.
+
+**Features:**
+
+- Distributed cache with NATS
+- JetStream persistence
+- Multiple instances sharing cache
+- Built-in TTL support
+- NATS clustering support
+
+**When to use:**
+
+- Already using NATS in your infrastructure
+- Need distributed caching with messaging
+- Microservices with NATS communication
+- When you want NATS' simplicity over Redis
+
 ## Running Examples
 
 Each example has its own directory with:
@@ -123,8 +142,9 @@ go run main.go
 | LevelDB | ⚡⚡ | ✅ | ❌ | ⭐⭐ |
 | Redis | ⚡⚡ | ✅* | ✅ | ⭐⭐⭐ |
 | Memcache | ⚡⚡ | ❌ | ✅ | ⭐⭐⭐ |
+| NATS K/V | ⚡⚡ | ✅* | ✅ | ⭐⭐⭐ |
 
-*Redis persistence depends on configuration
+*Redis and NATS K/V persistence depends on configuration
 
 ## Common Patterns
 
