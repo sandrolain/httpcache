@@ -1237,6 +1237,9 @@ func TestStaleIfErrorRequest(t *testing.T) {
 	if resp == nil {
 		t.Fatal("resp is nil")
 	}
+	if resp.Header.Get(XStale) != "1" {
+		t.Fatalf(`XStale header isn't "1": %v`, resp.Header.Get(XStale))
+	}
 }
 
 func TestStaleIfErrorRequestLifetime(t *testing.T) {
@@ -1282,6 +1285,9 @@ func TestStaleIfErrorRequestLifetime(t *testing.T) {
 	if resp == nil {
 		t.Fatal("resp is nil")
 	}
+	if resp.Header.Get(XStale) != "1" {
+		t.Fatalf(`XStale header isn't "1": %v`, resp.Header.Get(XStale))
+	}
 
 	// Same for http errors
 	tmock.response = &http.Response{StatusCode: http.StatusInternalServerError}
@@ -1292,6 +1298,9 @@ func TestStaleIfErrorRequestLifetime(t *testing.T) {
 	}
 	if resp == nil {
 		t.Fatal("resp is nil")
+	}
+	if resp.Header.Get(XStale) != "1" {
+		t.Fatalf(`XStale header isn't "1": %v`, resp.Header.Get(XStale))
 	}
 
 	// If failure last more than max stale, error is returned
@@ -1344,6 +1353,9 @@ func TestStaleIfErrorResponse(t *testing.T) {
 	if resp == nil {
 		t.Fatal("resp is nil")
 	}
+	if resp.Header.Get(XStale) != "1" {
+		t.Fatalf(`XStale header isn't "1": %v`, resp.Header.Get(XStale))
+	}
 }
 
 func TestStaleIfErrorResponseLifetime(t *testing.T) {
@@ -1387,6 +1399,9 @@ func TestStaleIfErrorResponseLifetime(t *testing.T) {
 	}
 	if resp == nil {
 		t.Fatal("resp is nil")
+	}
+	if resp.Header.Get(XStale) != "1" {
+		t.Fatalf(`XStale header isn't "1": %v`, resp.Header.Get(XStale))
 	}
 
 	// If failure last more than max stale, error is returned
@@ -1445,6 +1460,9 @@ func TestStaleIfErrorKeepsStatus(t *testing.T) {
 	}
 	if resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("Status wasn't 404: %d", resp.StatusCode)
+	}
+	if resp.Header.Get(XStale) != "1" {
+		t.Fatalf(`XStale header isn't "1": %v`, resp.Header.Get(XStale))
 	}
 }
 

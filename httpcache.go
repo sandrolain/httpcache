@@ -25,6 +25,8 @@ const (
 	XFromCache = "X-From-Cache"
 	// XRevalidated is the header added to responses that got revalidated
 	XRevalidated = "X-Revalidated"
+	// XStale is the header added to responses that are stale
+	XStale = "X-Stale"
 
 	methodGET  = "GET"
 	methodHEAD = "HEAD"
@@ -270,6 +272,9 @@ func (t *Transport) processCachedResponse(cachedResp *http.Response, req *http.R
 	}
 
 	if shouldReturnStaleOnError(err, resp, cachedResp, req) {
+		if t.MarkCachedResponses {
+			cachedResp.Header.Set(XStale, "1")
+		}
 		return cachedResp, nil
 	}
 

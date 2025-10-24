@@ -194,6 +194,10 @@ Additionally, when a cached response is revalidated with the server (receiving a
 - Responses served directly from cache (only `X-From-Cache: 1`)
 - Responses that were revalidated with the server (both `X-From-Cache: 1` and `X-Revalidated: 1`)
 
+When a stale response is served due to an error (using `stale-if-error`), the `X-Stale` header is set to "1". This indicates:
+
+- Responses served from cache due to backend errors (has `X-From-Cache: 1` and `X-Stale: 1`)
+
 ## Advanced Features
 
 ### Stale-If-Error Support
@@ -203,6 +207,7 @@ Automatically serve stale cached content when the backend is unavailable:
 ```go
 // Server returns 500, but cached response is served instead
 resp, _ := client.Get(url) // Returns cached response, not 500 error
+// Response will have X-From-Cache: 1 and X-Stale: 1 headers
 ```
 
 This implements [RFC 5861](https://tools.ietf.org/html/rfc5861) for better resilience.
