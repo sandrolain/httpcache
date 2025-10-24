@@ -19,6 +19,7 @@
 - ✅ **Easy Integration** - Drop-in replacement for `http.Client`
 - ✅ **ETag & Validation** - Automatic cache revalidation
 - ✅ **Stale-If-Error** - Resilient caching with RFC 5861 support
+- ✅ **Stale-While-Revalidate** - Async cache updates for better performance
 - ✅ **Private Cache** - Suitable for web browsers and API clients
 
 ## Quick Start
@@ -182,18 +183,26 @@ httpcache implements RFC 7234 (HTTP Caching) by:
 
 ### Cache Headers Supported
 
-- `Cache-Control` (max-age, no-cache, no-store, etc.)
+- `Cache-Control` (max-age, no-cache, no-store, stale-while-revalidate, etc.)
 - `ETag` and `If-None-Match`
 - `Last-Modified` and `If-Modified-Since`
 - `Expires`
 - `Vary`
 - `stale-if-error` (RFC 5861)
+- `stale-while-revalidate` (RFC 5861)
 
 ### Detecting Cache Hits
 
 When `MarkCachedResponses` is enabled, cached responses include the `X-From-Cache` header set to "1".
 
-Additionally, when a cached response is revalidated with the server (receiving a 304 Not Modified), the `X-Revalidated` header is also set to "1". This allows you to distinguish between:
+Additionally, the `X-Cache-Freshness` header indicates the freshness state of the cached response:
+
+- `fresh` - Response is within its max-age and can be served directly
+- `stale` - Response has expired and will be revalidated
+- `stale-while-revalidate` - Response is stale but can be served immediately while being revalidated asynchronously
+- `transparent` - Response should not be served from cache
+
+When a cached response is revalidated with the server (receiving a 304 Not Modified), the `X-Revalidated` header is also set to "1". This allows you to distinguish between:
 
 - Responses served directly from cache (only `X-From-Cache: 1`)
 - Responses that were revalidated with the server (both `X-From-Cache: 1` and `X-Revalidated: 1`)
@@ -247,6 +256,52 @@ resp, _ := client.Get(url) // Returns cached response, not 500 error
 ```
 
 This implements [RFC 5861](https://tools.ietf.org/html/rfc5861) for better resilience.
+
+### Stale-While-Revalidate Support
+
+Improve perceived performance by serving stale content immediately while updating the cache in the background:
+
+```go
+transport := httpcache.NewMemoryCacheTransport()
+
+// Optional: Set timeout for async revalidation requests
+transport.AsyncRevalidateTimeout = 30 * time.Second  // Default: 0 (no timeout)
+
+client := transport.Client()
+
+// Server responds with: Cache-Control: max-age=60, stale-while-revalidate=300
+// First request: Fetches from server and caches (60s fresh)
+// Second request (after 70s): Returns stale cache immediately + revalidates in background
+// Third request (after 80s): Returns fresh cache (updated by background revalidation)
+```
+
+This implements the `stale-while-revalidate` directive from [RFC 5861](https://tools.ietf.org/html/rfc5861), which:
+
+- **Reduces latency**: Returns cached response immediately without waiting for revalidation
+- **Improves UX**: Users get instant responses even when cache is slightly stale
+- **Updates cache**: Background goroutine fetches fresh data for subsequent requests
+
+**How it works:**
+
+1. When a response is stale but within the `stale-while-revalidate` window
+2. The cached response is returned immediately to the client
+3. A background goroutine makes a fresh request to update the cache
+4. Subsequent requests get the updated cached response
+
+**Configuration:**
+
+```go
+transport.AsyncRevalidateTimeout = 30 * time.Second  // Timeout for background updates
+transport.MarkCachedResponses = true                 // See X-Cache-Freshness header
+```
+
+**Detecting stale-while-revalidate responses:**
+
+```go
+if resp.Header.Get(httpcache.XFreshness) == "stale-while-revalidate" {
+    fmt.Println("Serving stale cache, updating in background")
+}
+```
 
 ### Vary Header Support
 

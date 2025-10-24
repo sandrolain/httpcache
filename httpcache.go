@@ -8,6 +8,7 @@ package httpcache
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"errors"
 	"io"
 	"net/http"
@@ -21,12 +22,15 @@ const (
 	stale = iota
 	fresh
 	transparent
+	staleWhileRevalidate
 	// XFromCache is the header added to responses that are returned from the cache
 	XFromCache = "X-From-Cache"
 	// XRevalidated is the header added to responses that got revalidated
 	XRevalidated = "X-Revalidated"
 	// XStale is the header added to responses that are stale
 	XStale = "X-Stale"
+	// XFreshness is the header added to responses indicating the freshness state
+	XFreshness = "X-Cache-Freshness"
 
 	methodGET  = "GET"
 	methodHEAD = "HEAD"
@@ -36,6 +40,7 @@ const (
 	headerETag          = "etag"
 
 	cacheControlOnlyIfCached = "only-if-cached"
+	cacheControlNoCache      = "no-cache"
 )
 
 // A Cache interface is used by the Transport to store and retrieve responses.
@@ -118,6 +123,9 @@ type Transport struct {
 	// even if they are fresh. This forces a new request to the server.
 	// Default is false to maintain backward compatibility.
 	SkipServerErrorsFromCache bool
+	// AsyncRevalidateTimeout is the context timeout for async requests triggered by stale-while-revalidate.
+	// If zero, no timeout is applied to async revalidation requests.
+	AsyncRevalidateTimeout time.Duration
 }
 
 // NewTransport returns a new Transport with the
@@ -167,6 +175,62 @@ func addValidatorsToRequest(req *http.Request, cachedResp *http.Response) *http.
 	return req2
 }
 
+// freshnessString converts freshness int to string representation
+func freshnessString(freshness int) string {
+	switch freshness {
+	case fresh:
+		return "fresh"
+	case stale:
+		return "stale"
+	case staleWhileRevalidate:
+		return "stale-while-revalidate"
+	case transparent:
+		return "transparent"
+	default:
+		return "unknown"
+	}
+}
+
+// asyncRevalidate triggers an asynchronous revalidation of the cached response
+func (t *Transport) asyncRevalidate(req *http.Request) {
+	bgContext := context.Background()
+	// Default no-op cancel function, will be replaced if timeout is set
+	cancelContext := func() {}
+
+	if t.AsyncRevalidateTimeout > 0 {
+		var cancel context.CancelFunc
+		bgContext, cancel = context.WithTimeout(bgContext, t.AsyncRevalidateTimeout)
+		cancelContext = cancel
+	}
+
+	noCacheRequest := req.Clone(bgContext)
+	noCacheRequest.Header.Set("cache-control", cacheControlNoCache)
+
+	go func() {
+		defer cancelContext()
+
+		GetLogger().Debug("starting async revalidation", "url", req.URL.String())
+
+		resp, err := t.RoundTrip(noCacheRequest)
+		if err != nil {
+			GetLogger().Warn("async revalidation failed", "url", req.URL.String(), "error", err)
+			return
+		}
+		defer func() {
+			if closeErr := resp.Body.Close(); closeErr != nil {
+				GetLogger().Warn("failed to close async revalidation response body", "url", req.URL.String(), "error", closeErr)
+			}
+		}()
+
+		// Drain the response body to complete the request and allow caching
+		if _, err := io.Copy(io.Discard, resp.Body); err != nil {
+			GetLogger().Warn("failed to drain async revalidation response", "url", req.URL.String(), "error", err)
+		} else {
+			GetLogger().Debug("async revalidation completed", "url", req.URL.String())
+		}
+	}()
+}
+
 // handleCachedResponse processes a cached response based on its freshness
 // Returns the request (possibly modified with validators) and whether to use cache directly
 func (t *Transport) handleCachedResponse(cachedResp *http.Response, req *http.Request) (*http.Request, bool) {
@@ -180,7 +244,19 @@ func (t *Transport) handleCachedResponse(cachedResp *http.Response, req *http.Re
 	}
 
 	freshness := getFreshness(cachedResp.Header, req.Header)
+
+	// Add freshness header if marking cached responses
+	if t.MarkCachedResponses {
+		cachedResp.Header.Set(XFreshness, freshnessString(freshness))
+	}
+
 	if freshness == fresh {
+		return req, true
+	}
+
+	if freshness == staleWhileRevalidate {
+		// Trigger async revalidation
+		t.asyncRevalidate(req)
 		return req, true
 	}
 
@@ -280,7 +356,7 @@ func (t *Transport) processCachedResponse(cachedResp *http.Response, req *http.R
 		// Drain and close the 304 response body since we're using the cached response
 		if resp != nil {
 			if drainErr := drainDiscardedBody(resp.Body); drainErr != nil {
-				GetLogger().Debug("error draining 304 response body", "error", drainErr)
+				GetLogger().Warn("error draining 304 response body", "error", drainErr)
 			}
 		}
 		return handleNotModifiedResponse(cachedResp, resp, t.MarkCachedResponses), nil
@@ -290,7 +366,7 @@ func (t *Transport) processCachedResponse(cachedResp *http.Response, req *http.R
 		// Drain and close the error response body since we're using the cached response
 		if resp != nil {
 			if drainErr := drainDiscardedBody(resp.Body); drainErr != nil {
-				GetLogger().Debug("error draining stale response body", "error", drainErr)
+				GetLogger().Warn("error draining stale response body", "error", drainErr)
 			}
 		}
 		if t.MarkCachedResponses {
@@ -388,10 +464,10 @@ func Date(respHeaders http.Header) (date time.Time, err error) {
 
 // checkCacheControl checks for no-cache directives and only-if-cached
 func checkCacheControl(respCacheControl, reqCacheControl cacheControl) (int, bool) {
-	if _, ok := reqCacheControl["no-cache"]; ok {
+	if _, ok := reqCacheControl[cacheControlNoCache]; ok {
 		return transparent, true
 	}
-	if _, ok := respCacheControl["no-cache"]; ok {
+	if _, ok := respCacheControl[cacheControlNoCache]; ok {
 		return stale, true
 	}
 	if _, ok := reqCacheControl[cacheControlOnlyIfCached]; ok {
@@ -512,6 +588,17 @@ func getFreshness(respHeaders, reqHeaders http.Header) (freshness int) {
 
 	if lifetime > currentAge {
 		return fresh
+	}
+
+	// Check for stale-while-revalidate directive
+	if stalewhilerevalidate, ok := respCacheControl["stale-while-revalidate"]; ok {
+		// If the cached response isn't too stale, we can return it and refresh asynchronously
+		stalewhilerevalidateDuration, err := time.ParseDuration(stalewhilerevalidate + "s")
+		if err == nil {
+			if lifetime+stalewhilerevalidateDuration > currentAge {
+				return staleWhileRevalidate
+			}
+		}
 	}
 
 	return stale
