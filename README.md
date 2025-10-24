@@ -1,5 +1,4 @@
-httpcache
-=========
+# httpcache
 
 [![CI](https://github.com/sandrolain/httpcache/workflows/CI/badge.svg)](https://github.com/sandrolain/httpcache/actions/workflows/ci.yml)
 [![Security](https://github.com/sandrolain/httpcache/workflows/Security/badge.svg)](https://github.com/sandrolain/httpcache/actions/workflows/security.yml)
@@ -188,12 +187,7 @@ httpcache implements RFC 7234 (HTTP Caching) by:
 
 ### Detecting Cache Hits
 
-```go
-resp, _ := client.Get(url)
-if resp.Header.Get(httpcache.XFromCache) == "1" {
-    // Response was served from cache
-}
-```
+When `MarkCachedResponses` is enabled, cached responses include the `X-From-Cache` header set to "1".
 
 ## Advanced Features
 
