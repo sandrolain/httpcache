@@ -102,6 +102,8 @@ client := &http.Client{Transport: transport}
 
 **Best for**: Desktop applications, CLI tools that run repeatedly
 
+> ⚠️ **Breaking Change**: The disk cache hashing algorithm has been changed from MD5 to SHA-256 for security reasons. Existing caches created with the original fork (gregjones/httpcache) are **not compatible** and will need to be regenerated.
+
 ### Redis Cache
 
 ```go
