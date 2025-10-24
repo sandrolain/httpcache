@@ -23,6 +23,8 @@ const (
 	transparent
 	// XFromCache is the header added to responses that are returned from the cache
 	XFromCache = "X-From-Cache"
+	// XRevalidated is the header added to responses that got revalidated
+	XRevalidated = "X-Revalidated"
 
 	methodGET  = "GET"
 	methodHEAD = "HEAD"
@@ -179,10 +181,13 @@ func (t *Transport) handleCachedResponse(cachedResp *http.Response, req *http.Re
 }
 
 // handleNotModifiedResponse updates the cached response with new headers from a 304 response
-func handleNotModifiedResponse(cachedResp *http.Response, newResp *http.Response) *http.Response {
+func handleNotModifiedResponse(cachedResp *http.Response, newResp *http.Response, markRevalidated bool) *http.Response {
 	endToEndHeaders := getEndToEndHeaders(newResp.Header)
 	for _, header := range endToEndHeaders {
 		cachedResp.Header[header] = newResp.Header[header]
+	}
+	if markRevalidated {
+		cachedResp.Header[XRevalidated] = []string{"1"}
 	}
 	return cachedResp
 }
@@ -261,7 +266,7 @@ func (t *Transport) processCachedResponse(cachedResp *http.Response, req *http.R
 
 	// Handle 304 Not Modified
 	if err == nil && req.Method == methodGET && resp.StatusCode == http.StatusNotModified {
-		return handleNotModifiedResponse(cachedResp, resp), nil
+		return handleNotModifiedResponse(cachedResp, resp, t.MarkCachedResponses), nil
 	}
 
 	if shouldReturnStaleOnError(err, resp, cachedResp, req) {

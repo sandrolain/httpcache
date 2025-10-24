@@ -189,6 +189,11 @@ httpcache implements RFC 7234 (HTTP Caching) by:
 
 When `MarkCachedResponses` is enabled, cached responses include the `X-From-Cache` header set to "1".
 
+Additionally, when a cached response is revalidated with the server (receiving a 304 Not Modified), the `X-Revalidated` header is also set to "1". This allows you to distinguish between:
+
+- Responses served directly from cache (only `X-From-Cache: 1`)
+- Responses that were revalidated with the server (both `X-From-Cache: 1` and `X-Revalidated: 1`)
+
 ## Advanced Features
 
 ### Stale-If-Error Support
