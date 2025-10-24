@@ -61,13 +61,39 @@ This document outlines potential future improvements and features for the httpca
 
 ## Features
 
-- [ ] Support for context.Context in cache operations
+### v1.x (Current)
+
 - [ ] Built-in metrics and monitoring
 - [ ] Size limits and LRU eviction for MemoryCache
 - [ ] Configurable TTL for backends that support it
 - [ ] Automatic compression/decompression of responses
 - [ ] Cache warming support
 - [ ] Distributed cache invalidation
+
+### v2.0 (Breaking Changes)
+
+- [ ] **Context Support in Cache Interface** (inspired by PR #113)
+  - **Breaking Change**: Add `context.Context` parameter to existing `Cache` interface methods
+  - Modified signatures:
+    - `Get(ctx context.Context, key string) (responseBytes []byte, ok bool, err error)`
+    - `Set(ctx context.Context, key string, responseBytes []byte) error`
+    - `Delete(ctx context.Context, key string) error`
+  - Benefits:
+    - Timeout and cancellation support
+    - Error propagation from cache backends (no more silent failures)
+    - Context value passing
+    - Modern Go patterns and best practices
+  - Impact:
+    - **ALL cache implementations must be updated** (MemoryCache, DiskCache, Redis, LevelDB, etc.)
+    - **ALL users must update their custom Cache implementations**
+    - Migration guide required for v1.x → v2.0
+  - Implementation notes:
+    - Update all backend implementations to use context
+    - Add context propagation in `RoundTrip()` using `req.Context()`
+    - Add timeout support in async operations (stale-while-revalidate)
+    - Proper error handling and logging for cache errors
+  - Reference: [PR #113](https://github.com/gregjones/httpcache/pull/113)
+  - Status: Deferred to v2.0 - requires careful planning and migration guide
 
 ---
 
@@ -124,4 +150,6 @@ This document outlines potential future improvements and features for the httpca
 
 **Note**: These items represent ideal goals and aspirations for the project. They are not commitments or guarantees. Implementation depends on available time, resources, and community contributions.
 
-*Last updated: 2025-10-23*
+---
+
+Last updated: 2025-10-24
