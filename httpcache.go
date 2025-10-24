@@ -268,10 +268,22 @@ func (t *Transport) processCachedResponse(cachedResp *http.Response, req *http.R
 
 	// Handle 304 Not Modified
 	if err == nil && req.Method == methodGET && resp.StatusCode == http.StatusNotModified {
+		// Drain and close the 304 response body since we're using the cached response
+		if resp != nil {
+			if drainErr := drainDiscardedBody(resp.Body); drainErr != nil {
+				GetLogger().Debug("error draining 304 response body", "error", drainErr)
+			}
+		}
 		return handleNotModifiedResponse(cachedResp, resp, t.MarkCachedResponses), nil
 	}
 
 	if shouldReturnStaleOnError(err, resp, cachedResp, req) {
+		// Drain and close the error response body since we're using the cached response
+		if resp != nil {
+			if drainErr := drainDiscardedBody(resp.Body); drainErr != nil {
+				GetLogger().Debug("error draining stale response body", "error", drainErr)
+			}
+		}
 		if t.MarkCachedResponses {
 			cachedResp.Header.Set(XStale, "1")
 		}
@@ -692,4 +704,27 @@ func NewMemoryCacheTransport() *Transport {
 	c := NewMemoryCache()
 	t := NewTransport(c)
 	return t
+}
+
+const bodyDrainSize = 1 << 15 // 32KB, arbitrary limit for draining
+
+// drainDiscardedBody reads and discards up to drainSize bytes from the body to allow connection reuse.
+// It's used when we're discarding a response (e.g., returning stale cache instead of a 500 error).
+func drainDiscardedBody(body io.ReadCloser) error {
+	if body == nil {
+		return nil
+	}
+
+	// Drain the body to allow connection reuse
+	if _, err := io.Copy(io.Discard, io.LimitReader(body, bodyDrainSize)); err != nil {
+		GetLogger().Warn("failed to drain response body", "error", err)
+	}
+
+	// Close the body
+	if err := body.Close(); err != nil {
+		GetLogger().Warn("failed to close response body", "error", err)
+		return err
+	}
+
+	return nil
 }
