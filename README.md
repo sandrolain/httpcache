@@ -78,6 +78,10 @@ httpcache supports multiple storage backends. Choose the one that fits your use 
 - [`github.com/die-net/lrucache/twotier`](https://github.com/die-net/lrucache/tree/master/twotier) - Multi-tier caching (e.g., memory + disk)
 - [`github.com/birkelund/boltdbcache`](https://github.com/birkelund/boltdbcache) - BoltDB implementation
 
+### Related Projects
+
+- [`github.com/moul/hcfilters`](https://github.com/moul/hcfilters) - HTTP cache middleware and filters for advanced cache control
+
 ## Usage Examples
 
 ### Memory Cache (Default)
