@@ -303,6 +303,79 @@ if resp.Header.Get(httpcache.XFreshness) == "stale-while-revalidate" {
 }
 ```
 
+### Custom Cache Control with ShouldCache
+
+Override default caching behavior for specific HTTP status codes using the `ShouldCache` hook:
+
+```go
+transport := httpcache.NewMemoryCacheTransport()
+
+// Cache 404 Not Found responses
+transport.ShouldCache = func(resp *http.Response) bool {
+    return resp.StatusCode == http.StatusNotFound
+}
+
+client := transport.Client()
+// Now 404 responses with appropriate Cache-Control headers will be cached
+```
+
+**Default Cacheable Status Codes** (per RFC 7231):
+
+- `200` OK
+- `203` Non-Authoritative Information
+- `204` No Content
+- `206` Partial Content  
+- `300` Multiple Choices
+- `301` Moved Permanently
+- `404` Not Found
+- `405` Method Not Allowed
+- `410` Gone
+- `414` Request-URI Too Long
+- `501` Not Implemented
+
+**Use Cases:**
+
+```go
+// Cache temporary redirects (302, 307)
+transport.ShouldCache = func(resp *http.Response) bool {
+    return resp.StatusCode == http.StatusFound || 
+           resp.StatusCode == http.StatusTemporaryRedirect
+}
+
+// Cache specific error pages for offline support
+transport.ShouldCache = func(resp *http.Response) bool {
+    if resp.StatusCode == http.StatusNotFound {
+        // Only cache 404s from specific domain
+        return strings.HasPrefix(resp.Request.URL.Host, "api.example.com")
+    }
+    return false
+}
+
+// Complex caching logic
+transport.ShouldCache = func(resp *http.Response) bool {
+    switch resp.StatusCode {
+    case http.StatusOK:
+        return true  // Already cached by default, but explicit
+    case http.StatusNotFound:
+        // Cache 404s but only for GET requests with specific header
+        return resp.Request.Method == "GET" && 
+               resp.Request.Header.Get("X-Cache-404") == "true"
+    case http.StatusBadRequest:
+        // Cache validation errors to reduce server load
+        return resp.Header.Get("Content-Type") == "application/json"
+    default:
+        return false
+    }
+}
+```
+
+**Important Notes:**
+
+- `ShouldCache` is called AFTER checking `Cache-Control` headers
+- Responses without appropriate cache headers (e.g., `no-store`, `max-age=0`) are never cached
+- The hook only adds additional status codes to cache, it doesn't remove default ones
+- Set `ShouldCache = nil` to use default RFC 7231 behavior
+
 ### Vary Header Support
 
 Correctly handles content negotiation:

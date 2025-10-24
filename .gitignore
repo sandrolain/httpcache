@@ -4,3 +4,6 @@ Thumbs.db
 .vscode
 /context
 *.out
+coverage.html
+licenses.csv
+trivy-results.json

@@ -126,6 +126,13 @@ type Transport struct {
 	// AsyncRevalidateTimeout is the context timeout for async requests triggered by stale-while-revalidate.
 	// If zero, no timeout is applied to async revalidation requests.
 	AsyncRevalidateTimeout time.Duration
+	// ShouldCache allows configuring non-standard caching behaviour based on the response.
+	// If set, this function is called to determine whether a non-200 response should be cached.
+	// This enables caching of responses like 404 Not Found, 301 Moved Permanently, etc.
+	// If nil, only 200 OK responses are cached (standard behavior).
+	// The function receives the http.Response and should return true to cache it.
+	// Note: This only bypasses the status code check; Cache-Control headers are still respected.
+	ShouldCache func(*http.Response) bool
 }
 
 // NewTransport returns a new Transport with the
@@ -396,6 +403,30 @@ func processUncachedRequest(transport http.RoundTripper, req *http.Request) (*ht
 // storeResponseInCache stores the response in cache if applicable
 func (t *Transport) storeResponseInCache(resp *http.Response, req *http.Request, cacheKey string, cacheable bool) {
 	if !cacheable || !canStore(parseCacheControl(req.Header), parseCacheControl(resp.Header)) {
+		t.Cache.Delete(cacheKey)
+		return
+	}
+
+	// Check if we should cache based on status code
+	// RFC 7231 section 6.1: Cacheable by default status codes
+	shouldCache := resp.StatusCode == http.StatusOK ||
+		resp.StatusCode == http.StatusNonAuthoritativeInfo || // 203
+		resp.StatusCode == http.StatusNoContent || // 204
+		resp.StatusCode == http.StatusPartialContent || // 206
+		resp.StatusCode == http.StatusMultipleChoices || // 300
+		resp.StatusCode == http.StatusMovedPermanently || // 301
+		resp.StatusCode == http.StatusNotFound || // 404
+		resp.StatusCode == http.StatusMethodNotAllowed || // 405
+		resp.StatusCode == http.StatusGone || // 410
+		resp.StatusCode == http.StatusRequestURITooLong || // 414
+		resp.StatusCode == http.StatusNotImplemented // 501
+
+	// Allow custom override via ShouldCache hook
+	if !shouldCache && t.ShouldCache != nil {
+		shouldCache = t.ShouldCache(resp)
+	}
+
+	if !shouldCache {
 		t.Cache.Delete(cacheKey)
 		return
 	}

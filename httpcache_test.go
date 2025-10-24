@@ -139,6 +139,24 @@ func setup() {
 		w.Write([]byte("Not found"))
 	}))
 
+	mux.HandleFunc("/notfound", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "max-age=3600")
+		w.WriteHeader(http.StatusNotFound)
+		w.Write([]byte("Not found"))
+	}))
+
+	mux.HandleFunc("/redirect", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "max-age=3600")
+		w.Header().Set("Location", "http://example.com/target")
+		w.WriteHeader(http.StatusMovedPermanently)
+	}))
+
+	mux.HandleFunc("/badrequest", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "max-age=3600")
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte("Bad Request"))
+	}))
+
 	updateFieldsCounter := 0
 	mux.HandleFunc("/updatefields", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Counter", strconv.Itoa(updateFieldsCounter))
@@ -1772,5 +1790,175 @@ func TestStaleWhileRevalidate(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+	}
+}
+
+func TestShouldCacheNotFound(t *testing.T) {
+	resetTest()
+
+	// Configure transport to cache 404 responses
+	s.transport.ShouldCache = func(resp *http.Response) bool {
+		return resp.StatusCode == http.StatusNotFound
+	}
+
+	req, err := http.NewRequest("GET", s.server.URL+"/notfound", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// First request: should cache the 404
+	resp, err := s.client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", resp.StatusCode)
+	}
+	if resp.Header.Get(XFromCache) != "" {
+		t.Error("first request should not be from cache")
+	}
+
+	_, err = io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Second request: should be served from cache
+	resp, err = s.client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", resp.StatusCode)
+	}
+	if resp.Header.Get(XFromCache) != "1" {
+		t.Error("second request should be from cache")
+	}
+
+	_, err = io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestShouldCacheRedirect(t *testing.T) {
+	resetTest()
+
+	// Configure transport to cache redirect responses
+	s.transport.ShouldCache = func(resp *http.Response) bool {
+		return resp.StatusCode >= 300 && resp.StatusCode < 400
+	}
+
+	// Disable following redirects for this test
+	oldClient := s.client
+	s.client = http.Client{
+		Transport: s.transport,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+	defer func() { s.client = oldClient }()
+
+	req, err := http.NewRequest("GET", s.server.URL+"/redirect", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// First request: should cache the redirect
+	resp, err := s.client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusMovedPermanently {
+		t.Fatalf("expected 301, got %d", resp.StatusCode)
+	}
+	if resp.Header.Get(XFromCache) != "" {
+		t.Error("first request should not be from cache")
+	}
+
+	_, err = io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Second request: should be served from cache
+	resp, err = s.client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusMovedPermanently {
+		t.Fatalf("expected 301, got %d", resp.StatusCode)
+	}
+	if resp.Header.Get(XFromCache) != "1" {
+		t.Error("second request should be from cache")
+	}
+	if location := resp.Header.Get("Location"); location != "http://example.com/target" {
+		t.Errorf("expected location header, got %q", location)
+	}
+
+	_, err = io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestShouldCacheNilDoesNotCache(t *testing.T) {
+	resetTest()
+
+	// Ensure ShouldCache is explicitly nil
+	s.transport.ShouldCache = nil
+
+	req, err := http.NewRequest("GET", s.server.URL+"/badrequest", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Clear cache to ensure clean state
+	s.transport.Cache = NewMemoryCache()
+
+	// First request
+	resp, err := s.client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", resp.StatusCode)
+	}
+	if resp.Header.Get(XFromCache) != "" {
+		t.Error("first request should not be from cache")
+	}
+
+	_, err = io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Second request: should NOT be from cache (400 is not cacheable by default per RFC 7231)
+	resp, err = s.client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", resp.StatusCode)
+	}
+	if got := resp.Header.Get(XFromCache); got != "" {
+		t.Errorf("400 should not be cached when ShouldCache is nil, got XFromCache=%q", got)
+	}
+
+	_, err = io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
 	}
 }
