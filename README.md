@@ -70,6 +70,7 @@ httpcache supports multiple storage backends. Choose the one that fits your use 
 | **[Disk](./diskcache)** | ⚡ Slow | ✅ Yes | ❌ No | Desktop apps, CLI tools |
 | **[LevelDB](./leveldbcache)** | ⚡⚡ Fast | ✅ Yes | ❌ No | High-performance local cache |
 | **[Redis](./redis)** | ⚡⚡ Fast | ✅ Configurable | ✅ Yes | Microservices, distributed systems |
+| **[PostgreSQL](./postgresql)** | ⚡⚡ Fast | ✅ Yes | ✅ Yes | Existing PostgreSQL infrastructure, SQL-based systems |
 | **[Memcache](./memcache)** | ⚡⚡ Fast | ❌ No | ✅ Yes | Distributed systems, App Engine |
 
 ### Third-Party Backends
@@ -132,6 +133,19 @@ client := &http.Client{Transport: transport}
 
 **Best for**: High-performance local caching with persistence
 
+### PostgreSQL Cache
+
+```go
+import "github.com/sandrolain/httpcache/postgresql"
+
+ctx := context.Background()
+cache, _ := postgresql.New(ctx, "postgres://user:pass@localhost/dbname", nil)
+transport := httpcache.NewTransport(cache)
+client := &http.Client{Transport: transport}
+```
+
+**Best for**: Applications with existing PostgreSQL infrastructure, SQL-based systems
+
 ### Custom Transport Configuration
 
 ```go
@@ -158,6 +172,7 @@ See the [`examples/`](./examples) directory for complete, runnable examples:
 - **[Disk Cache](./examples/diskcache/)** - Persistent filesystem cache
 - **[Redis](./examples/redis/)** - Distributed caching with Redis
 - **[LevelDB](./examples/leveldb/)** - High-performance persistent cache
+- **[PostgreSQL](./examples/postgresql/)** - SQL-based persistent cache
 - **[Custom Backend](./examples/custom-backend/)** - Build your own cache backend
 
 Each example includes:

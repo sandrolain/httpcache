@@ -4,3 +4,4 @@ Thumbs.db
 .vscode
 /context
 *.out
+coverage.html
