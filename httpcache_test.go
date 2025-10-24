@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/http/httputil"
 	"os"
 	"strconv"
 	"testing"
@@ -166,6 +167,22 @@ func setup() {
 		// to miss the EOF.
 		w.Header().Set("Transfer-encoding", "identity")
 		json.NewEncoder(w).Encode(map[string]string{"k": "v"})
+	}))
+
+	serverErrorCounter := 0
+	mux.HandleFunc("/servererror", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		serverErrorCounter++
+		if serverErrorCounter == 1 {
+			// First request: return 200 OK with cache headers
+			w.Header().Set("Cache-Control", "max-age=3600")
+			w.Header().Set("Etag", "error-etag")
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte("OK response"))
+		} else {
+			// Subsequent requests: return 500 error
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte("Server error"))
+		}
 	}))
 }
 
@@ -640,6 +657,59 @@ func TestCachingJSONWithoutContentLength(t *testing.T) {
 
 	if data["k"] != "v" {
 		t.Fatalf("unexpected JSON response from cache: %v", data)
+	}
+}
+
+func TestSkipServerErrorsFromCache(t *testing.T) {
+	resetTest()
+
+	// Test 1: Default behavior (SkipServerErrorsFromCache = false)
+	// Manually create and cache a 500 error response
+	req, err := http.NewRequest(methodGET, "http://example.com/error", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	errorResp := &http.Response{
+		StatusCode: http.StatusInternalServerError,
+		Header: http.Header{
+			"Cache-Control": []string{"max-age=3600"},
+			"Date":          []string{time.Now().UTC().Format(time.RFC1123)},
+			"Etag":          []string{"error-etag"},
+		},
+		Body:    io.NopCloser(bytes.NewBufferString("Server error")),
+		Request: req,
+	}
+
+	// Dump and store in cache
+	respBytes, _ := httputil.DumpResponse(errorResp, true)
+	cacheKey := req.URL.String()
+	s.transport.Cache.Set(cacheKey, respBytes)
+
+	// Retrieve from cache - default behavior should serve the 500 from cache
+	cachedResp, err := CachedResponse(s.transport.Cache, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if cachedResp == nil {
+		t.Fatal("expected cached response")
+	}
+
+	// With default settings (SkipServerErrorsFromCache = false), handleCachedResponse should allow it
+	_, useCache := s.transport.handleCachedResponse(cachedResp, req)
+	if !useCache {
+		t.Fatal("Expected to use cached 500 with default settings")
+	}
+
+	// Test 2: With SkipServerErrorsFromCache = true
+	s.transport.SkipServerErrorsFromCache = true
+
+	// Now handleCachedResponse should NOT allow using the cached 500
+	cachedResp2, _ := CachedResponse(s.transport.Cache, req)
+	_, useCache2 := s.transport.handleCachedResponse(cachedResp2, req)
+	if useCache2 {
+		t.Fatal("Should NOT use cached 500 when SkipServerErrorsFromCache is true")
 	}
 }
 

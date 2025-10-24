@@ -114,6 +114,10 @@ type Transport struct {
 	Cache     Cache
 	// If true, responses returned from the cache will be given an extra header, X-From-Cache
 	MarkCachedResponses bool
+	// If true, server errors (5xx status codes) will not be served from cache
+	// even if they are fresh. This forces a new request to the server.
+	// Default is false to maintain backward compatibility.
+	SkipServerErrorsFromCache bool
 }
 
 // NewTransport returns a new Transport with the
@@ -167,6 +171,11 @@ func addValidatorsToRequest(req *http.Request, cachedResp *http.Response) *http.
 // Returns the request (possibly modified with validators) and whether to use cache directly
 func (t *Transport) handleCachedResponse(cachedResp *http.Response, req *http.Request) (*http.Request, bool) {
 	if !varyMatches(cachedResp, req) {
+		return req, false
+	}
+
+	// Don't serve server errors (5xx) from cache if SkipServerErrorsFromCache is enabled
+	if t.SkipServerErrorsFromCache && cachedResp.StatusCode >= http.StatusInternalServerError {
 		return req, false
 	}
 

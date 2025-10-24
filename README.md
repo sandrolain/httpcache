@@ -200,6 +200,38 @@ When a stale response is served due to an error (using `stale-if-error`), the `X
 
 ## Advanced Features
 
+### Transport Configuration
+
+The `Transport` struct provides several configuration options:
+
+```go
+transport := httpcache.NewTransport(cache)
+
+// Mark cached responses with X-From-Cache, X-Revalidated, and X-Stale headers
+transport.MarkCachedResponses = true  // Default: true
+
+// Skip serving server errors (5xx) from cache, even if fresh
+// This forces a new request to the server for error responses
+transport.SkipServerErrorsFromCache = true  // Default: false
+```
+
+**`SkipServerErrorsFromCache`** is useful when you want to:
+
+- Always get fresh error responses from the server
+- Prevent hiding ongoing server issues with cached errors
+- Ensure monitoring systems detect real-time server problems
+
+Example:
+
+```go
+transport := httpcache.NewMemoryCacheTransport()
+transport.SkipServerErrorsFromCache = true
+
+client := transport.Client()
+// Any 5xx responses in cache will be bypassed
+// and a fresh request will be made to the server
+```
+
 ### Stale-If-Error Support
 
 Automatically serve stale cached content when the backend is unavailable:
