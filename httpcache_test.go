@@ -2,6 +2,7 @@ package httpcache
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"flag"
 	"io"
@@ -156,6 +157,15 @@ func setup() {
 				w.Write([]byte{0})
 			}
 		}
+	}))
+
+	mux.HandleFunc("/json", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "max-age=3600")
+		w.Header().Set("Content-Type", "application/json")
+		// This will force using bufio.Read() instead of chunkedReader.Read()
+		// to miss the EOF.
+		w.Header().Set("Transfer-encoding", "identity")
+		json.NewEncoder(w).Encode(map[string]string{"k": "v"})
 	}))
 }
 
@@ -573,6 +583,63 @@ func TestGetWithEtag(t *testing.T) {
 		if _, ok := resp.Header["Connection"]; ok {
 			t.Fatalf("Connection header isn't absent")
 		}
+	}
+}
+
+func TestCachingJSONWithoutContentLength(t *testing.T) {
+	resetTest()
+	req, err := http.NewRequest(methodGET, s.server.URL+"/json", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// First request - should not be cached
+	resp, err := s.client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.Header.Get(XFromCache) != "" {
+		t.Fatal("XFromCache header isn't blank on first request")
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var data map[string]string
+	if err := json.Unmarshal(body, &data); err != nil {
+		t.Fatal(err)
+	}
+
+	if data["k"] != "v" {
+		t.Fatalf("unexpected JSON response: %v", data)
+	}
+
+	// Second request - should be served from cache
+	resp2, err := s.client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp2.Body.Close() }()
+
+	if resp2.Header.Get(XFromCache) != "1" {
+		t.Fatal("XFromCache header isn't '1' on second request - caching failed")
+	}
+
+	body2, err := io.ReadAll(resp2.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := json.Unmarshal(body2, &data); err != nil {
+		t.Fatal(err)
+	}
+
+	if data["k"] != "v" {
+		t.Fatalf("unexpected JSON response from cache: %v", data)
 	}
 }
 
