@@ -94,6 +94,44 @@ Learn how to create custom cache backends.
 - Building specialized caching strategies
 - Adding monitoring/metrics
 
+### 6. [NATS K/V Cache](./natskv/)
+
+Distributed caching using NATS JetStream Key/Value store.
+
+**Features:**
+
+- Distributed cache with NATS
+- JetStream persistence
+- Multiple instances sharing cache
+- Built-in TTL support
+- NATS clustering support
+
+**When to use:**
+
+- Already using NATS in your infrastructure
+- Need distributed caching with messaging
+- Microservices with NATS communication
+- When you want NATS' simplicity over Redis
+
+### 7. [Hazelcast Cache](./hazelcast/)
+
+Distributed caching using Hazelcast in-memory data grid.
+
+**Features:**
+
+- Distributed in-memory cache
+- Automatic data distribution across cluster
+- High availability with replication
+- Scalable architecture
+- Enterprise-grade performance
+
+**When to use:**
+
+- Already using Hazelcast in your infrastructure
+- Need high-performance distributed caching
+- Enterprise applications requiring HA
+- When you need automatic data partitioning
+
 ## Running Examples
 
 Each example has its own directory with:
@@ -123,8 +161,10 @@ go run main.go
 | LevelDB | ⚡⚡ | ✅ | ❌ | ⭐⭐ |
 | Redis | ⚡⚡ | ✅* | ✅ | ⭐⭐⭐ |
 | Memcache | ⚡⚡ | ❌ | ✅ | ⭐⭐⭐ |
+| NATS K/V | ⚡⚡ | ✅* | ✅ | ⭐⭐⭐ |
+| Hazelcast | ⚡⚡⚡ | ✅* | ✅ | ⭐⭐⭐ |
 
-*Redis persistence depends on configuration
+*Redis, NATS K/V, and Hazelcast persistence depends on configuration
 
 ## Common Patterns
 
