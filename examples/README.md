@@ -76,7 +76,25 @@ High-performance persistent cache.
 - When disk cache is too slow
 - When Redis is overkill
 
-### 5. [Custom Backend](./custom-backend/)
+### 5. [Freecache](./freecache/)
+
+High-performance, zero-GC overhead caching for large-scale applications.
+
+**Features:**
+
+- Zero GC overhead
+- Automatic LRU eviction
+- Millions of entries support
+- Built-in statistics
+
+**When to use:**
+
+- Caching millions of responses
+- Performance-critical applications
+- When GC is a bottleneck
+- High-concurrency environments
+
+### 6. [Custom Backend](./custom-backend/)
 
 Learn how to create custom cache backends.
 
@@ -116,13 +134,14 @@ go run main.go
 
 ## Quick Comparison
 
-| Backend | Speed | Persistence | Distributed | Setup Complexity |
-|---------|-------|-------------|-------------|------------------|
-| Memory | ⚡⚡⚡ | ❌ | ❌ | ⭐ |
-| Disk | ⚡ | ✅ | ❌ | ⭐ |
-| LevelDB | ⚡⚡ | ✅ | ❌ | ⭐⭐ |
-| Redis | ⚡⚡ | ✅* | ✅ | ⭐⭐⭐ |
-| Memcache | ⚡⚡ | ❌ | ✅ | ⭐⭐⭐ |
+| Backend | Speed | Persistence | Distributed | Setup Complexity | Best For |
+|---------|-------|-------------|-------------|------------------|----------|
+| Memory | ⚡⚡⚡ | ❌ | ❌ | ⭐ | < 100k entries |
+| Freecache | ⚡⚡⚡ | ❌ | ❌ | ⭐ | Millions of entries, zero GC |
+| Disk | ⚡ | ✅ | ❌ | ⭐ | Persistence needed |
+| LevelDB | ⚡⚡ | ✅ | ❌ | ⭐⭐ | Fast + persistent |
+| Redis | ⚡⚡ | ✅* | ✅ | ⭐⭐⭐ | Distributed systems |
+| Memcache | ⚡⚡ | ❌ | ✅ | ⭐⭐⭐ | Distributed, no persistence |
 
 *Redis persistence depends on configuration
 
