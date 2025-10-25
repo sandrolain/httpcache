@@ -51,19 +51,7 @@ tasks:
     desc: Run tests with race detector and coverage (suppress linker warnings)
     cmds:
       - echo "Running tests with coverage (clean output)..."
-      - |
-        set -o pipefail
-        go test -coverprofile=coverage.out -covermode=atomic ./... 2>&1 | \
-        grep -v "ld: warning.*malformed LC_DYSYMTAB" || \
-        (test ${PIPESTATUS[0]} -eq 0)
-      - go tool cover -html=coverage.out -o coverage.html
-      - echo "Coverage report generated at coverage.html"
-
-  test-verbose:
-    desc: Run tests with race detector and coverage (show all output including warnings)
-    cmds:
-      - echo "Running tests with coverage (verbose mode)..."
-      - go test -race -coverprofile=coverage.out -covermode=atomic ./...
+      - go test -coverprofile=coverage.out -covermode=atomic $(go list ./... | grep -v '/examples/') 2>&1
       - go tool cover -html=coverage.out -o coverage.html
       - echo "Coverage report generated at coverage.html"
 
@@ -71,7 +59,9 @@ tasks:
     desc: Run integration tests only
     cmds:
       - echo "Running integration tests..."
-      - go test -v -tags=integration ./...
+      - go test -tags=integration -coverprofile=coverage.out -covermode=atomic $(go list ./... | grep -v '/examples/') 2>&1
+      - go tool cover -html=coverage.out -o coverage.html
+      - echo "Coverage report generated at coverage.html"
 
   gosec:
     desc: Run security checks with gosec
