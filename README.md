@@ -245,6 +245,35 @@ client := transport.Client()
 // and a fresh request will be made to the server
 ```
 
+### Custom Logger
+
+httpcache uses Go's standard `log/slog` package for logging. The logger is used to generate warning messages for errors that were previously silent, helping you identify potential issues in cache operations.
+
+```go
+import (
+    "log/slog"
+    "os"
+    
+    "github.com/sandrolain/httpcache"
+)
+
+// Create a custom logger
+logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+    Level: slog.LevelWarn,
+}))
+
+// Set the logger for httpcache
+httpcache.SetLogger(logger)
+
+// Now all httpcache operations will use your custom logger
+transport := httpcache.NewMemoryCacheTransport()
+client := transport.Client()
+```
+
+If no logger is set, httpcache uses `slog.Default()`.
+
+For more information on configuring slog loggers, see the [official slog documentation](https://pkg.go.dev/log/slog).
+
 ### Stale-If-Error Support
 
 Automatically serve stale cached content when the backend is unavailable:

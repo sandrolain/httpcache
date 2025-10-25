@@ -67,6 +67,12 @@ tasks:
       - go tool cover -html=coverage.out -o coverage.html
       - echo "Coverage report generated at coverage.html"
 
+  test-integration:
+    desc: Run integration tests only
+    cmds:
+      - echo "Running integration tests..."
+      - go test -v -tags=integration ./...
+
   gosec:
     desc: Run security checks with gosec
     vars:
@@ -102,9 +108,11 @@ tasks:
     cmds:
       - task: fmt
       - task: lint
+      - task: govulncheck
       - task: trivy
-      - task: test
       - task: licenses
+      - task: test
+      - task: test-integration
 
   install-deps:
     desc: Install and tidy Go module dependencies
