@@ -13,6 +13,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httputil"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -31,6 +32,8 @@ const (
 	XStale = "X-Stale"
 	// XFreshness is the header added to responses indicating the freshness state
 	XFreshness = "X-Cache-Freshness"
+	// XCachedTime is the internal header used to store when a response was cached
+	XCachedTime = "X-Cached-Time"
 
 	methodGET  = "GET"
 	methodHEAD = "HEAD"
@@ -38,6 +41,7 @@ const (
 	headerXVariedPrefix = "X-Varied-"
 	headerLastModified  = "last-modified"
 	headerETag          = "etag"
+	headerAge           = "Age"
 
 	cacheControlOnlyIfCached = "only-if-cached"
 	cacheControlNoCache      = "no-cache"
@@ -257,6 +261,11 @@ func (t *Transport) handleCachedResponse(cachedResp *http.Response, req *http.Re
 		cachedResp.Header.Set(XFreshness, freshnessString(freshness))
 	}
 
+	// Calculate and set Age header (RFC 7234 Section 4.2.3)
+	if age, err := calculateAge(cachedResp.Header); err == nil {
+		cachedResp.Header.Set(headerAge, formatAge(age))
+	}
+
 	if freshness == fresh {
 		return req, true
 	}
@@ -283,6 +292,12 @@ func handleNotModifiedResponse(cachedResp *http.Response, newResp *http.Response
 	if markRevalidated {
 		cachedResp.Header[XRevalidated] = []string{"1"}
 	}
+
+	// Recalculate and update Age header after revalidation (RFC 7234 Section 4.2.3)
+	if age, err := calculateAge(cachedResp.Header); err == nil {
+		cachedResp.Header.Set(headerAge, formatAge(age))
+	}
+
 	return cachedResp
 }
 
@@ -329,6 +344,8 @@ func (t *Transport) setupCachingBody(resp *http.Response, cacheKey string) {
 		OnEOF: func(r io.Reader) {
 			resp := *resp
 			resp.Body = io.NopCloser(r)
+			// Add timestamp when caching
+			resp.Header.Set(XCachedTime, time.Now().UTC().Format(time.RFC3339))
 			respBytes, err := httputil.DumpResponse(&resp, true)
 			if err == nil {
 				t.Cache.Set(cacheKey, respBytes)
@@ -339,6 +356,8 @@ func (t *Transport) setupCachingBody(resp *http.Response, cacheKey string) {
 
 // storeCachedResponse caches the response immediately
 func (t *Transport) storeCachedResponse(resp *http.Response, cacheKey string) {
+	// Add timestamp when caching
+	resp.Header.Set(XCachedTime, time.Now().UTC().Format(time.RFC3339))
 	respBytes, err := httputil.DumpResponse(resp, true)
 	if err == nil {
 		t.Cache.Set(cacheKey, respBytes)
@@ -491,6 +510,78 @@ func Date(respHeaders http.Header) (date time.Time, err error) {
 	}
 
 	return time.Parse(time.RFC1123, dateHeader)
+}
+
+// calculateAge calculates the Age header value according to RFC 7234 Section 4.2.3.
+// The Age value is the sum of:
+//   - age_value: Age header from the response (if present)
+//   - date_value: Time since the Date header
+//   - resident_time: Time the response has been cached (from X-Cached-Time)
+func calculateAge(respHeaders http.Header) (age time.Duration, err error) {
+	// Get the Date header (required)
+	date, err := Date(respHeaders)
+	if err != nil {
+		return 0, err
+	}
+
+	// apparent_age = max(0, response_time - date_value)
+	// For cached responses, response_time is when we received it (X-Cached-Time)
+	apparentAge := time.Duration(0)
+
+	cachedTimeStr := respHeaders.Get(XCachedTime)
+	if cachedTimeStr != "" {
+		// Parse the cached time
+		cachedTime, parseErr := time.Parse(time.RFC3339, cachedTimeStr)
+		if parseErr == nil {
+			// apparent_age = max(0, cached_time - date_value)
+			if cachedTime.After(date) {
+				apparentAge = cachedTime.Sub(date)
+			}
+
+			// resident_time = now - cached_time
+			residentTime := clock.since(cachedTime)
+
+			// Parse any Age header that was already present
+			ageValue := time.Duration(0)
+			if ageHeader := respHeaders.Get(headerAge); ageHeader != "" {
+				if seconds, parseErr := time.ParseDuration(ageHeader + "s"); parseErr == nil {
+					ageValue = seconds
+				}
+			}
+
+			// corrected_age_value = age_value + resident_time
+			correctedAgeValue := ageValue + residentTime
+
+			// age = max(apparent_age, corrected_age_value)
+			age = apparentAge
+			if correctedAgeValue > age {
+				age = correctedAgeValue
+			}
+
+			return age, nil
+		}
+	}
+
+	// If no cached time, just use time since Date header
+	age = clock.since(date)
+
+	// Add any existing Age header
+	if ageHeader := respHeaders.Get(headerAge); ageHeader != "" {
+		if seconds, parseErr := time.ParseDuration(ageHeader + "s"); parseErr == nil {
+			age += seconds
+		}
+	}
+
+	return age, nil
+}
+
+// formatAge formats a duration as an Age header value (seconds)
+func formatAge(age time.Duration) string {
+	seconds := int64(age.Seconds())
+	if seconds < 0 {
+		seconds = 0
+	}
+	return strconv.FormatInt(seconds, 10)
 }
 
 // checkCacheControl checks for no-cache directives and only-if-cached
