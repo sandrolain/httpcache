@@ -47,6 +47,10 @@ const (
 	cacheControlOnlyIfCached         = "only-if-cached"
 	cacheControlNoCache              = "no-cache"
 	cacheControlStaleWhileRevalidate = "stale-while-revalidate"
+	cacheControlMaxAge               = "max-age"
+
+	headerPragma  = "Pragma"
+	pragmaNoCache = "no-cache"
 
 	// RFC 7234 Section 5.5: Warning header codes
 	warningResponseIsStale     = `110 - "Response is Stale"`
@@ -648,10 +652,19 @@ func isActuallyStale(respHeaders http.Header) bool {
 	return lifetime <= currentAge
 }
 
-// checkCacheControl checks for no-cache directives and only-if-cached
-func checkCacheControl(respCacheControl, reqCacheControl cacheControl) (int, bool) {
+// checkCacheControl checks for no-cache directives, Pragma: no-cache, and only-if-cached
+// RFC 7234 Section 5.4: Pragma: no-cache is treated as Cache-Control: no-cache for HTTP/1.0 compatibility
+func checkCacheControl(respCacheControl, reqCacheControl cacheControl, reqHeaders http.Header) (int, bool) {
 	if _, ok := reqCacheControl[cacheControlNoCache]; ok {
 		return transparent, true
+	}
+	// RFC 7234 Section 5.4: "When the Cache-Control header field is not present in a request,
+	// caches MUST consider the no-cache request pragma-directive as having the same effect
+	// as if "Cache-Control: no-cache" were present"
+	if len(reqCacheControl) == 0 {
+		if strings.EqualFold(reqHeaders.Get(headerPragma), pragmaNoCache) {
+			return transparent, true
+		}
 	}
 	if _, ok := respCacheControl[cacheControlNoCache]; ok {
 		return stale, true
@@ -669,7 +682,7 @@ func calculateLifetime(respCacheControl cacheControl, respHeaders http.Header, d
 
 	// If a response includes both an Expires header and a max-age directive,
 	// the max-age directive overrides the Expires header, even if the Expires header is more restrictive.
-	if maxAge, ok := respCacheControl["max-age"]; ok {
+	if maxAge, ok := respCacheControl[cacheControlMaxAge]; ok {
 		parsedLifetime, err := time.ParseDuration(maxAge + "s")
 		if err != nil {
 			lifetime = zeroDuration
@@ -694,7 +707,7 @@ func calculateLifetime(respCacheControl cacheControl, respHeaders http.Header, d
 // adjustAgeForRequestControls adjusts the current age based on request cache control directives
 // and enforces must-revalidate directive from response
 func adjustAgeForRequestControls(respCacheControl, reqCacheControl cacheControl, currentAge time.Duration, lifetime time.Duration) (time.Duration, time.Duration, bool) {
-	if maxAge, ok := reqCacheControl["max-age"]; ok {
+	if maxAge, ok := reqCacheControl[cacheControlMaxAge]; ok {
 		// the client is willing to accept a response whose age is no greater than the specified time in seconds
 		parsedLifetime, err := time.ParseDuration(maxAge + "s")
 		if err != nil {
@@ -761,8 +774,8 @@ func getFreshness(respHeaders, reqHeaders http.Header) (freshness int) {
 	respCacheControl := parseCacheControl(respHeaders)
 	reqCacheControl := parseCacheControl(reqHeaders)
 
-	// Check cache control directives
-	if result, done := checkCacheControl(respCacheControl, reqCacheControl); done {
+	// Check cache control directives and Pragma
+	if result, done := checkCacheControl(respCacheControl, reqCacheControl, reqHeaders); done {
 		return result
 	}
 
