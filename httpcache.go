@@ -35,14 +35,20 @@ const (
 	// XCachedTime is the internal header used to store when a response was cached
 	XCachedTime = "X-Cached-Time"
 
-	methodGET  = "GET"
-	methodHEAD = "HEAD"
+	methodGET    = "GET"
+	methodHEAD   = "HEAD"
+	methodPOST   = "POST"
+	methodPUT    = "PUT"
+	methodPATCH  = "PATCH"
+	methodDELETE = "DELETE"
 
-	headerXVariedPrefix = "X-Varied-"
-	headerLastModified  = "last-modified"
-	headerETag          = "etag"
-	headerAge           = "Age"
-	headerWarning       = "Warning"
+	headerXVariedPrefix   = "X-Varied-"
+	headerLastModified    = "last-modified"
+	headerETag            = "etag"
+	headerAge             = "Age"
+	headerWarning         = "Warning"
+	headerLocation        = "Location"
+	headerContentLocation = "Content-Location"
 
 	cacheControlOnlyIfCached         = "only-if-cached"
 	cacheControlNoCache              = "no-cache"
@@ -502,6 +508,8 @@ func (t *Transport) RoundTrip(req *http.Request) (resp *http.Response, err error
 	if cacheable {
 		cachedResp, err = CachedResponse(t.Cache, req)
 	} else {
+		// RFC 7234 Section 4.4: Invalidate cache on unsafe methods
+		// Delete the request URI immediately for unsafe methods
 		t.Cache.Delete(cacheKey)
 	}
 
@@ -521,11 +529,97 @@ func (t *Transport) RoundTrip(req *http.Request) (resp *http.Response, err error
 		return nil, err
 	}
 
+	// RFC 7234 Section 4.4: Invalidate cache for unsafe methods
+	// After successful response, invalidate related URIs
+	if isUnsafeMethod(req.Method) {
+		t.invalidateCache(req, resp)
+	}
+
 	// Store response in cache if applicable
 	t.storeResponseInCache(resp, req, cacheKey, cacheable)
 
 	return resp, nil
-} // ErrNoDateHeader indicates that the HTTP headers contained no Date header.
+}
+
+// isUnsafeMethod returns true if the HTTP method is considered unsafe
+// RFC 7234 Section 4.4: POST, PUT, DELETE, PATCH are unsafe methods
+func isUnsafeMethod(method string) bool {
+	return method == methodPOST || method == methodPUT || method == methodDELETE || method == methodPATCH
+}
+
+// invalidateCache invalidates cache entries per RFC 7234 Section 4.4
+// When receiving a non-error response to an unsafe method, invalidate:
+// 1. The effective Request-URI
+// 2. URIs in Location and Content-Location response headers (if present)
+func (t *Transport) invalidateCache(req *http.Request, resp *http.Response) {
+	// RFC 7234 Section 4.4: Only invalidate on non-error responses
+	if resp.StatusCode >= 400 {
+		return
+	}
+
+	// Invalidate the request URI
+	// Need to invalidate the GET version since cacheKey for GET uses only URL
+	getReq := &http.Request{
+		Method: methodGET,
+		URL:    req.URL,
+	}
+	getKey := cacheKey(getReq)
+	t.Cache.Delete(getKey)
+
+	// Also invalidate HEAD if different
+	headReq := &http.Request{
+		Method: methodHEAD,
+		URL:    req.URL,
+	}
+	headKey := cacheKey(headReq)
+	if headKey != getKey {
+		t.Cache.Delete(headKey)
+	}
+
+	// Invalidate Location header URI if present
+	if locationHeader := resp.Header.Get(headerLocation); locationHeader != "" {
+		if locationURL, err := req.URL.Parse(locationHeader); err == nil {
+			// Invalidate GET and HEAD for location URL
+			locationGetReq := &http.Request{
+				Method: methodGET,
+				URL:    locationURL,
+			}
+			t.Cache.Delete(cacheKey(locationGetReq))
+
+			locationHeadReq := &http.Request{
+				Method: methodHEAD,
+				URL:    locationURL,
+			}
+			locationHeadKey := cacheKey(locationHeadReq)
+			if locationHeadKey != cacheKey(locationGetReq) {
+				t.Cache.Delete(locationHeadKey)
+			}
+		}
+	}
+
+	// Invalidate Content-Location header URI if present
+	if contentLocationHeader := resp.Header.Get(headerContentLocation); contentLocationHeader != "" {
+		if contentLocationURL, err := req.URL.Parse(contentLocationHeader); err == nil {
+			// Invalidate GET and HEAD for content-location URL
+			contentLocationGetReq := &http.Request{
+				Method: methodGET,
+				URL:    contentLocationURL,
+			}
+			t.Cache.Delete(cacheKey(contentLocationGetReq))
+
+			contentLocationHeadReq := &http.Request{
+				Method: methodHEAD,
+				URL:    contentLocationURL,
+			}
+			contentLocationHeadKey := cacheKey(contentLocationHeadReq)
+			if contentLocationHeadKey != cacheKey(contentLocationGetReq) {
+				t.Cache.Delete(contentLocationHeadKey)
+			}
+		}
+	}
+}
+
+// ErrNoDateHeader indicates that the HTTP headers contained no Date header.
 var ErrNoDateHeader = errors.New("no Date header")
 
 // Date parses and returns the value of the Date header.
