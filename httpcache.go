@@ -628,7 +628,8 @@ func calculateLifetime(respCacheControl cacheControl, respHeaders http.Header, d
 }
 
 // adjustAgeForRequestControls adjusts the current age based on request cache control directives
-func adjustAgeForRequestControls(reqCacheControl cacheControl, currentAge time.Duration, lifetime time.Duration) (time.Duration, time.Duration, bool) {
+// and enforces must-revalidate directive from response
+func adjustAgeForRequestControls(respCacheControl, reqCacheControl cacheControl, currentAge time.Duration, lifetime time.Duration) (time.Duration, time.Duration, bool) {
 	if maxAge, ok := reqCacheControl["max-age"]; ok {
 		// the client is willing to accept a response whose age is no greater than the specified time in seconds
 		parsedLifetime, err := time.ParseDuration(maxAge + "s")
@@ -646,6 +647,15 @@ func adjustAgeForRequestControls(reqCacheControl cacheControl, currentAge time.D
 		if err == nil {
 			currentAge = currentAge + minfreshDuration
 		}
+	}
+
+	// RFC 7234 Section 5.2.2.1: must-revalidate
+	// "once it has become stale, a cache MUST NOT use the response to satisfy
+	// subsequent requests without successful validation on the origin server"
+	// This overrides max-stale from the request
+	if _, mustRevalidate := respCacheControl["must-revalidate"]; mustRevalidate {
+		// Ignore max-stale when must-revalidate is present
+		return currentAge, lifetime, false
 	}
 
 	if maxstale, ok := reqCacheControl["max-stale"]; ok {
@@ -701,9 +711,9 @@ func getFreshness(respHeaders, reqHeaders http.Header) (freshness int) {
 	// Calculate response lifetime
 	lifetime := calculateLifetime(respCacheControl, respHeaders, date)
 
-	// Adjust age based on request controls
+	// Adjust age based on request controls and enforce must-revalidate
 	var returnFresh bool
-	currentAge, lifetime, returnFresh = adjustAgeForRequestControls(reqCacheControl, currentAge, lifetime)
+	currentAge, lifetime, returnFresh = adjustAgeForRequestControls(respCacheControl, reqCacheControl, currentAge, lifetime)
 	if returnFresh {
 		return fresh
 	}
