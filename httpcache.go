@@ -42,9 +42,24 @@ const (
 	headerLastModified  = "last-modified"
 	headerETag          = "etag"
 	headerAge           = "Age"
+	headerWarning       = "Warning"
 
-	cacheControlOnlyIfCached = "only-if-cached"
-	cacheControlNoCache      = "no-cache"
+	cacheControlOnlyIfCached         = "only-if-cached"
+	cacheControlNoCache              = "no-cache"
+	cacheControlStaleWhileRevalidate = "stale-while-revalidate"
+
+	// RFC 7234 Section 5.5: Warning header codes
+	warningResponseIsStale     = `110 - "Response is Stale"`
+	warningRevalidationFailed  = `111 - "Revalidation Failed"`
+	warningDisconnectedOp      = `112 - "Disconnected Operation"`
+	warningHeuristicExpiration = `113 - "Heuristic Expiration"`
+
+	// Freshness state strings
+	freshnessStringFresh                = "fresh"
+	freshnessStringStale                = "stale"
+	freshnessStringStaleWhileRevalidate = "stale-while-revalidate"
+	freshnessStringTransparent          = "transparent"
+	freshnessStringUnknown              = "unknown"
 )
 
 // A Cache interface is used by the Transport to store and retrieve responses.
@@ -190,35 +205,34 @@ func addValidatorsToRequest(req *http.Request, cachedResp *http.Response) *http.
 func freshnessString(freshness int) string {
 	switch freshness {
 	case fresh:
-		return "fresh"
+		return freshnessStringFresh
 	case stale:
-		return "stale"
+		return freshnessStringStale
 	case staleWhileRevalidate:
-		return "stale-while-revalidate"
+		return freshnessStringStaleWhileRevalidate
 	case transparent:
-		return "transparent"
+		return freshnessStringTransparent
 	default:
-		return "unknown"
+		return freshnessStringUnknown
 	}
 }
 
 // asyncRevalidate triggers an asynchronous revalidation of the cached response
 func (t *Transport) asyncRevalidate(req *http.Request) {
 	bgContext := context.Background()
-	// Default no-op cancel function, will be replaced if timeout is set
-	cancelContext := func() {}
+	var cancelContext context.CancelFunc
 
 	if t.AsyncRevalidateTimeout > 0 {
-		var cancel context.CancelFunc
-		bgContext, cancel = context.WithTimeout(bgContext, t.AsyncRevalidateTimeout)
-		cancelContext = cancel
+		bgContext, cancelContext = context.WithTimeout(bgContext, t.AsyncRevalidateTimeout)
 	}
 
 	noCacheRequest := req.Clone(bgContext)
 	noCacheRequest.Header.Set("cache-control", cacheControlNoCache)
 
 	go func() {
-		defer cancelContext()
+		if cancelContext != nil {
+			defer cancelContext()
+		}
 
 		GetLogger().Debug("starting async revalidation", "url", req.URL.String())
 
@@ -267,10 +281,17 @@ func (t *Transport) handleCachedResponse(cachedResp *http.Response, req *http.Re
 	}
 
 	if freshness == fresh {
+		// Check if it's actually stale but served due to max-stale
+		if isActuallyStale(cachedResp.Header) {
+			// RFC 7234 Section 5.5: Add Warning 110 (Response is Stale)
+			addStaleWarning(cachedResp)
+		}
 		return req, true
 	}
 
 	if freshness == staleWhileRevalidate {
+		// RFC 7234 Section 5.5: Add Warning 110 (Response is Stale)
+		addStaleWarning(cachedResp)
 		// Trigger async revalidation
 		t.asyncRevalidate(req)
 		return req, true
@@ -398,6 +419,8 @@ func (t *Transport) processCachedResponse(cachedResp *http.Response, req *http.R
 		if t.MarkCachedResponses {
 			cachedResp.Header.Set(XStale, "1")
 		}
+		// RFC 7234 Section 5.5: Add Warning 111 (Revalidation Failed)
+		addRevalidationFailedWarning(cachedResp)
 		return cachedResp, nil
 	}
 
@@ -584,6 +607,47 @@ func formatAge(age time.Duration) string {
 	return strconv.FormatInt(seconds, 10)
 }
 
+// addWarningHeader adds a Warning header to the response per RFC 7234 Section 5.5
+// Warning headers can be stacked, so we use Add instead of Set
+func addWarningHeader(resp *http.Response, warningCode string) {
+	resp.Header.Add(headerWarning, warningCode)
+}
+
+// addStaleWarning adds "110 Response is Stale" warning header
+func addStaleWarning(resp *http.Response) {
+	addWarningHeader(resp, warningResponseIsStale)
+}
+
+// addRevalidationFailedWarning adds "111 Revalidation Failed" warning header
+func addRevalidationFailedWarning(resp *http.Response) {
+	addWarningHeader(resp, warningRevalidationFailed)
+}
+
+// isActuallyStale checks if a response is actually stale (ignoring client's max-stale tolerance)
+func isActuallyStale(respHeaders http.Header) bool {
+	respCacheControl := parseCacheControl(respHeaders)
+
+	date, err := Date(respHeaders)
+	if err != nil {
+		return true // No date means we can't determine freshness, treat as stale
+	}
+
+	currentAge := clock.since(date)
+	lifetime := calculateLifetime(respCacheControl, respHeaders, date)
+
+	// Check if stale-while-revalidate extends freshness
+	if stalewhilerevalidate, ok := respCacheControl[cacheControlStaleWhileRevalidate]; ok {
+		stalewhilerevalidateDuration, err := time.ParseDuration(stalewhilerevalidate + "s")
+		if err == nil {
+			if lifetime+stalewhilerevalidateDuration > currentAge {
+				return false // Still within stale-while-revalidate window
+			}
+		}
+	}
+
+	return lifetime <= currentAge
+}
+
 // checkCacheControl checks for no-cache directives and only-if-cached
 func checkCacheControl(respCacheControl, reqCacheControl cacheControl) (int, bool) {
 	if _, ok := reqCacheControl[cacheControlNoCache]; ok {
@@ -723,7 +787,7 @@ func getFreshness(respHeaders, reqHeaders http.Header) (freshness int) {
 	}
 
 	// Check for stale-while-revalidate directive
-	if stalewhilerevalidate, ok := respCacheControl["stale-while-revalidate"]; ok {
+	if stalewhilerevalidate, ok := respCacheControl[cacheControlStaleWhileRevalidate]; ok {
 		// If the cached response isn't too stale, we can return it and refresh asynchronously
 		stalewhilerevalidateDuration, err := time.ParseDuration(stalewhilerevalidate + "s")
 		if err == nil {
