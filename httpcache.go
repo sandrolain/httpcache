@@ -13,6 +13,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httputil"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -30,16 +31,44 @@ const (
 	XStale = "X-Stale"
 	// XFreshness is the header added to responses indicating the freshness state
 	XFreshness = "X-Cache-Freshness"
+	// XCachedTime is the internal header used to store when a response was cached
+	XCachedTime = "X-Cached-Time"
 
-	methodGET  = "GET"
-	methodHEAD = "HEAD"
+	methodGET    = "GET"
+	methodHEAD   = "HEAD"
+	methodPOST   = "POST"
+	methodPUT    = "PUT"
+	methodPATCH  = "PATCH"
+	methodDELETE = "DELETE"
 
-	headerXVariedPrefix = "X-Varied-"
-	headerLastModified  = "last-modified"
-	headerETag          = "etag"
+	headerXVariedPrefix   = "X-Varied-"
+	headerLastModified    = "last-modified"
+	headerETag            = "etag"
+	headerAge             = "Age"
+	headerWarning         = "Warning"
+	headerLocation        = "Location"
+	headerContentLocation = "Content-Location"
 
-	cacheControlOnlyIfCached = "only-if-cached"
-	cacheControlNoCache      = "no-cache"
+	cacheControlOnlyIfCached         = "only-if-cached"
+	cacheControlNoCache              = "no-cache"
+	cacheControlStaleWhileRevalidate = "stale-while-revalidate"
+	cacheControlMaxAge               = "max-age"
+
+	headerPragma  = "Pragma"
+	pragmaNoCache = "no-cache"
+
+	// RFC 7234 Section 5.5: Warning header codes
+	warningResponseIsStale     = `110 - "Response is Stale"`
+	warningRevalidationFailed  = `111 - "Revalidation Failed"`
+	warningDisconnectedOp      = `112 - "Disconnected Operation"`
+	warningHeuristicExpiration = `113 - "Heuristic Expiration"`
+
+	// Freshness state strings
+	freshnessStringFresh                = "fresh"
+	freshnessStringStale                = "stale"
+	freshnessStringStaleWhileRevalidate = "stale-while-revalidate"
+	freshnessStringTransparent          = "transparent"
+	freshnessStringUnknown              = "unknown"
 )
 
 // A Cache interface is used by the Transport to store and retrieve responses.
@@ -151,35 +180,34 @@ func addValidatorsToRequest(req *http.Request, cachedResp *http.Response) *http.
 func freshnessString(freshness int) string {
 	switch freshness {
 	case fresh:
-		return "fresh"
+		return freshnessStringFresh
 	case stale:
-		return "stale"
+		return freshnessStringStale
 	case staleWhileRevalidate:
-		return "stale-while-revalidate"
+		return freshnessStringStaleWhileRevalidate
 	case transparent:
-		return "transparent"
+		return freshnessStringTransparent
 	default:
-		return "unknown"
+		return freshnessStringUnknown
 	}
 }
 
 // asyncRevalidate triggers an asynchronous revalidation of the cached response
 func (t *Transport) asyncRevalidate(req *http.Request) {
 	bgContext := context.Background()
-	// Default no-op cancel function, will be replaced if timeout is set
-	cancelContext := func() {}
+	var cancelContext context.CancelFunc
 
 	if t.AsyncRevalidateTimeout > 0 {
-		var cancel context.CancelFunc
-		bgContext, cancel = context.WithTimeout(bgContext, t.AsyncRevalidateTimeout)
-		cancelContext = cancel
+		bgContext, cancelContext = context.WithTimeout(bgContext, t.AsyncRevalidateTimeout)
 	}
 
 	noCacheRequest := req.Clone(bgContext)
 	noCacheRequest.Header.Set("cache-control", cacheControlNoCache)
 
 	go func() {
-		defer cancelContext()
+		if cancelContext != nil {
+			defer cancelContext()
+		}
 
 		GetLogger().Debug("starting async revalidation", "url", req.URL.String())
 
@@ -222,11 +250,23 @@ func (t *Transport) handleCachedResponse(cachedResp *http.Response, req *http.Re
 		cachedResp.Header.Set(XFreshness, freshnessString(freshness))
 	}
 
+	// Calculate and set Age header (RFC 7234 Section 4.2.3)
+	if age, err := calculateAge(cachedResp.Header); err == nil {
+		cachedResp.Header.Set(headerAge, formatAge(age))
+	}
+
 	if freshness == fresh {
+		// Check if it's actually stale but served due to max-stale
+		if isActuallyStale(cachedResp.Header) {
+			// RFC 7234 Section 5.5: Add Warning 110 (Response is Stale)
+			addStaleWarning(cachedResp)
+		}
 		return req, true
 	}
 
 	if freshness == staleWhileRevalidate {
+		// RFC 7234 Section 5.5: Add Warning 110 (Response is Stale)
+		addStaleWarning(cachedResp)
 		// Trigger async revalidation
 		t.asyncRevalidate(req)
 		return req, true
@@ -248,6 +288,12 @@ func handleNotModifiedResponse(cachedResp *http.Response, newResp *http.Response
 	if markRevalidated {
 		cachedResp.Header[XRevalidated] = []string{"1"}
 	}
+
+	// Recalculate and update Age header after revalidation (RFC 7234 Section 4.2.3)
+	if age, err := calculateAge(cachedResp.Header); err == nil {
+		cachedResp.Header.Set(headerAge, formatAge(age))
+	}
+
 	return cachedResp
 }
 
@@ -294,6 +340,8 @@ func (t *Transport) setupCachingBody(resp *http.Response, cacheKey string) {
 		OnEOF: func(r io.Reader) {
 			resp := *resp
 			resp.Body = io.NopCloser(r)
+			// Add timestamp when caching
+			resp.Header.Set(XCachedTime, time.Now().UTC().Format(time.RFC3339))
 			respBytes, err := httputil.DumpResponse(&resp, true)
 			if err == nil {
 				t.Cache.Set(cacheKey, respBytes)
@@ -304,6 +352,8 @@ func (t *Transport) setupCachingBody(resp *http.Response, cacheKey string) {
 
 // storeCachedResponse caches the response immediately
 func (t *Transport) storeCachedResponse(resp *http.Response, cacheKey string) {
+	// Add timestamp when caching
+	resp.Header.Set(XCachedTime, time.Now().UTC().Format(time.RFC3339))
 	respBytes, err := httputil.DumpResponse(resp, true)
 	if err == nil {
 		t.Cache.Set(cacheKey, respBytes)
@@ -344,6 +394,8 @@ func (t *Transport) processCachedResponse(cachedResp *http.Response, req *http.R
 		if t.MarkCachedResponses {
 			cachedResp.Header.Set(XStale, "1")
 		}
+		// RFC 7234 Section 5.5: Add Warning 111 (Revalidation Failed)
+		addRevalidationFailedWarning(cachedResp)
 		return cachedResp, nil
 	}
 
@@ -421,6 +473,8 @@ func (t *Transport) RoundTrip(req *http.Request) (resp *http.Response, err error
 	if cacheable {
 		cachedResp, err = CachedResponse(t.Cache, req)
 	} else {
+		// RFC 7234 Section 4.4: Invalidate cache on unsafe methods
+		// Delete the request URI immediately for unsafe methods
 		t.Cache.Delete(cacheKey)
 	}
 
@@ -440,11 +494,97 @@ func (t *Transport) RoundTrip(req *http.Request) (resp *http.Response, err error
 		return nil, err
 	}
 
+	// RFC 7234 Section 4.4: Invalidate cache for unsafe methods
+	// After successful response, invalidate related URIs
+	if isUnsafeMethod(req.Method) {
+		t.invalidateCache(req, resp)
+	}
+
 	// Store response in cache if applicable
 	t.storeResponseInCache(resp, req, cacheKey, cacheable)
 
 	return resp, nil
-} // ErrNoDateHeader indicates that the HTTP headers contained no Date header.
+}
+
+// isUnsafeMethod returns true if the HTTP method is considered unsafe
+// RFC 7234 Section 4.4: POST, PUT, DELETE, PATCH are unsafe methods
+func isUnsafeMethod(method string) bool {
+	return method == methodPOST || method == methodPUT || method == methodDELETE || method == methodPATCH
+}
+
+// invalidateCache invalidates cache entries per RFC 7234 Section 4.4
+// When receiving a non-error response to an unsafe method, invalidate:
+// 1. The effective Request-URI
+// 2. URIs in Location and Content-Location response headers (if present)
+func (t *Transport) invalidateCache(req *http.Request, resp *http.Response) {
+	// RFC 7234 Section 4.4: Only invalidate on non-error responses
+	if resp.StatusCode >= 400 {
+		return
+	}
+
+	// Invalidate the request URI
+	// Need to invalidate the GET version since cacheKey for GET uses only URL
+	getReq := &http.Request{
+		Method: methodGET,
+		URL:    req.URL,
+	}
+	getKey := cacheKey(getReq)
+	t.Cache.Delete(getKey)
+
+	// Also invalidate HEAD if different
+	headReq := &http.Request{
+		Method: methodHEAD,
+		URL:    req.URL,
+	}
+	headKey := cacheKey(headReq)
+	if headKey != getKey {
+		t.Cache.Delete(headKey)
+	}
+
+	// Invalidate Location header URI if present
+	if locationHeader := resp.Header.Get(headerLocation); locationHeader != "" {
+		if locationURL, err := req.URL.Parse(locationHeader); err == nil {
+			// Invalidate GET and HEAD for location URL
+			locationGetReq := &http.Request{
+				Method: methodGET,
+				URL:    locationURL,
+			}
+			t.Cache.Delete(cacheKey(locationGetReq))
+
+			locationHeadReq := &http.Request{
+				Method: methodHEAD,
+				URL:    locationURL,
+			}
+			locationHeadKey := cacheKey(locationHeadReq)
+			if locationHeadKey != cacheKey(locationGetReq) {
+				t.Cache.Delete(locationHeadKey)
+			}
+		}
+	}
+
+	// Invalidate Content-Location header URI if present
+	if contentLocationHeader := resp.Header.Get(headerContentLocation); contentLocationHeader != "" {
+		if contentLocationURL, err := req.URL.Parse(contentLocationHeader); err == nil {
+			// Invalidate GET and HEAD for content-location URL
+			contentLocationGetReq := &http.Request{
+				Method: methodGET,
+				URL:    contentLocationURL,
+			}
+			t.Cache.Delete(cacheKey(contentLocationGetReq))
+
+			contentLocationHeadReq := &http.Request{
+				Method: methodHEAD,
+				URL:    contentLocationURL,
+			}
+			contentLocationHeadKey := cacheKey(contentLocationHeadReq)
+			if contentLocationHeadKey != cacheKey(contentLocationGetReq) {
+				t.Cache.Delete(contentLocationHeadKey)
+			}
+		}
+	}
+}
+
+// ErrNoDateHeader indicates that the HTTP headers contained no Date header.
 var ErrNoDateHeader = errors.New("no Date header")
 
 // Date parses and returns the value of the Date header.
@@ -458,10 +598,132 @@ func Date(respHeaders http.Header) (date time.Time, err error) {
 	return time.Parse(time.RFC1123, dateHeader)
 }
 
-// checkCacheControl checks for no-cache directives and only-if-cached
-func checkCacheControl(respCacheControl, reqCacheControl cacheControl) (int, bool) {
+// calculateAge calculates the Age header value according to RFC 7234 Section 4.2.3.
+// The Age value is the sum of:
+//   - age_value: Age header from the response (if present)
+//   - date_value: Time since the Date header
+//   - resident_time: Time the response has been cached (from X-Cached-Time)
+func calculateAge(respHeaders http.Header) (age time.Duration, err error) {
+	// Get the Date header (required)
+	date, err := Date(respHeaders)
+	if err != nil {
+		return 0, err
+	}
+
+	// apparent_age = max(0, response_time - date_value)
+	// For cached responses, response_time is when we received it (X-Cached-Time)
+	apparentAge := time.Duration(0)
+
+	cachedTimeStr := respHeaders.Get(XCachedTime)
+	if cachedTimeStr != "" {
+		// Parse the cached time
+		cachedTime, parseErr := time.Parse(time.RFC3339, cachedTimeStr)
+		if parseErr == nil {
+			// apparent_age = max(0, cached_time - date_value)
+			if cachedTime.After(date) {
+				apparentAge = cachedTime.Sub(date)
+			}
+
+			// resident_time = now - cached_time
+			residentTime := clock.since(cachedTime)
+
+			// Parse any Age header that was already present
+			ageValue := time.Duration(0)
+			if ageHeader := respHeaders.Get(headerAge); ageHeader != "" {
+				if seconds, parseErr := time.ParseDuration(ageHeader + "s"); parseErr == nil {
+					ageValue = seconds
+				}
+			}
+
+			// corrected_age_value = age_value + resident_time
+			correctedAgeValue := ageValue + residentTime
+
+			// age = max(apparent_age, corrected_age_value)
+			age = apparentAge
+			if correctedAgeValue > age {
+				age = correctedAgeValue
+			}
+
+			return age, nil
+		}
+	}
+
+	// If no cached time, just use time since Date header
+	age = clock.since(date)
+
+	// Add any existing Age header
+	if ageHeader := respHeaders.Get(headerAge); ageHeader != "" {
+		if seconds, parseErr := time.ParseDuration(ageHeader + "s"); parseErr == nil {
+			age += seconds
+		}
+	}
+
+	return age, nil
+}
+
+// formatAge formats a duration as an Age header value (seconds)
+func formatAge(age time.Duration) string {
+	seconds := int64(age.Seconds())
+	if seconds < 0 {
+		seconds = 0
+	}
+	return strconv.FormatInt(seconds, 10)
+}
+
+// addWarningHeader adds a Warning header to the response per RFC 7234 Section 5.5
+// Warning headers can be stacked, so we use Add instead of Set
+func addWarningHeader(resp *http.Response, warningCode string) {
+	resp.Header.Add(headerWarning, warningCode)
+}
+
+// addStaleWarning adds "110 Response is Stale" warning header
+func addStaleWarning(resp *http.Response) {
+	addWarningHeader(resp, warningResponseIsStale)
+}
+
+// addRevalidationFailedWarning adds "111 Revalidation Failed" warning header
+func addRevalidationFailedWarning(resp *http.Response) {
+	addWarningHeader(resp, warningRevalidationFailed)
+}
+
+// isActuallyStale checks if a response is actually stale (ignoring client's max-stale tolerance)
+func isActuallyStale(respHeaders http.Header) bool {
+	respCacheControl := parseCacheControl(respHeaders)
+
+	date, err := Date(respHeaders)
+	if err != nil {
+		return true // No date means we can't determine freshness, treat as stale
+	}
+
+	currentAge := clock.since(date)
+	lifetime := calculateLifetime(respCacheControl, respHeaders, date)
+
+	// Check if stale-while-revalidate extends freshness
+	if stalewhilerevalidate, ok := respCacheControl[cacheControlStaleWhileRevalidate]; ok {
+		stalewhilerevalidateDuration, err := time.ParseDuration(stalewhilerevalidate + "s")
+		if err == nil {
+			if lifetime+stalewhilerevalidateDuration > currentAge {
+				return false // Still within stale-while-revalidate window
+			}
+		}
+	}
+
+	return lifetime <= currentAge
+}
+
+// checkCacheControl checks for no-cache directives, Pragma: no-cache, and only-if-cached
+// RFC 7234 Section 5.4: Pragma: no-cache is treated as Cache-Control: no-cache for HTTP/1.0 compatibility
+func checkCacheControl(respCacheControl, reqCacheControl cacheControl, reqHeaders http.Header) (int, bool) {
 	if _, ok := reqCacheControl[cacheControlNoCache]; ok {
 		return transparent, true
+	}
+	// RFC 7234 Section 5.4: "When the Cache-Control header field is not present in a request,
+	// caches MUST consider the no-cache request pragma-directive as having the same effect
+	// as if "Cache-Control: no-cache" were present"
+	if len(reqCacheControl) == 0 {
+		if strings.EqualFold(reqHeaders.Get(headerPragma), pragmaNoCache) {
+			return transparent, true
+		}
 	}
 	if _, ok := respCacheControl[cacheControlNoCache]; ok {
 		return stale, true
@@ -479,7 +741,7 @@ func calculateLifetime(respCacheControl cacheControl, respHeaders http.Header, d
 
 	// If a response includes both an Expires header and a max-age directive,
 	// the max-age directive overrides the Expires header, even if the Expires header is more restrictive.
-	if maxAge, ok := respCacheControl["max-age"]; ok {
+	if maxAge, ok := respCacheControl[cacheControlMaxAge]; ok {
 		parsedLifetime, err := time.ParseDuration(maxAge + "s")
 		if err != nil {
 			lifetime = zeroDuration
@@ -502,8 +764,9 @@ func calculateLifetime(respCacheControl cacheControl, respHeaders http.Header, d
 }
 
 // adjustAgeForRequestControls adjusts the current age based on request cache control directives
-func adjustAgeForRequestControls(reqCacheControl cacheControl, currentAge time.Duration, lifetime time.Duration) (time.Duration, time.Duration, bool) {
-	if maxAge, ok := reqCacheControl["max-age"]; ok {
+// and enforces must-revalidate directive from response
+func adjustAgeForRequestControls(respCacheControl, reqCacheControl cacheControl, currentAge time.Duration, lifetime time.Duration) (time.Duration, time.Duration, bool) {
+	if maxAge, ok := reqCacheControl[cacheControlMaxAge]; ok {
 		// the client is willing to accept a response whose age is no greater than the specified time in seconds
 		parsedLifetime, err := time.ParseDuration(maxAge + "s")
 		if err != nil {
@@ -520,6 +783,15 @@ func adjustAgeForRequestControls(reqCacheControl cacheControl, currentAge time.D
 		if err == nil {
 			currentAge = currentAge + minfreshDuration
 		}
+	}
+
+	// RFC 7234 Section 5.2.2.1: must-revalidate
+	// "once it has become stale, a cache MUST NOT use the response to satisfy
+	// subsequent requests without successful validation on the origin server"
+	// This overrides max-stale from the request
+	if _, mustRevalidate := respCacheControl["must-revalidate"]; mustRevalidate {
+		// Ignore max-stale when must-revalidate is present
+		return currentAge, lifetime, false
 	}
 
 	if maxstale, ok := reqCacheControl["max-stale"]; ok {
@@ -561,8 +833,8 @@ func getFreshness(respHeaders, reqHeaders http.Header) (freshness int) {
 	respCacheControl := parseCacheControl(respHeaders)
 	reqCacheControl := parseCacheControl(reqHeaders)
 
-	// Check cache control directives
-	if result, done := checkCacheControl(respCacheControl, reqCacheControl); done {
+	// Check cache control directives and Pragma
+	if result, done := checkCacheControl(respCacheControl, reqCacheControl, reqHeaders); done {
 		return result
 	}
 
@@ -575,9 +847,9 @@ func getFreshness(respHeaders, reqHeaders http.Header) (freshness int) {
 	// Calculate response lifetime
 	lifetime := calculateLifetime(respCacheControl, respHeaders, date)
 
-	// Adjust age based on request controls
+	// Adjust age based on request controls and enforce must-revalidate
 	var returnFresh bool
-	currentAge, lifetime, returnFresh = adjustAgeForRequestControls(reqCacheControl, currentAge, lifetime)
+	currentAge, lifetime, returnFresh = adjustAgeForRequestControls(respCacheControl, reqCacheControl, currentAge, lifetime)
 	if returnFresh {
 		return fresh
 	}
@@ -587,7 +859,7 @@ func getFreshness(respHeaders, reqHeaders http.Header) (freshness int) {
 	}
 
 	// Check for stale-while-revalidate directive
-	if stalewhilerevalidate, ok := respCacheControl["stale-while-revalidate"]; ok {
+	if stalewhilerevalidate, ok := respCacheControl[cacheControlStaleWhileRevalidate]; ok {
 		// If the cached response isn't too stale, we can return it and refresh asynchronously
 		stalewhilerevalidateDuration, err := time.ParseDuration(stalewhilerevalidate + "s")
 		if err == nil {
