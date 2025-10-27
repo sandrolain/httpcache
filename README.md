@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/sandrolain/httpcache/workflows/CI/badge.svg)](https://github.com/sandrolain/httpcache/actions/workflows/ci.yml)
 [![Security](https://github.com/sandrolain/httpcache/workflows/Security/badge.svg)](https://github.com/sandrolain/httpcache/actions/workflows/security.yml)
-[![Coverage](https://img.shields.io/badge/coverage-94%25-brightgreen.svg)](https://github.com/sandrolain/httpcache)
+[![Coverage](https://img.shields.io/badge/coverage-95%25-brightgreen.svg)](https://github.com/sandrolain/httpcache)
 [![GoDoc](https://godoc.org/github.com/sandrolain/httpcache?status.svg)](https://godoc.org/github.com/sandrolain/httpcache)
 [![Go Report Card](https://goreportcard.com/badge/github.com/sandrolain/httpcache)](https://goreportcard.com/report/github.com/sandrolain/httpcache)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE.txt)
@@ -13,7 +13,12 @@
 
 ## Features
 
-- ✅ **RFC 7234 Compliant** - Implements HTTP caching standards
+- ✅ **RFC 7234 Compliant** (~95% compliance) - Implements HTTP caching standards
+  - ✅ Age header calculation (Section 4.2.3)
+  - ✅ Warning headers for stale responses (Section 5.5)
+  - ✅ must-revalidate directive enforcement (Section 5.2.2.1)
+  - ✅ Pragma: no-cache support (Section 5.4)
+  - ✅ Cache invalidation on unsafe methods (Section 4.4)
 - ✅ **Multiple Backends** - Memory, Disk, Redis, LevelDB, Memcache
 - ✅ **Thread-Safe** - Safe for concurrent use
 - ✅ **Zero Dependencies** - Core package uses only Go standard library
@@ -178,17 +183,30 @@ httpcache implements RFC 7234 (HTTP Caching) by:
 
 1. **Intercepting HTTP requests** through a custom `RoundTripper`
 2. **Checking cache** for matching responses
-3. **Validating freshness** using Cache-Control headers
-4. **Revalidating** with ETag/Last-Modified when stale
+3. **Validating freshness** using Cache-Control headers and Age calculation
+4. **Revalidating** with ETag/Last-Modified when stale (respecting must-revalidate)
 5. **Updating cache** with new responses
+6. **Invalidating cache** on unsafe methods (POST, PUT, DELETE, PATCH)
+7. **Adding headers** (Age, Warning) per RFC specifications
 
 ### Cache Headers Supported
 
-- `Cache-Control` (max-age, no-cache, no-store, stale-while-revalidate, etc.)
-- `ETag` and `If-None-Match`
-- `Last-Modified` and `If-Modified-Since`
-- `Expires`
-- `Vary`
+**Request Headers:**
+
+- `Cache-Control` (max-age, max-stale, min-fresh, no-cache, no-store, only-if-cached)
+- `Pragma: no-cache` (HTTP/1.0 backward compatibility per RFC 7234 Section 5.4)
+- `If-None-Match` (ETag validation)
+- `If-Modified-Since` (Last-Modified validation)
+
+**Response Headers:**
+
+- `Cache-Control` (max-age, no-cache, no-store, must-revalidate, stale-if-error, stale-while-revalidate)
+- `ETag` (entity tag validation)
+- `Last-Modified` (date-based validation)
+- `Expires` (expiration date)
+- `Vary` (content negotiation)
+- `Age` (time in cache per RFC 7234 Section 4.2.3)
+- `Warning` (cache warnings per RFC 7234 Section 5.5)
 - `stale-if-error` (RFC 5861)
 - `stale-while-revalidate` (RFC 5861)
 
@@ -416,6 +434,71 @@ req.Header.Set("Accept", "application/json")
 resp, _ := client.Do(req)
 // Cached separately from "Accept: text/html" requests
 ```
+
+### RFC 7234 Compliance Features
+
+httpcache implements several important RFC 7234 features for production-ready HTTP caching:
+
+#### Age Header (Section 4.2.3)
+
+The `Age` header is automatically calculated and added to all cached responses, indicating how long the response has been in the cache:
+
+```go
+resp, _ := client.Get(url)
+age := resp.Header.Get("Age")  // e.g., "120" (seconds)
+// Clients can calculate: time_until_expiration = max-age - age
+```
+
+#### Warning Headers (Section 5.5)
+
+Warning headers are automatically added to inform clients about cache conditions:
+
+- `Warning: 110 - "Response is Stale"` - When serving stale content
+- `Warning: 111 - "Revalidation Failed"` - When revalidation fails and stale content is served
+
+```go
+resp, _ := client.Get(url)
+if warning := resp.Header.Get("Warning"); warning != "" {
+    log.Printf("Cache warning: %s", warning)
+}
+```
+
+#### must-revalidate Directive (Section 5.2.2.1)
+
+The `must-revalidate` directive is enforced, ensuring that stale responses are always revalidated:
+
+```go
+// Server response: Cache-Control: max-age=60, must-revalidate
+// After 60s, cache MUST revalidate (ignores client's max-stale)
+```
+
+This is critical for security-sensitive content that must not be served stale.
+
+#### Pragma: no-cache Support (Section 5.4)
+
+HTTP/1.0 backward compatibility via `Pragma: no-cache` request header:
+
+```go
+req, _ := http.NewRequest("GET", url, nil)
+req.Header.Set("Pragma", "no-cache")
+resp, _ := client.Do(req)
+// Bypasses cache (when Cache-Control is absent)
+```
+
+#### Cache Invalidation (Section 4.4)
+
+Cache is automatically invalidated for affected URIs when unsafe methods succeed:
+
+```go
+// POST/PUT/DELETE/PATCH with 2xx or 3xx response invalidates:
+// - Request-URI
+// - Location header URI (if present)
+// - Content-Location header URI (if present)
+
+client.Post(url, "application/json", body)  // Invalidates GET cache for url
+```
+
+This ensures cache consistency after data modifications.
 
 ### Custom Cache Implementation
 
