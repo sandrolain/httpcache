@@ -7,3 +7,4 @@ Thumbs.db
 coverage.html
 licenses.csv
 trivy-results.json
+/tmp
