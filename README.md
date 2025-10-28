@@ -593,6 +593,95 @@ type Cache interface {
 
 See [examples/custom-backend](./examples/custom-backend/) for a complete example.
 
+## Security Considerations
+
+### Private Cache and Multi-User Applications
+
+⚠️ **Important**: httpcache implements a **private cache** (similar to browser cache), not a shared cache. This has important implications for multi-user applications:
+
+**The Problem:**
+
+If you use the same `Transport` instance to make requests on behalf of different users, responses may be incorrectly shared between users unless properly configured:
+
+```go
+// ❌ DANGEROUS: Same transport for different users
+transport := httpcache.NewMemoryCacheTransport()
+client := transport.Client()
+
+// User 1 requests their profile
+req1, _ := http.NewRequest("GET", "https://api.example.com/user/profile", nil)
+req1.Header.Set("Authorization", "Bearer user1_token")
+client.Do(req1)  // Cached with key: https://api.example.com/user/profile
+
+// User 2 requests their profile (same URL!)
+req2, _ := http.NewRequest("GET", "https://api.example.com/user/profile", nil)
+req2.Header.Set("Authorization", "Bearer user2_token")
+client.Do(req2)  // ❌ Gets User 1's cached response!
+```
+
+**Solutions:**
+
+1. **Use `CacheKeyHeaders`** to include user-identifying headers in cache keys:
+
+```go
+// ✅ SAFE: Different cache entries per Authorization token
+transport := httpcache.NewMemoryCacheTransport()
+transport.CacheKeyHeaders = []string{"Authorization"}
+client := transport.Client()
+
+// Each user gets their own cache entry
+req1.Header.Set("Authorization", "Bearer user1_token")
+client.Do(req1)  // Cached: https://api.example.com/user/profile|Authorization:Bearer user1_token
+
+req2.Header.Set("Authorization", "Bearer user2_token")
+client.Do(req2)  // Cached: https://api.example.com/user/profile|Authorization:Bearer user2_token
+```
+
+2. **Server-side `Vary` header** - The backend API can specify which request headers affect the response:
+
+```go
+// Server response headers:
+// Cache-Control: max-age=3600
+// Vary: Authorization
+
+// httpcache automatically creates separate cache entries per Authorization value
+```
+
+3. **Prevent caching of user-specific data** - Use `Cache-Control` or `Pragma` headers:
+
+```go
+// Server response for sensitive user data:
+// Cache-Control: private, no-store
+// or
+// Pragma: no-cache
+
+// These responses will never be cached
+```
+
+4. **Separate Transport per user** - Create individual cache instances:
+
+```go
+// ✅ SAFE: Each user has isolated cache
+func getClientForUser(userID string) *http.Client {
+    cache := diskcache.New(fmt.Sprintf("/tmp/cache/%s", userID))
+    transport := httpcache.NewTransport(cache)
+    return &http.Client{Transport: transport}
+}
+```
+
+**When is this a concern?**
+
+- ✅ **Web servers** handling requests from multiple users
+- ✅ **API gateways** proxying authenticated requests
+- ✅ **Background workers** processing jobs for different accounts
+- ❌ **CLI tools** (single user per instance)
+- ❌ **Desktop apps** (single user per instance)
+- ❌ **Single-user services**
+
+**Best Practice:**
+
+Always use `CacheKeyHeaders` or ensure the server sends appropriate `Vary` headers when caching user-specific or tenant-specific data.
+
 ## Limitations
 
 - **Private cache only** - Not suitable for shared proxy caching
