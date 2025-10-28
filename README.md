@@ -351,6 +351,85 @@ if resp.Header.Get(httpcache.XFreshness) == "stale-while-revalidate" {
 }
 ```
 
+### Cache Key Headers
+
+Differentiate cache entries based on request header values. This is useful when different header values should result in separate cache entries.
+
+**Common Use Cases:**
+
+- **User-specific caching**: Different cache per user (via Authorization header)
+- **Internationalization**: Language-specific responses (via Accept-Language)
+- **API versioning**: Version-specific responses (via API-Version header)
+- **Multi-tenant apps**: Tenant-specific responses (via X-Tenant-ID header)
+
+**Important:** This is different from the HTTP `Vary` response header mechanism, which is handled separately by httpcache. `CacheKeyHeaders` allows you to specify which **request** headers should be included in the cache key generation.
+
+**Configuration:**
+
+```go
+transport := httpcache.NewMemoryCacheTransport()
+
+// Specify headers to include in cache key
+transport.CacheKeyHeaders = []string{"Authorization", "Accept-Language"}
+
+client := transport.Client()
+
+// Each unique combination of Authorization + Accept-Language gets its own cache entry
+```
+
+**Example Scenario:**
+
+```go
+transport := httpcache.NewMemoryCacheTransport()
+transport.CacheKeyHeaders = []string{"Authorization"}
+
+client := transport.Client()
+
+// Request 1: Authorization: Bearer token1
+req1, _ := http.NewRequest("GET", "https://api.example.com/user/profile", nil)
+req1.Header.Set("Authorization", "Bearer token1")
+resp1, _ := client.Do(req1)  // Cache miss, fetches from server
+io.Copy(io.Discard, resp1.Body)
+resp1.Body.Close()
+
+// Request 2: Authorization: Bearer token2 (different token)
+req2, _ := http.NewRequest("GET", "https://api.example.com/user/profile", nil)
+req2.Header.Set("Authorization", "Bearer token2")
+resp2, _ := client.Do(req2)  // Cache miss, fetches from server (different cache entry)
+io.Copy(io.Discard, resp2.Body)
+resp2.Body.Close()
+
+// Request 3: Authorization: Bearer token1 (same as request 1)
+req3, _ := http.NewRequest("GET", "https://api.example.com/user/profile", nil)
+req3.Header.Set("Authorization", "Bearer token1")
+resp3, _ := client.Do(req3)  // Cache hit! Serves cached response from request 1
+io.Copy(io.Discard, resp3.Body)
+resp3.Body.Close()
+
+fmt.Println(resp3.Header.Get(httpcache.XFromCache))  // "1"
+```
+
+**Cache Key Format:**
+
+Without CacheKeyHeaders:
+
+```
+http://api.example.com/data
+```
+
+With CacheKeyHeaders:
+
+```
+http://api.example.com/data|Accept-Language:en|Authorization:Bearer token1
+```
+
+**Notes:**
+
+- Header names are case-insensitive (automatically canonicalized)
+- Headers are sorted alphabetically for consistent key generation
+- Only non-empty header values are included in the key
+- Empty `CacheKeyHeaders` slice maintains backward compatibility (headers not included)
+
 ### Custom Cache Control with ShouldCache
 
 Override default caching behavior for specific HTTP status codes using the `ShouldCache` hook:

@@ -13,6 +13,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httputil"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -91,10 +92,48 @@ func cacheKey(req *http.Request) string {
 	}
 }
 
+// cacheKeyWithHeaders returns the cache key for req, including specified header values.
+// This is used when CacheKeyHeaders is configured to differentiate cache entries
+// based on request header values.
+func cacheKeyWithHeaders(req *http.Request, headers []string) string {
+	key := cacheKey(req)
+
+	// Append header values to the key if headers are specified
+	if len(headers) > 0 {
+		var headerParts []string
+		for _, header := range headers {
+			canonicalHeader := http.CanonicalHeaderKey(header)
+			value := req.Header.Get(canonicalHeader)
+			if value != "" {
+				headerParts = append(headerParts, canonicalHeader+":"+value)
+			}
+		}
+		if len(headerParts) > 0 {
+			// Sort header parts to ensure consistent key generation
+			sort.Strings(headerParts)
+			key = key + "|" + strings.Join(headerParts, "|")
+		}
+	}
+
+	return key
+}
+
 // CachedResponse returns the cached http.Response for req if present, and nil
 // otherwise.
 func CachedResponse(c Cache, req *http.Request) (resp *http.Response, err error) {
 	cachedVal, ok := c.Get(cacheKey(req))
+	if !ok {
+		return
+	}
+
+	b := bytes.NewBuffer(cachedVal)
+	return http.ReadResponse(bufio.NewReader(b), req)
+}
+
+// cachedResponseWithKey returns the cached http.Response for the given cache key if present, and nil otherwise.
+// This is an internal function used when CacheKeyHeaders is configured.
+func cachedResponseWithKey(c Cache, req *http.Request, key string) (resp *http.Response, err error) {
+	cachedVal, ok := c.Get(key)
 	if !ok {
 		return
 	}
@@ -127,6 +166,14 @@ type Transport struct {
 	// The function receives the http.Response and should return true to cache it.
 	// Note: This only bypasses the status code check; Cache-Control headers are still respected.
 	ShouldCache func(*http.Response) bool
+	// CacheKeyHeaders specifies additional request headers to include in the cache key generation.
+	// This allows creating separate cache entries based on request header values.
+	// Common use cases include "Authorization" for user-specific caches or "Accept-Language"
+	// for locale-specific responses.
+	// Header names are case-insensitive and will be canonicalized.
+	// Example: []string{"Authorization", "Accept-Language"}
+	// Note: This is different from the HTTP Vary response header mechanism, which is handled separately.
+	CacheKeyHeaders []string
 }
 
 // NewTransport returns a new Transport with the
@@ -466,12 +513,12 @@ func (t *Transport) storeResponseInCache(resp *http.Response, req *http.Request,
 // to give the server a chance to respond with NotModified. If this happens, then the cached Response
 // will be returned.
 func (t *Transport) RoundTrip(req *http.Request) (resp *http.Response, err error) {
-	cacheKey := cacheKey(req)
+	cacheKey := cacheKeyWithHeaders(req, t.CacheKeyHeaders)
 	cacheable := (req.Method == methodGET || req.Method == methodHEAD) && req.Header.Get("range") == ""
 
 	var cachedResp *http.Response
 	if cacheable {
-		cachedResp, err = CachedResponse(t.Cache, req)
+		cachedResp, err = cachedResponseWithKey(t.Cache, req, cacheKey)
 	} else {
 		// RFC 7234 Section 4.4: Invalidate cache on unsafe methods
 		// Delete the request URI immediately for unsafe methods

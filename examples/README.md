@@ -94,6 +94,25 @@ Learn how to create custom cache backends.
 - Building specialized caching strategies
 - Adding monitoring/metrics
 
+### 6. [Cache Key Headers](./cachekeyheaders/)
+
+Differentiate cache entries based on request header values.
+
+**Features:**
+
+- Per-user caching with Authorization headers
+- Multi-language support with Accept-Language
+- Multiple header combinations
+- Header-based cache isolation
+
+**When to use:**
+
+- Multi-tenant applications
+- User-specific API responses
+- Internationalized content
+- API versioning by header
+- Any scenario requiring cache separation by request headers
+
 ## Running Examples
 
 Each example has its own directory with:
