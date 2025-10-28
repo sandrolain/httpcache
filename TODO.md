@@ -87,10 +87,11 @@ This document outlines potential future improvements and features for the httpca
 - [x] CacheKeyHeaders configuration for per-header cache differentiation
 - [ ] **Vary Header Compliance** (RFC 7234 Section 4.1)
   - **Issue**: Current implementation validates Vary headers but does NOT create separate cache entries
+  - **Origin**: This bug exists in the original gregjones/httpcache implementation (inherited, not introduced by fork)
   - **Current Behavior**: Different Vary header values overwrite the same cache entry (same URL = same cache key)
   - **Expected Behavior**: Each unique combination of Vary header values should create a separate cache entry
   - **Impact**: Medium - Users relying on server `Vary` headers for cache separation get unexpected cache overwrites
-  - **Workaround**: Use `CacheKeyHeaders` configuration to explicitly specify headers for cache key generation
+  - **Workaround**: Use `CacheKeyHeaders` configuration to explicitly specify headers for cache key generation (unique to this fork)
   - **Solution Options**:
     1. Automatically include Vary header values in cache key generation
     2. Create composite cache keys: `URL + VaryHeaders(sorted)`

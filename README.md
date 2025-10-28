@@ -423,12 +423,37 @@ With CacheKeyHeaders:
 http://api.example.com/data|Accept-Language:en|Authorization:Bearer token1
 ```
 
-**Notes:**
+**Important Notes:**
 
 - Header names are case-insensitive (automatically canonicalized)
 - Headers are sorted alphabetically for consistent key generation
 - Only non-empty header values are included in the key
 - Empty `CacheKeyHeaders` slice maintains backward compatibility (headers not included)
+
+**⚠️ Interaction with Server `Vary` Header:**
+
+Even when using `CacheKeyHeaders`, the server's `Vary` header is **still validated**. This means:
+
+1. **Matching headers**: If `CacheKeyHeaders` includes the same headers as server's `Vary`, everything works correctly:
+
+   ```go
+   transport.CacheKeyHeaders = []string{"Authorization"}
+   // Server responds with: Vary: Authorization
+   // ✅ Works perfectly - separate cache entries + validation
+   ```
+
+2. **Missing headers**: If server's `Vary` includes headers NOT in `CacheKeyHeaders`, cache will be invalidated:
+
+   ```go
+   transport.CacheKeyHeaders = []string{"Authorization"}
+   // Server responds with: Vary: Authorization, Accept
+   
+   // Request 1: Auth: token1, Accept: json → Cached
+   // Request 2: Auth: token1, Accept: html → Same cache key, but Vary validation fails
+   // ❌ Cache invalidated and overwritten
+   ```
+
+**Best Practice**: Always include **all headers mentioned in server's `Vary` response** in your `CacheKeyHeaders` configuration to avoid cache invalidation and overwrites.
 
 ### Custom Cache Control with ShouldCache
 
