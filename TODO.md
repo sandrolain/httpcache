@@ -85,11 +85,49 @@ This document outlines potential future improvements and features for the httpca
 - [x] Warning header generation (RFC 7234 Section 5.5)
 - [x] Pragma: no-cache support (RFC 7234 Section 5.4)
 - [x] CacheKeyHeaders configuration for per-header cache differentiation
+- [ ] **Cache-Control: private Directive Handling** (RFC 7234 Section 5.2.2.6)
+  - **Issue**: Current implementation ignores `private` directive, treating it as insignificant
+  - **RFC Definition**: "The 'private' response directive indicates that the response message is intended for a single user and MUST NOT be stored by a shared cache"
+  - **Current Behavior**:
+    - Code comment: "Because this is only a private cache, 'public' and 'private' in cache-control aren't significant"
+    - `Cache-Control: private` is completely ignored
+    - Responses are cached regardless of `private` directive
+  - **Why it's Currently Ignored**:
+    - httpcache is designed as a "private cache" (browser-like, single-user)
+    - For true single-user scenarios (CLI tools, desktop apps), ignoring `private` is CORRECT per RFC
+    - RFC allows private caches to store `private` responses
+  - **Problem in Multi-User Contexts**:
+    - When same Transport serves multiple users (web server, API gateway)
+    - Server sends `Cache-Control: private` expecting no shared caching
+    - httpcache ignores it and caches anyway
+    - Results in data leakage between users
+  - **Impact**: High in multi-user scenarios, None in true single-user scenarios
+  - **Current Workarounds**:
+    - Use `Cache-Control: no-store` (respected by httpcache)
+    - Configure `CacheKeyHeaders` to separate cache by user
+    - Use separate Transport instances per user
+  - **Potential Solutions**:
+    1. Add configuration flag: `TreatAsSharedCache bool` - when true, respect `private` directive
+    2. Auto-detect shared context (multiple users) and adjust behavior
+    3. Document limitation clearly and rely on workarounds
+  - **Recommendation**: Document limitation prominently (already done in README Security Considerations)
+  - **Reference**: RFC 7234 Section 5.2.2.6, code in `getFreshness()` function
+  - **Discovered**: 2025-10-28
 - [ ] **Vary Header Compliance** (RFC 7234 Section 4.1)
   - **Issue**: Current implementation validates Vary headers but does NOT create separate cache entries
+  - **RFC Requirement**: "If multiple selected responses are available... the cache will need to choose one to use" - explicitly requires storing MULTIPLE responses per URL
   - **Origin**: This bug exists in the original gregjones/httpcache implementation (inherited, not introduced by fork)
-  - **Current Behavior**: Different Vary header values overwrite the same cache entry (same URL = same cache key)
-  - **Expected Behavior**: Each unique combination of Vary header values should create a separate cache entry
+  - **Current Behavior**:
+    - Uses only URL as primary cache key
+    - Stores Vary header values for validation only (in X-Varied-* headers)
+    - When Vary validation fails → makes new request and OVERWRITES previous cache entry (same URL = same key)
+    - Result: Only ONE response stored per URL, violating RFC 7234
+  - **RFC-Compliant Behavior**:
+    - Primary cache key: URL (request method + target URI)
+    - Secondary cache key: Values of headers nominated by Vary header field
+    - MUST store multiple responses for same URL with different Vary values
+    - When request arrives, select matching response from available stored responses
+    - If no match found, forward to origin and ADD new stored response (not replace)
   - **Impact**: Medium - Users relying on server `Vary` headers for cache separation get unexpected cache overwrites
   - **Workaround**: Use `CacheKeyHeaders` configuration to explicitly specify headers for cache key generation (unique to this fork)
   - **Solution Options**:

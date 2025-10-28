@@ -728,6 +728,30 @@ transport.CacheKeyHeaders = []string{"Authorization"}
 // These responses will never be cached
 ```
 
+**⚠️ Important Limitation**: httpcache currently **ignores** the `private` directive because it's designed as a "private cache". This means:
+
+- `Cache-Control: private` does **NOT** prevent caching in httpcache
+- This is **correct** for single-user scenarios (browser, CLI tool)
+- This is **problematic** in multi-user scenarios (web server, API gateway)
+
+**Why this matters:**
+
+```go
+// Server tries to prevent shared caching:
+// HTTP/1.1 200 OK
+// Cache-Control: private, max-age=3600
+// {"user": "john", "email": "john@example.com"}
+
+// httpcache IGNORES "private" and caches it anyway!
+// If same Transport serves multiple users → data leak!
+```
+
+**Workarounds for multi-user applications:**
+
+- **Best**: Use `Cache-Control: no-store` (httpcache respects this)
+- **Alternative**: Configure `CacheKeyHeaders` to separate cache by user
+- **Alternative**: Use separate Transport instances per user
+
 4. **Separate Transport per user** - Create individual cache instances:
 
 ```go
