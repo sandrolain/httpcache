@@ -84,6 +84,23 @@ This document outlines potential future improvements and features for the httpca
 - [x] must-revalidate directive enforcement (RFC 7234 Section 5.2.2.1)
 - [x] Warning header generation (RFC 7234 Section 5.5)
 - [x] Pragma: no-cache support (RFC 7234 Section 5.4)
+- [x] CacheKeyHeaders configuration for per-header cache differentiation
+- [ ] **Vary Header Compliance** (RFC 7234 Section 4.1)
+  - **Issue**: Current implementation validates Vary headers but does NOT create separate cache entries
+  - **Current Behavior**: Different Vary header values overwrite the same cache entry (same URL = same cache key)
+  - **Expected Behavior**: Each unique combination of Vary header values should create a separate cache entry
+  - **Impact**: Medium - Users relying on server `Vary` headers for cache separation get unexpected cache overwrites
+  - **Workaround**: Use `CacheKeyHeaders` configuration to explicitly specify headers for cache key generation
+  - **Solution Options**:
+    1. Automatically include Vary header values in cache key generation
+    2. Create composite cache keys: `URL + VaryHeaders(sorted)`
+    3. Store multiple responses per URL (map of Vary values to responses)
+  - **Considerations**:
+    - Backward compatibility (may require migration strategy)
+    - Cache key length limits
+    - Performance impact of additional key complexity
+  - **Reference**: RFC 7234 Section 4.1, current implementation in `varyMatches()` and `storeVaryHeaders()`
+  - **Discovered**: 2025-10-28
 
 ### v2.0 (Breaking Changes)
 

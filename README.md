@@ -505,14 +505,51 @@ transport.ShouldCache = func(resp *http.Response) bool {
 
 ### Vary Header Support
 
-Correctly handles content negotiation:
+⚠️ **Current Limitation**: The `Vary` response header is currently used for **validation only**, not for creating separate cache entries.
+
+**What this means:**
+
+- The cached response stores the values of headers specified in `Vary` (e.g., `Accept`, `Accept-Language`)
+- When retrieving from cache, httpcache checks if the current request headers match the stored values
+- If they don't match, the cache is considered invalid and a new request is made
+- **However**, the new response **overwrites** the previous cache entry instead of creating a separate entry
+
+**Example of current behavior:**
 
 ```go
-req, _ := http.NewRequest("GET", url, nil)
-req.Header.Set("Accept", "application/json")
-resp, _ := client.Do(req)
-// Cached separately from "Accept: text/html" requests
+// Server responds with: Vary: Accept
+
+// Request 1: Accept: application/json
+resp1, _ := client.Do(req1)  // Fetches from server, caches with Accept: application/json
+
+// Request 2: Accept: text/html (different Accept header)
+resp2, _ := client.Do(req2)  // Cache miss (doesn't match), fetches from server
+                              // ❌ OVERWRITES previous cache entry
+
+// Request 3: Accept: application/json (same as Request 1)
+resp3, _ := client.Do(req3)  // ❌ Cache miss! (was overwritten by Request 2)
 ```
+
+**Recommended Solution:**
+
+Use `CacheKeyHeaders` to create true separate cache entries based on request headers:
+
+```go
+transport := httpcache.NewMemoryCacheTransport()
+transport.CacheKeyHeaders = []string{"Accept", "Accept-Language"}
+
+// Now each unique combination creates a separate cache entry
+req1.Header.Set("Accept", "application/json")
+client.Do(req1)  // Cached separately
+
+req2.Header.Set("Accept", "text/html")
+client.Do(req2)  // Cached separately (doesn't overwrite req1)
+
+req3.Header.Set("Accept", "application/json")
+client.Do(req3)  // ✅ Cache hit! (separate entry still exists)
+```
+
+**Note**: This limitation may be addressed in a future version to fully comply with RFC 7234 Section 4.1 (Vary header semantics).
 
 ### RFC 7234 Compliance Features
 
@@ -637,15 +674,23 @@ req2.Header.Set("Authorization", "Bearer user2_token")
 client.Do(req2)  // Cached: https://api.example.com/user/profile|Authorization:Bearer user2_token
 ```
 
-2. **Server-side `Vary` header** - The backend API can specify which request headers affect the response:
+2. **Server-side `Vary` header** - ⚠️ **Current Limitation**: While the `Vary` response header is supported for validation, the current implementation **does NOT create separate cache entries** for different header values. Instead, it **overwrites the previous cache entry** with the same URL.
 
 ```go
 // Server response headers:
 // Cache-Control: max-age=3600
 // Vary: Authorization
 
-// httpcache automatically creates separate cache entries per Authorization value
+// ❌ CURRENT BEHAVIOR:
+// Request 1 (Authorization: Bearer token1) -> Cached
+// Request 2 (Authorization: Bearer token2) -> Overwrites previous cache
+// Request 3 (Authorization: Bearer token1) -> Cache miss (was overwritten)
+
+// ✅ USE CacheKeyHeaders INSTEAD for true separate cache entries:
+transport.CacheKeyHeaders = []string{"Authorization"}
 ```
+
+**Important**: If you rely on the server's `Vary` header for cache separation, you **must also configure `CacheKeyHeaders`** with the same headers to ensure separate cache entries are created. This is a known limitation that may be addressed in a future version.
 
 3. **Prevent caching of user-specific data** - Use `Cache-Control` or `Pragma` headers:
 
