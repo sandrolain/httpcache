@@ -776,6 +776,8 @@ func getClientForUser(userID string) *http.Client {
 
 Always use `CacheKeyHeaders` or ensure the server sends appropriate `Vary` headers when caching user-specific or tenant-specific data.
 
+⚠️ **Security Risk**: When using `CacheKeyHeaders` with sensitive headers (e.g., `Authorization`, `X-API-Key`), these values may be stored **in plain text** in the cache backend.
+
 ## Limitations
 
 - **Private cache only** - Not suitable for shared proxy caching

@@ -195,6 +195,37 @@ This document outlines potential future improvements and features for the httpca
 - [x] Protection against cache poisoning (SHA-256 hashing in diskcache)
 - [x] Robust input validation (error handling improvements)
 - [x] Security policy and responsible disclosure (GitHub Security workflow)
+- [ ] **Cache Key and Response Encryption** (Security Enhancement)
+  - **Issue**: Sensitive data (tokens, PII) stored in plain text in most cache backends
+  - **Current Status by Backend**:
+    - ✅ `diskcache`: Keys hashed with SHA-256, responses plain text
+    - ❌ `redis`: Keys AND responses in plain text
+    - ❌ `memorycache`: Keys AND responses in plain text (in-memory only)
+    - ❌ `leveldbcache`, `memcache`, `natskv`: Keys likely plain text (needs verification)
+  - **Security Risks**:
+    1. **Credential Exposure**: When using `CacheKeyHeaders: ["Authorization"]`, tokens stored in plain text in Redis/etc.
+       - Example: `rediscache:https://api.example.com/data|authorization:Bearer secret123`
+       - Visible with `KEYS *`, `MONITOR`, persistence files, backups
+    2. **Data Exposure**: Response bodies with PII/sensitive data readable from backend storage
+    3. **Compliance**: PCI DSS, GDPR, HIPAA may require encryption at rest
+  - **Proposed Solutions**:
+    - **Phase 1 (v2.0)**: Hash ALL cache keys by default (breaking change)
+      - Consistent behavior across all backends
+      - Prevents credential exposure in cache keys
+      - Minimal performance impact (~160ns per operation)
+      - Migration: existing caches invalidated (different keys)
+    - **Phase 2 (v2.1)**: Optional response encryption
+      - Configuration: `EncryptionKey []byte` (AES-256-GCM)
+      - Opt-in for compliance scenarios
+      - Key management considerations
+  - **Current Workarounds**:
+    - Use `diskcache` backend (already hashes keys)
+    - Configure backend security (Redis auth, file permissions)
+    - Use `Cache-Control: no-store` for highly sensitive data
+    - Network isolation for cache backends
+  - **Impact**: High in multi-user/compliance scenarios, Medium in general use
+  - **Reference**: See `context/security-encryption-analysis.md` for detailed analysis
+  - **Discovered**: 2025-10-28
 
 ---
 
