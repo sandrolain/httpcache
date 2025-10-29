@@ -172,7 +172,7 @@ import (
     
     "github.com/sandrolain/httpcache"
     "github.com/sandrolain/httpcache/redis"
-    "github.com/sandrolain/httpcache/securecache"
+    "github.com/sandrolain/httpcache/wrapper/securecache"
 )
 
 func main() {
@@ -243,5 +243,5 @@ This implementation helps meet requirements for:
 
 ## See Also
 
-- [securecache package documentation](../../securecache/README.md)
+- [securecache package documentation](../../wrapper/securecache/README.md)
 - [Main README](../../README.md)

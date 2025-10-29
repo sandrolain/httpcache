@@ -131,11 +131,11 @@ Always use `CacheKeyHeaders` or ensure the server sends appropriate `Vary` heade
 
 ⚠️ **Security Risk**: When using `CacheKeyHeaders` with sensitive headers (e.g., `Authorization`, `X-API-Key`), these values may be stored **in plain text** in the cache backend.
 
-**Solution**: Use the [`securecache`](../securecache/README.md) wrapper to add encryption:
+**Solution**: Use the [`securecache`](../wrapper/securecache/README.md) wrapper to add encryption:
 
 ```go
 import (
-    "github.com/sandrolain/httpcache/securecache"
+    "github.com/sandrolain/httpcache/wrapper/securecache"
     "github.com/sandrolain/httpcache/redis"
 )
 
@@ -157,7 +157,7 @@ transport.CacheKeyHeaders = []string{"Authorization"}
 - ✓ **Authenticated Encryption** - Prevents tampering
 - ✓ **scrypt Key Derivation** - Strong passphrase protection
 
-See [`securecache/README.md`](../securecache/README.md) for details.
+See [`securecache/README.md`](../wrapper/securecache/README.md) for details.
 
 ## Additional Security Recommendations
 

@@ -157,7 +157,7 @@ Add security to any cache backend with SHA-256 key hashing and optional AES-256-
 ```go
 import (
     "github.com/sandrolain/httpcache"
-    "github.com/sandrolain/httpcache/securecache"
+    "github.com/sandrolain/httpcache/wrapper/securecache"
     "github.com/sandrolain/httpcache/redis"
 )
 
@@ -181,7 +181,7 @@ client := &http.Client{Transport: transport}
 
 **Best for**: User-specific data, PII, authentication tokens, GDPR/CCPA compliance, HIPAA-regulated data, PCI DSS requirements
 
-See [`securecache/README.md`](../securecache/README.md) for details.
+See [`securecache/README.md`](../wrapper/securecache/README.md) for details.
 
 ### Custom Transport Configuration
 

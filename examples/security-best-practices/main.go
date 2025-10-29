@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/sandrolain/httpcache"
-	"github.com/sandrolain/httpcache/securecache"
+	"github.com/sandrolain/httpcache/wrapper/securecache"
 )
 
 func main() {

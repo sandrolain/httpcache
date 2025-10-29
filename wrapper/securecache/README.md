@@ -17,7 +17,7 @@ Package `securecache` provides a security wrapper for any `httpcache.Cache` impl
 ## Installation
 
 ```bash
-go get github.com/sandrolain/httpcache/securecache
+go get github.com/sandrolain/httpcache/wrapper/securecache
 ```
 
 ## Usage
@@ -27,7 +27,7 @@ go get github.com/sandrolain/httpcache/securecache
 ```go
 import (
     "github.com/sandrolain/httpcache"
-    "github.com/sandrolain/httpcache/securecache"
+    "github.com/sandrolain/httpcache/wrapper/securecache"
 )
 
 // Wrap any cache backend with key hashing
@@ -50,7 +50,7 @@ client := transport.Client()
 import (
     "github.com/sandrolain/httpcache"
     "github.com/sandrolain/httpcache/redis"
-    "github.com/sandrolain/httpcache/securecache"
+    "github.com/sandrolain/httpcache/wrapper/securecache"
 )
 
 // Wrap Redis cache with encryption
@@ -147,7 +147,7 @@ When a passphrase is provided:
 
 ## Examples
 
-See [`examples/security-best-practices/`](../examples/security-best-practices/) for:
+See [`examples/security-best-practices/`](../../examples/security-best-practices/) for:
 
 - Complete working example
 - Multi-user caching with encryption
@@ -178,4 +178,4 @@ Encryption overhead is primarily from:
 
 ## License
 
-See the main [LICENSE.txt](../LICENSE.txt) file in the repository root.
+See the main [LICENSE.txt](../../LICENSE.txt) file in the repository root.
