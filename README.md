@@ -19,7 +19,8 @@
   - ✅ must-revalidate directive enforcement (Section 5.2.2.1)
   - ✅ Pragma: no-cache support (Section 5.4)
   - ✅ Cache invalidation on unsafe methods (Section 4.4)
-- ✅ **Multiple Backends** - Memory, Disk, Redis, LevelDB, Memcache
+- ✅ **Multiple Backends** - Memory, Disk, Redis, LevelDB, Memcache, PostgreSQL, NATS K/V, Hazelcast
+- ✅ **Security Wrapper** - Optional SHA-256 key hashing and AES-256 encryption
 - ✅ **Thread-Safe** - Safe for concurrent use
 - ✅ **Zero Dependencies** - Core package uses only Go standard library
 - ✅ **Easy Integration** - Drop-in replacement for `http.Client`
@@ -216,6 +217,39 @@ client := &http.Client{Transport: transport}
 
 **Best for**: High-performance in-memory caching with zero GC overhead, memory-constrained environments
 
+### Secure Cache Wrapper
+
+Add security to any cache backend with SHA-256 key hashing and optional AES-256-GCM encryption:
+
+```go
+import (
+    "github.com/sandrolain/httpcache"
+    "github.com/sandrolain/httpcache/securecache"
+    "github.com/sandrolain/httpcache/redis"
+)
+
+// Wrap any backend with security layer
+redisCache := redis.NewWithClient(redisConn)
+secureCache, _ := securecache.New(securecache.Config{
+    Cache:      redisCache,
+    Passphrase: "your-secret-passphrase-from-env",
+})
+
+transport := httpcache.NewTransport(secureCache)
+client := &http.Client{Transport: transport}
+```
+
+**Security Features**:
+
+- ✓ **SHA-256 Key Hashing** (always enabled) - Prevents key enumeration
+- ✓ **AES-256-GCM Encryption** (optional) - Encrypts cached data when passphrase is provided
+- ✓ **Authenticated Encryption** - GCM mode provides both confidentiality and integrity
+- ✓ **scrypt Key Derivation** - Strong key derivation from passphrase
+
+**Best for**: User-specific data, PII, authentication tokens, GDPR/CCPA compliance, HIPAA-regulated data, PCI DSS requirements
+
+See [`securecache/README.md`](./securecache/README.md) for details.
+
 ### Custom Transport Configuration
 
 ```go
@@ -246,6 +280,7 @@ See the [`examples/`](./examples) directory for complete, runnable examples:
 - **[NATS K/V](./examples/natskv/)** - NATS JetStream Key/Value cache
 - **[Hazelcast](./examples/hazelcast/)** - Enterprise distributed cache
 - **[FreeCache](./examples/freecache/)** - High-performance in-memory with zero GC
+- **[Security Best Practices](./examples/security-best-practices/)** - Secure cache with encryption and key hashing
 - **[Custom Backend](./examples/custom-backend/)** - Build your own cache backend
 - **[Prometheus Metrics](./examples/prometheus/)** - Monitoring cache performance
 
