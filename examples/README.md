@@ -169,6 +169,63 @@ Distributed caching using Hazelcast in-memory data grid.
 - Enterprise applications requiring HA
 - When you need automatic data partitioning
 
+### 9. [Multi-Tier Cache](./multicache/)
+
+Combine multiple cache backends with automatic fallback and promotion.
+
+**Features:**
+
+- Multi-tiered caching strategy
+- Automatic fallback from fast to slow tiers
+- Automatic promotion to faster tiers
+- Write-through to all tiers
+- CDN-like architecture
+
+**When to use:**
+
+- Performance + Persistence requirements
+- Local + Distributed caching
+- CDN-like edge caching
+- Complex caching strategies with multiple storage levels
+- When you need both speed and resilience
+
+### 10. [PostgreSQL Cache](./postgresql/)
+
+Persistent distributed caching using PostgreSQL.
+
+**Features:**
+
+- SQL-based persistent cache
+- ACID compliance
+- Connection pool support
+- Distributed cache shared across instances
+- Works with existing PostgreSQL infrastructure
+
+**When to use:**
+
+- Already using PostgreSQL
+- Need ACID compliance for cache
+- SQL-based systems
+- When you need persistent distributed cache
+
+### 11. [Security Best Practices](./security-best-practices/)
+
+Secure cache implementation with encryption and key hashing.
+
+**Features:**
+
+- SHA-256 key hashing
+- AES-256-GCM encryption
+- Multi-user scenarios
+- Compliance requirements (GDPR, HIPAA)
+
+**When to use:**
+
+- Multi-tenant applications
+- Storing sensitive data
+- Compliance requirements
+- Shared cache backends
+
 ## Running Examples
 
 Each example has its own directory with:
@@ -198,11 +255,15 @@ go run main.go
 | Disk | ⚡ | ✅ | ❌ | ⭐ | Persistence needed |
 | LevelDB | ⚡⚡ | ✅ | ❌ | ⭐⭐ | Fast + persistent |
 | Redis | ⚡⚡ | ✅* | ✅ | ⭐⭐⭐ | Distributed systems |
+| PostgreSQL | ⚡⚡ | ✅ | ✅ | ⭐⭐⭐ | SQL infrastructure |
 | Memcache | ⚡⚡ | ❌ | ✅ | ⭐⭐⭐ | Distributed, no persistence |
 | NATS K/V | ⚡⚡ | ✅* | ✅ | ⭐⭐⭐ | NATS users |
 | Hazelcast | ⚡⚡⚡ | ✅* | ✅ | ⭐⭐⭐ | Enterprise, HA |
+| **MultiCache** | **⚡⚡⚡→⚡** | **✅** | **✅** | **⭐⭐** | **Multi-tier strategies** |
 
 *Redis, NATS K/V, and Hazelcast persistence depends on configuration
+
+**MultiCache**: Speed varies by tier (fastest tier = fastest speed), combines benefits of all configured backends
 
 ## Common Patterns
 

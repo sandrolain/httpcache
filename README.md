@@ -41,6 +41,7 @@
   - ✅ Pragma: no-cache support (Section 5.4)
   - ✅ Cache invalidation on unsafe methods (Section 4.4)
 - ✅ **Multiple Backends** - Memory, Disk, Redis, LevelDB, Memcache, PostgreSQL, NATS K/V, Hazelcast
+- ✅ **Multi-Tier Caching** - Combine multiple backends with automatic fallback and promotion
 - ✅ **Security Wrapper** - Optional SHA-256 key hashing and AES-256 encryption
 - ✅ **Thread-Safe** - Safe for concurrent use
 - ✅ **Zero Dependencies** - Core package uses only Go standard library
@@ -115,6 +116,7 @@ go get github.com/sandrolain/httpcache
 
 - [RFC 7234 compliance](./docs/how-it-works.md#rfc-7234-compliance-features)
 - [Stale-while-revalidate](./docs/advanced-features.md#stale-while-revalidate-support)
+- [Multi-tier caching strategies](./wrapper/multicache/README.md)
 - [Custom cache implementation](./docs/how-it-works.md#custom-cache-implementation)
 - [Multi-user considerations](./docs/security.md#private-cache-and-multi-user-applications)
 
@@ -131,6 +133,7 @@ See the [`examples/`](./examples) directory for complete, runnable examples:
 - **[Hazelcast](./examples/hazelcast/)** - Enterprise distributed cache
 - **[FreeCache](./examples/freecache/)** - High-performance in-memory with zero GC
 - **[Security Best Practices](./examples/security-best-practices/)** - Secure cache with encryption and key hashing
+- **[Multi-Tier Cache](./examples/multicache/)** - Multi-tiered caching with automatic fallback and promotion
 - **[Custom Backend](./examples/custom-backend/)** - Build your own cache backend
 - **[Prometheus Metrics](./examples/prometheus/)** - Monitoring cache performance
 - **[Cache Key Headers](./examples/cachekeyheaders/)** - User-specific caching with headers

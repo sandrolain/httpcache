@@ -23,6 +23,58 @@ httpcache supports multiple storage backends. Choose the one that fits your use 
 - [`github.com/die-net/lrucache/twotier`](https://github.com/die-net/lrucache/tree/master/twotier) - Multi-tier caching (e.g., memory + disk)
 - [`github.com/birkelund/boltdbcache`](https://github.com/birkelund/boltdbcache) - BoltDB implementation
 
+## Cache Wrappers
+
+### MultiCache - Multi-Tiered Caching
+
+The [`multicache`](../wrapper/multicache/README.md) wrapper allows you to combine multiple cache backends with automatic fallback and promotion:
+
+```go
+import "github.com/sandrolain/httpcache/wrapper/multicache"
+
+// Tier 1: Fast in-memory cache
+memCache := httpcache.NewMemoryCache()
+
+// Tier 2: Medium-speed disk cache
+diskCache := diskcache.New("/tmp/cache")
+
+// Tier 3: Persistent distributed cache
+redisCache, _ := redis.New("localhost:6379")
+
+// Combine into multi-tier cache
+mc := multicache.New(
+    memCache,   // Fastest, checked first
+    diskCache,  // Medium speed
+    redisCache, // Slowest, checked last
+)
+
+transport := httpcache.NewTransport(mc)
+client := &http.Client{Transport: transport}
+```
+
+**How it works:**
+
+- **GET**: Searches tiers in order (fast → slow), promotes found data to faster tiers
+- **SET**: Writes to all tiers simultaneously
+- **DELETE**: Removes from all tiers for consistency
+
+**Use cases:**
+
+- Performance + Persistence: Memory → Disk → Database
+- Local + Distributed: Memory → Redis → PostgreSQL
+- CDN-like: Edge → Regional → Origin
+
+See the [MultiCache documentation](../wrapper/multicache/README.md) for details.
+
+### SecureCache - Encryption Wrapper
+
+The [`securecache`](../wrapper/securecache/README.md) wrapper adds security features:
+
+- **Key hashing**: SHA-256 hashing of cache keys (always enabled)
+- **Data encryption**: Optional AES-256-GCM encryption with passphrase
+
+See [Security Considerations](./security.md#secure-cache-wrapper) for details.
+
 ## Related Projects
 
 - [`github.com/moul/hcfilters`](https://github.com/moul/hcfilters) - HTTP cache middleware and filters for advanced cache control

@@ -301,3 +301,37 @@ transport.ShouldCache = func(resp *http.Response) bool {
 ⚠️ **Current Limitation**: The `Vary` response header is currently used for **validation only**, not for creating separate cache entries.
 
 See [How It Works](./how-it-works.md) for details on Vary header handling.
+
+## Multi-Tier Caching
+
+For sophisticated caching strategies with multiple storage backends, use the [`multicache`](../wrapper/multicache/README.md) wrapper:
+
+```go
+import "github.com/sandrolain/httpcache/wrapper/multicache"
+
+// Create individual cache tiers
+memCache := httpcache.NewMemoryCache()          // Fast, volatile
+diskCache := diskcache.New("/tmp/cache")        // Medium, persistent
+redisCache, _ := redis.New("localhost:6379")    // Distributed, shared
+
+// Combine into multi-tier cache (order matters!)
+mc := multicache.New(memCache, diskCache, redisCache)
+
+transport := httpcache.NewTransport(mc)
+client := &http.Client{Transport: transport}
+```
+
+**Benefits:**
+
+- **Performance**: Hot data in fast tiers, cold data in slow tiers
+- **Resilience**: Automatic fallback if faster tiers are empty
+- **Automatic promotion**: Popular data migrates to faster tiers
+- **Flexibility**: Each tier can have different eviction policies
+
+**Common Patterns:**
+
+- Memory → Disk → Database (performance + persistence)
+- Local → Redis → PostgreSQL (local + distributed)
+- Edge → Regional → Origin (CDN-like architecture)
+
+See the [MultiCache documentation](../wrapper/multicache/README.md) for complete details and examples.
