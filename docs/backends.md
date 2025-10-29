@@ -11,6 +11,7 @@ httpcache supports multiple storage backends. Choose the one that fits your use 
 | **[LevelDB](../leveldbcache)** | ⚡⚡ Fast | ✅ Yes | ❌ No | High-performance local cache |
 | **[Redis](../redis)** | ⚡⚡ Fast | ✅ Configurable | ✅ Yes | Microservices, distributed systems |
 | **[PostgreSQL](../postgresql)** | ⚡⚡ Fast | ✅ Yes | ✅ Yes | Existing PostgreSQL infrastructure, SQL-based systems |
+| **[MongoDB](../mongodb)** | ⚡⚡ Fast | ✅ Yes | ✅ Yes | Document-based systems, MongoDB infrastructure, TTL support |
 | **[Memcache](../memcache)** | ⚡⚡ Fast | ❌ No | ✅ Yes | Distributed systems, App Engine |
 | **[NATS K/V](../natskv)** | ⚡⚡ Fast | ✅ Configurable | ✅ Yes | NATS-based microservices, JetStream |
 | **[Hazelcast](../hazelcast)** | ⚡⚡ Fast | ✅ Yes | ✅ Yes | Enterprise distributed systems, in-memory data grids |
@@ -144,6 +145,24 @@ client := &http.Client{Transport: transport}
 ```
 
 **Best for**: Applications with existing PostgreSQL infrastructure, SQL-based systems
+
+### MongoDB Cache
+
+```go
+import "github.com/sandrolain/httpcache/mongodb"
+
+ctx := context.Background()
+config := mongodb.Config{
+    URI:      "mongodb://localhost:27017",
+    Database: "httpcache",
+    TTL:      24 * time.Hour, // Optional: automatic expiration
+}
+cache, _ := mongodb.New(ctx, config)
+transport := httpcache.NewTransport(cache)
+client := &http.Client{Transport: transport}
+```
+
+**Best for**: Document-based systems, MongoDB infrastructure, applications requiring TTL support
 
 ### NATS K/V Cache
 

@@ -208,7 +208,26 @@ Persistent distributed caching using PostgreSQL.
 - SQL-based systems
 - When you need persistent distributed cache
 
-### 11. [Security Best Practices](./security-best-practices/)
+### 11. [MongoDB Cache](./mongodb/)
+
+Persistent distributed caching using MongoDB.
+
+**Features:**
+
+- Document-based persistent cache
+- Automatic TTL expiration support
+- Distributed cache shared across instances
+- Context-aware operations
+- Works with existing MongoDB infrastructure
+
+**When to use:**
+
+- Already using MongoDB
+- Need automatic cache expiration (TTL)
+- Document-based systems
+- When you need flexible schema for cache entries
+
+### 12. [Security Best Practices](./security-best-practices/)
 
 Secure cache implementation with encryption and key hashing.
 
@@ -256,6 +275,7 @@ go run main.go
 | LevelDB | ⚡⚡ | ✅ | ❌ | ⭐⭐ | Fast + persistent |
 | Redis | ⚡⚡ | ✅* | ✅ | ⭐⭐⭐ | Distributed systems |
 | PostgreSQL | ⚡⚡ | ✅ | ✅ | ⭐⭐⭐ | SQL infrastructure |
+| MongoDB | ⚡⚡ | ✅ | ✅ | ⭐⭐⭐ | MongoDB infrastructure, TTL |
 | Memcache | ⚡⚡ | ❌ | ✅ | ⭐⭐⭐ | Distributed, no persistence |
 | NATS K/V | ⚡⚡ | ✅* | ✅ | ⭐⭐⭐ | NATS users |
 | Hazelcast | ⚡⚡⚡ | ✅* | ✅ | ⭐⭐⭐ | Enterprise, HA |
