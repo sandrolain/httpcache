@@ -132,6 +132,25 @@ Distributed caching using NATS JetStream Key/Value store.
 - Microservices with NATS communication
 - When you want NATS' simplicity over Redis
 
+### 8. [Hazelcast Cache](./hazelcast/)
+
+Distributed caching using Hazelcast in-memory data grid.
+
+**Features:**
+
+- Distributed in-memory cache
+- Automatic data distribution across cluster
+- High availability with replication
+- Scalable architecture
+- Enterprise-grade performance
+
+**When to use:**
+
+- Already using Hazelcast in your infrastructure
+- Need high-performance distributed caching
+- Enterprise applications requiring HA
+- When you need automatic data partitioning
+
 ## Running Examples
 
 Each example has its own directory with:
@@ -162,8 +181,9 @@ go run main.go
 | Redis | ⚡⚡ | ✅* | ✅ | ⭐⭐⭐ |
 | Memcache | ⚡⚡ | ❌ | ✅ | ⭐⭐⭐ |
 | NATS K/V | ⚡⚡ | ✅* | ✅ | ⭐⭐⭐ |
+| Hazelcast | ⚡⚡⚡ | ✅* | ✅ | ⭐⭐⭐ |
 
-*Redis and NATS K/V persistence depends on configuration
+*Redis, NATS K/V, and Hazelcast persistence depends on configuration
 
 ## Common Patterns
 
