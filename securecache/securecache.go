@@ -111,12 +111,13 @@ func (sc *SecureCache) encrypt(data []byte) ([]byte, error) {
 	}
 
 	// Generate a random nonce
-	nonce := make([]byte, nonceSize)
+	nonce := make([]byte, sc.gcm.NonceSize())
 	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
 		return nil, fmt.Errorf("failed to generate nonce: %w", err)
 	}
 
 	// Encrypt the data
+	// #nosec G407 -- nonce is randomly generated above using crypto/rand, not hardcoded
 	ciphertext := sc.gcm.Seal(nonce, nonce, data, nil)
 	return ciphertext, nil
 }
