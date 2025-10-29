@@ -201,3 +201,196 @@ func TestNATSKVCacheIntegrationPersistence(t *testing.T) {
 		}
 	}
 }
+
+// TestNewConstructorIntegration tests the New() constructor with a real NATS instance.
+func TestNewConstructorIntegration(t *testing.T) {
+	if testing.Short() {
+		t.Skip(skipIntegrationMsg)
+	}
+
+	ctx := context.Background()
+
+	// Test with basic configuration
+	config := Config{
+		NATSUrl: sharedNATSEndpoint,
+		Bucket:  "test-new-cache",
+	}
+
+	cache, err := New(ctx, config)
+	if err != nil {
+		t.Fatalf("New() failed: %v", err)
+	}
+
+	// Type assert to get Close method
+	closer, ok := cache.(interface{ Close() error })
+	if !ok {
+		t.Fatal("cache does not implement Close()")
+	}
+	defer closer.Close()
+
+	// Test basic operations
+	key := "test-key"
+	value := []byte("test-value")
+
+	cache.Set(key, value)
+
+	val, ok := cache.Get(key)
+	if !ok {
+		t.Error("expected key to exist")
+	}
+	if string(val) != string(value) {
+		t.Errorf("expected value %s, got %s", value, val)
+	}
+
+	cache.Delete(key)
+
+	_, ok = cache.Get(key)
+	if ok {
+		t.Error("expected key to not exist after deletion")
+	}
+}
+
+// TestNewConstructorWithConfigIntegration tests the New() constructor with custom configuration.
+func TestNewConstructorWithConfigIntegration(t *testing.T) {
+	if testing.Short() {
+		t.Skip(skipIntegrationMsg)
+	}
+
+	ctx := context.Background()
+
+	// Test with full configuration
+	config := Config{
+		NATSUrl:     sharedNATSEndpoint,
+		Bucket:      "test-config-cache",
+		Description: "Integration test cache",
+		TTL:         0, // No TTL for testing
+		NATSOptions: []nats.Option{
+			nats.Name("integration-test-client"),
+		},
+	}
+
+	cache, err := New(ctx, config)
+	if err != nil {
+		t.Fatalf("New() with config failed: %v", err)
+	}
+
+	closer, ok := cache.(interface{ Close() error })
+	if !ok {
+		t.Fatal("cache does not implement Close()")
+	}
+	defer closer.Close()
+
+	// Run standard cache tests
+	test.Cache(t, cache)
+}
+
+// TestNewConstructorMultipleInstancesIntegration tests multiple cache instances with different buckets.
+func TestNewConstructorMultipleInstancesIntegration(t *testing.T) {
+	if testing.Short() {
+		t.Skip(skipIntegrationMsg)
+	}
+
+	ctx := context.Background()
+
+	// Create first cache instance
+	config1 := Config{
+		NATSUrl: sharedNATSEndpoint,
+		Bucket:  "test-cache-1",
+	}
+
+	cache1, err := New(ctx, config1)
+	if err != nil {
+		t.Fatalf("New() cache1 failed: %v", err)
+	}
+	closer1, _ := cache1.(interface{ Close() error })
+	defer closer1.Close()
+
+	// Create second cache instance with different bucket
+	config2 := Config{
+		NATSUrl: sharedNATSEndpoint,
+		Bucket:  "test-cache-2",
+	}
+
+	cache2, err := New(ctx, config2)
+	if err != nil {
+		t.Fatalf("New() cache2 failed: %v", err)
+	}
+	closer2, _ := cache2.(interface{ Close() error })
+	defer closer2.Close()
+
+	// Test isolation between caches
+	key := "test-key"
+	value1 := []byte("value-1")
+	value2 := []byte("value-2")
+
+	// Set different values in each cache
+	cache1.Set(key, value1)
+	cache2.Set(key, value2)
+
+	// Verify each cache has its own value
+	val1, ok1 := cache1.Get(key)
+	if !ok1 {
+		t.Error("cache1: expected key to exist")
+	}
+	if string(val1) != string(value1) {
+		t.Errorf("cache1: expected value %s, got %s", value1, val1)
+	}
+
+	val2, ok2 := cache2.Get(key)
+	if !ok2 {
+		t.Error("cache2: expected key to exist")
+	}
+	if string(val2) != string(value2) {
+		t.Errorf("cache2: expected value %s, got %s", value2, val2)
+	}
+}
+
+// TestNewConstructorCreateOrUpdateIntegration tests that New() properly creates or updates buckets.
+func TestNewConstructorCreateOrUpdateIntegration(t *testing.T) {
+	if testing.Short() {
+		t.Skip(skipIntegrationMsg)
+	}
+
+	ctx := context.Background()
+	bucketName := "test-create-update"
+
+	// Create first cache - should create bucket
+	config1 := Config{
+		NATSUrl:     sharedNATSEndpoint,
+		Bucket:      bucketName,
+		Description: "First description",
+	}
+
+	cache1, err := New(ctx, config1)
+	if err != nil {
+		t.Fatalf("First New() failed: %v", err)
+	}
+	closer1, _ := cache1.(interface{ Close() error })
+
+	// Set a value
+	cache1.Set("key1", []byte("value1"))
+	closer1.Close()
+
+	// Create second cache with same bucket - should update/reuse bucket
+	config2 := Config{
+		NATSUrl:     sharedNATSEndpoint,
+		Bucket:      bucketName,
+		Description: "Updated description",
+	}
+
+	cache2, err := New(ctx, config2)
+	if err != nil {
+		t.Fatalf("Second New() failed: %v", err)
+	}
+	closer2, _ := cache2.(interface{ Close() error })
+	defer closer2.Close()
+
+	// Verify previous data still exists (bucket was updated, not recreated)
+	val, ok := cache2.Get("key1")
+	if !ok {
+		t.Error("expected key1 to exist after bucket update")
+	}
+	if string(val) != "value1" {
+		t.Errorf("expected value1, got %s", val)
+	}
+}

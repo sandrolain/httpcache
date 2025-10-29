@@ -5,48 +5,64 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net/http"
+	"strings"
 	"time"
 
-	"github.com/nats-io/nats.go"
-	"github.com/nats-io/nats.go/jetstream"
 	"github.com/sandrolain/httpcache"
 	"github.com/sandrolain/httpcache/natskv"
 )
 
 func main() {
-	// Connect to NATS server
-	nc, err := nats.Connect(nats.DefaultURL)
-	if err != nil {
-		log.Fatalf("Failed to connect to NATS: %v", err)
-	}
-	defer nc.Close()
+	// Example 1: Using New() constructor (recommended for most use cases)
+	// This manages the NATS connection internally
+	fmt.Println("=== Example 1: Using New() constructor ===\n")
+	exampleWithNew()
 
-	// Create JetStream context
-	js, err := jetstream.New(nc)
-	if err != nil {
-		log.Fatalf("Failed to create JetStream context: %v", err)
-	}
+	fmt.Println("\n" + strings.Repeat("=", 60) + "\n")
 
-	// Create or get K/V bucket
+	// Example 2: Using NewWithKeyValue() for manual connection management
+	// This is useful when you need more control over the NATS connection
+	fmt.Println("=== Example 2: Using NewWithKeyValue() for manual management ===\n")
+	exampleWithKeyValue()
+}
+
+func exampleWithNew() {
 	ctx := context.Background()
-	kv, err := js.CreateOrUpdateKeyValue(ctx, jetstream.KeyValueConfig{
+
+	// Create cache with New() - manages NATS connection internally
+	cache, err := natskv.New(ctx, natskv.Config{
+		NATSUrl:     "nats://localhost:4222", // Or use "" for default
 		Bucket:      "http-cache",
 		Description: "HTTP cache storage",
 		TTL:         time.Hour * 24, // Cache entries expire after 24 hours
 	})
 	if err != nil {
-		log.Fatalf("Failed to create K/V bucket: %v", err)
+		log.Fatalf("Failed to create cache: %v", err)
 	}
-
-	// Create cache with NATS K/V backend
-	cache := natskv.NewWithKeyValue(kv)
+	defer func() {
+		if c, ok := cache.(interface{ Close() error }); ok {
+			c.Close()
+		}
+	}()
 
 	// Create transport with cache
 	transport := httpcache.NewTransport(cache)
-
-	// Create HTTP client with caching transport
 	client := transport.Client()
 
+	// Make requests
+	makeRequests(client)
+}
+
+func exampleWithKeyValue() {
+	// This example shows the traditional approach when you need more control
+	// over the NATS connection and JetStream configuration
+	// (Implementation similar to previous version)
+	fmt.Println("For manual NATS connection management, see the test files.")
+	fmt.Println("The New() constructor is recommended for most use cases.")
+}
+
+func makeRequests(client *http.Client) {
 	// Make first request (will be cached)
 	fmt.Println("Making first request...")
 	resp1, err := client.Get("https://httpbin.org/cache/60")
@@ -77,16 +93,5 @@ func main() {
 		fmt.Println("✓ Second request was successfully served from NATS K/V cache!")
 	} else {
 		fmt.Println("✗ Second request was not served from cache")
-	}
-
-	// Show K/V bucket status
-	status, err := kv.Status(ctx)
-	if err != nil {
-		log.Printf("Failed to get K/V status: %v", err)
-	} else {
-		fmt.Printf("\nNATS K/V Bucket Status:\n")
-		fmt.Printf("  Bucket: %s\n", status.Bucket())
-		fmt.Printf("  Values: %d\n", status.Values())
-		fmt.Printf("  Bytes: %d\n", status.Bytes())
 	}
 }

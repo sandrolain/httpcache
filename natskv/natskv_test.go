@@ -82,3 +82,171 @@ func TestNATSKVCache(t *testing.T) {
 
 	test.Cache(t, c)
 }
+
+// TestNew tests the New constructor.
+func TestNew(t *testing.T) {
+	ns := startNATSServer(t)
+	defer ns.Shutdown()
+
+	ctx := context.Background()
+
+	// Test with valid configuration
+	config := Config{
+		NATSUrl:     ns.ClientURL(),
+		Bucket:      "test-new-cache",
+		Description: "Test cache created with New()",
+		TTL:         time.Hour,
+	}
+
+	c, err := New(ctx, config)
+	if err != nil {
+		t.Fatalf("New() failed: %v", err)
+	}
+
+	// Verify it implements Close
+	closer, ok := c.(interface{ Close() error })
+	if !ok {
+		t.Fatal("cache does not implement Close()")
+	}
+	defer closer.Close()
+
+	// Test basic operations
+	test.Cache(t, c)
+}
+
+// TestNewWithEmptyBucket tests that New() fails without a bucket name.
+func TestNewWithEmptyBucket(t *testing.T) {
+	config := Config{
+		NATSUrl: "nats://localhost:4222",
+	}
+
+	_, err := New(context.Background(), config)
+	if err == nil {
+		t.Error("New() should fail with empty bucket name")
+	}
+}
+
+// TestNewWithInvalidURL tests that New() fails with invalid NATS URL.
+func TestNewWithInvalidURL(t *testing.T) {
+	config := Config{
+		NATSUrl: "nats://invalid-host:9999",
+		Bucket:  "test-bucket",
+	}
+
+	_, err := New(context.Background(), config)
+	if err == nil {
+		t.Error("New() should fail with invalid NATS URL")
+	}
+}
+
+// TestNewWithDefaultURL tests that New() uses default URL when not specified.
+func TestNewWithDefaultURL(t *testing.T) {
+	ns := startNATSServer(t)
+	defer ns.Shutdown()
+
+	// Start server on default port (this test might conflict with a running NATS)
+	// Skip this test in CI or when NATS is not available on default port
+	t.Skip("Skipping test that requires NATS on default port")
+
+	config := Config{
+		Bucket: "test-default-url",
+	}
+
+	_, err := New(context.Background(), config)
+	if err != nil {
+		t.Logf("New() with default URL failed (expected if NATS not running): %v", err)
+	}
+}
+
+// TestCloseWithoutConnection tests that Close() works when connection is nil.
+func TestCloseWithoutConnection(t *testing.T) {
+	c, _, cleanup := setupNATSCache(t)
+	defer cleanup()
+
+	// Close should not fail even if nc is nil (created with NewWithKeyValue)
+	if err := c.Close(); err != nil {
+		t.Errorf("Close() on NewWithKeyValue cache failed: %v", err)
+	}
+}
+
+// TestCloseWithConnection tests that Close() works when connection exists.
+func TestCloseWithConnection(t *testing.T) {
+	ns := startNATSServer(t)
+	defer ns.Shutdown()
+
+	ctx := context.Background()
+
+	config := Config{
+		NATSUrl: ns.ClientURL(),
+		Bucket:  "test-close",
+	}
+
+	cache, err := New(ctx, config)
+	if err != nil {
+		t.Fatalf("New() failed: %v", err)
+	}
+
+	// Type assert to interface with Close method
+	closer, ok := cache.(interface{ Close() error })
+	if !ok {
+		t.Fatal("cache does not implement Close()")
+	}
+
+	// Close should work
+	if err := closer.Close(); err != nil {
+		t.Errorf("Close() failed: %v", err)
+	}
+}
+
+// TestNewWithNATSOptions tests that custom NATS options are used.
+func TestNewWithNATSOptions(t *testing.T) {
+	ns := startNATSServer(t)
+	defer ns.Shutdown()
+
+	ctx := context.Background()
+
+	config := Config{
+		NATSUrl: ns.ClientURL(),
+		Bucket:  "test-options",
+		NATSOptions: []nats.Option{
+			nats.Name("test-client"),
+			nats.MaxReconnects(5),
+		},
+	}
+
+	c, err := New(ctx, config)
+	if err != nil {
+		t.Fatalf("New() with options failed: %v", err)
+	}
+
+	closer, ok := c.(interface{ Close() error })
+	if !ok {
+		t.Fatal("cache does not implement Close()")
+	}
+	defer closer.Close()
+
+	// Verify cache works by testing basic operations
+	testKey := "test-key"
+	testValue := []byte("test-value")
+
+	// Set
+	c.Set(testKey, testValue)
+
+	// Get
+	val, ok := c.Get(testKey)
+	if !ok {
+		t.Error("Get() failed to retrieve value")
+	}
+	if string(val) != string(testValue) {
+		t.Errorf("Get() = %s, want %s", string(val), string(testValue))
+	}
+
+	// Delete
+	c.Delete(testKey)
+
+	// Verify deletion
+	_, ok = c.Get(testKey)
+	if ok {
+		t.Error("Get() should not retrieve deleted value")
+	}
+}
