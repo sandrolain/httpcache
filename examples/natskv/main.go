@@ -16,14 +16,14 @@ import (
 func main() {
 	// Example 1: Using New() constructor (recommended for most use cases)
 	// This manages the NATS connection internally
-	fmt.Println("=== Example 1: Using New() constructor ===\n")
+	fmt.Println("=== Example 1: Using New() constructor ===")
 	exampleWithNew()
 
 	fmt.Println("\n" + strings.Repeat("=", 60) + "\n")
 
 	// Example 2: Using NewWithKeyValue() for manual connection management
 	// This is useful when you need more control over the NATS connection
-	fmt.Println("=== Example 2: Using NewWithKeyValue() for manual management ===\n")
+	fmt.Println("=== Example 2: Using NewWithKeyValue() for manual management ===")
 	exampleWithKeyValue()
 }
 

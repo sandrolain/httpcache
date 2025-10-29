@@ -78,6 +78,9 @@ httpcache supports multiple storage backends. Choose the one that fits your use 
 | **[Redis](./redis)** | ⚡⚡ Fast | ✅ Configurable | ✅ Yes | Microservices, distributed systems |
 | **[PostgreSQL](./postgresql)** | ⚡⚡ Fast | ✅ Yes | ✅ Yes | Existing PostgreSQL infrastructure, SQL-based systems |
 | **[Memcache](./memcache)** | ⚡⚡ Fast | ❌ No | ✅ Yes | Distributed systems, App Engine |
+| **[NATS K/V](./natskv)** | ⚡⚡ Fast | ✅ Configurable | ✅ Yes | NATS-based microservices, JetStream |
+| **[Hazelcast](./hazelcast)** | ⚡⚡ Fast | ✅ Yes | ✅ Yes | Enterprise distributed systems, in-memory data grids |
+| **[FreeCache](./freecache)** | ⚡⚡⚡ Fastest | ❌ No | ❌ No | High-performance in-memory with zero GC overhead |
 
 ### Third-Party Backends
 
@@ -156,6 +159,63 @@ client := &http.Client{Transport: transport}
 
 **Best for**: Applications with existing PostgreSQL infrastructure, SQL-based systems
 
+### NATS K/V Cache
+
+```go
+import "github.com/sandrolain/httpcache/natskv"
+
+ctx := context.Background()
+cache, _ := natskv.New(ctx, natskv.Config{
+    NATSUrl: "nats://localhost:4222",
+    Bucket:  "http-cache",
+    TTL:     24 * time.Hour,
+})
+defer cache.(interface{ Close() error }).Close()
+
+transport := httpcache.NewTransport(cache)
+client := &http.Client{Transport: transport}
+```
+
+**Best for**: NATS-based microservices, JetStream infrastructure, distributed systems with built-in TTL
+
+### Hazelcast Cache
+
+```go
+import (
+    "github.com/hazelcast/hazelcast-go-client"
+    hzcache "github.com/sandrolain/httpcache/hazelcast"
+)
+
+ctx := context.Background()
+config := hazelcast.Config{}
+config.Cluster.Network.SetAddresses("localhost:5701")
+client, _ := hazelcast.StartNewClientWithConfig(ctx, config)
+defer client.Shutdown(ctx)
+
+cache := hzcache.New(client, "http-cache")
+transport := httpcache.NewTransport(cache)
+httpClient := &http.Client{Transport: transport}
+```
+
+**Best for**: Enterprise distributed systems, in-memory data grids, high availability clusters
+
+### FreeCache
+
+```go
+import (
+    "github.com/coocood/freecache"
+    fcache "github.com/sandrolain/httpcache/freecache"
+)
+
+// Create FreeCache with 100MB size
+fc := freecache.NewCache(100 * 1024 * 1024)
+cache := fcache.NewWithClient(fc)
+transport := httpcache.NewTransport(cache)
+client := &http.Client{Transport: transport}
+```
+
+**Best for**: High-performance in-memory caching with zero GC overhead, memory-constrained environments
+
 ### Custom Transport Configuration
 
 ```go
@@ -183,7 +243,11 @@ See the [`examples/`](./examples) directory for complete, runnable examples:
 - **[Redis](./examples/redis/)** - Distributed caching with Redis
 - **[LevelDB](./examples/leveldb/)** - High-performance persistent cache
 - **[PostgreSQL](./examples/postgresql/)** - SQL-based persistent cache
+- **[NATS K/V](./examples/natskv/)** - NATS JetStream Key/Value cache
+- **[Hazelcast](./examples/hazelcast/)** - Enterprise distributed cache
+- **[FreeCache](./examples/freecache/)** - High-performance in-memory with zero GC
 - **[Custom Backend](./examples/custom-backend/)** - Build your own cache backend
+- **[Prometheus Metrics](./examples/prometheus/)** - Monitoring cache performance
 
 Each example includes:
 
