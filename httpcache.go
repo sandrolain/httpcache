@@ -121,6 +121,34 @@ func cacheKeyWithHeaders(req *http.Request, headers []string) string {
 	return key
 }
 
+// cacheKeyWithVary returns the cache key for req, including Vary header values from the cached response.
+// This implements RFC 9111 vary separation: separate cache entries for each variant.
+// The varyHeaders parameter contains the list of headers specified in the Vary response header.
+func cacheKeyWithVary(req *http.Request, varyHeaders []string) string {
+	key := cacheKey(req)
+
+	if len(varyHeaders) == 0 {
+		return key
+	}
+
+	// Collect vary header values from the request
+	var varyParts []string
+	for _, header := range varyHeaders {
+		canonicalHeader := http.CanonicalHeaderKey(header)
+		value := req.Header.Get(canonicalHeader)
+		// Include even empty values to ensure proper cache separation
+		varyParts = append(varyParts, canonicalHeader+":"+value)
+	}
+
+	if len(varyParts) > 0 {
+		// Sort to ensure consistent key generation
+		sort.Strings(varyParts)
+		key = key + "|vary:" + strings.Join(varyParts, "|")
+	}
+
+	return key
+}
+
 // CachedResponse returns the cached http.Response for req if present, and nil
 // otherwise.
 func CachedResponse(c Cache, req *http.Request) (resp *http.Response, err error) {
@@ -169,6 +197,13 @@ type Transport struct {
 	// Shared caches (CDNs, proxies) must NOT cache private responses.
 	// Set to true only if using httpcache as a shared/public cache (CDN, reverse proxy).
 	IsPublicCache bool
+	// EnableVarySeparation enables RFC 9111 compliant Vary header separation (default: false).
+	// When true, responses with Vary headers create separate cache entries for each variant.
+	// When false (default), the previous behavior is maintained where variants overwrite each other.
+	// RFC 9111 Section 4.1: Caches should maintain separate entries for different variants.
+	// Enable this for full RFC 9111 compliance with content negotiation (Accept-Language, Accept, etc.).
+	// Note: Enabling this may increase cache storage usage as each variant is stored separately.
+	EnableVarySeparation bool
 	// ShouldCache allows configuring non-standard caching behaviour based on the response.
 	// If set, this function is called to determine whether a non-200 response should be cached.
 	// This enables caching of responses like 404 Not Found, 301 Moved Permanently, etc.
@@ -407,6 +442,27 @@ func (t *Transport) setupCachingBody(resp *http.Response, cacheKey string) {
 	}
 }
 
+// setupCachingBodyMultiple stores the cached response under multiple cache keys when the
+// response body is fully read. This is used for Vary separation where we also keep
+// a manifest or pointer under the base key to allow discovery of variant keys.
+func (t *Transport) setupCachingBodyMultiple(resp *http.Response, cacheKeys []string) {
+	resp.Body = &cachingReadCloser{
+		R: resp.Body,
+		OnEOF: func(r io.Reader) {
+			respCopy := *resp
+			respCopy.Body = io.NopCloser(r)
+			// Add timestamp when caching
+			respCopy.Header.Set(XCachedTime, time.Now().UTC().Format(time.RFC3339))
+			respBytes, err := httputil.DumpResponse(&respCopy, true)
+			if err == nil {
+				for _, k := range cacheKeys {
+					t.Cache.Set(k, respBytes)
+				}
+			}
+		},
+	}
+}
+
 // storeCachedResponse caches the response immediately
 func (t *Transport) storeCachedResponse(resp *http.Response, cacheKey string) {
 	// Add timestamp when caching
@@ -507,6 +563,34 @@ func (t *Transport) storeResponseInCache(resp *http.Response, req *http.Request,
 
 	storeVaryHeaders(resp, req)
 
+	// RFC 9111 Vary Separation: If EnableVarySeparation is true and response has Vary headers,
+	// create separate cache entries for each variant (new behavior).
+	// Otherwise, use the previous behavior where variants overwrite each other (default).
+	varyHeaders := headerAllCommaSepValues(resp.Header, "vary")
+	if t.EnableVarySeparation && len(varyHeaders) > 0 {
+		// Keep original base key so we can also persist a manifest/last-variant there
+		baseKey := cacheKey
+		// Use vary-specific cache key for this variant
+		varyKey := cacheKeyWithVary(req, varyHeaders)
+		cacheKey = varyKey
+
+		if req.Method == methodGET {
+			// Store the full response under both the variant key and the base key so
+			// that RoundTrip can read the base entry (to discover Vary) and then
+			// re-lookup the variant-specific entry. This preserves backward compatibility
+			// with existing lookup behaviour while providing separate entries per variant.
+			t.setupCachingBodyMultiple(resp, []string{varyKey, baseKey})
+			return
+		}
+
+		// Non-GET responses: store under both keys immediately
+		t.storeCachedResponse(resp, varyKey)
+		// Also store a copy under base key
+		respCopy := *resp
+		t.storeCachedResponse(&respCopy, baseKey)
+		return
+	}
+
 	if req.Method == methodGET {
 		t.setupCachingBody(resp, cacheKey)
 	} else {
@@ -528,7 +612,27 @@ func (t *Transport) RoundTrip(req *http.Request) (resp *http.Response, err error
 
 	var cachedResp *http.Response
 	if cacheable {
+		// Try to get cached response
 		cachedResp, err = cachedResponseWithKey(t.Cache, req, cacheKey)
+
+		// RFC 9111 Vary Separation: If EnableVarySeparation is true and cached response has Vary headers,
+		// recalculate cache key with vary values and try again for the correct variant.
+		// This only applies when the new vary separation behavior is enabled.
+		if t.EnableVarySeparation && cachedResp != nil && err == nil {
+			varyHeaders := headerAllCommaSepValues(cachedResp.Header, "vary")
+			if len(varyHeaders) > 0 {
+				// Recalculate key with vary headers for proper variant lookup
+				varyCacheKey := cacheKeyWithVary(req, varyHeaders)
+				if varyCacheKey != cacheKey {
+					// Try with vary-specific key
+					varyCachedResp, varyErr := cachedResponseWithKey(t.Cache, req, varyCacheKey)
+					if varyErr == nil && varyCachedResp != nil {
+						cachedResp = varyCachedResp
+						cacheKey = varyCacheKey
+					}
+				}
+			}
+		}
 	} else {
 		// RFC 7234 Section 4.4: Invalidate cache on unsafe methods
 		// Delete the request URI immediately for unsafe methods

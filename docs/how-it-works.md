@@ -53,51 +53,129 @@ When a stale response is served due to an error (using `stale-if-error`), the `X
 
 ## Vary Header Support
 
-⚠️ **Current Limitation**: The `Vary` response header is currently used for **validation only**, not for creating separate cache entries.
+✅ **RFC 9111 Compliance** (Optional): httpcache supports **full Vary header separation** as specified in RFC 9111 Section 4.1 when `EnableVarySeparation` is set to `true`.
 
-**What this means:**
-
-- The cached response stores the values of headers specified in `Vary` (e.g., `Accept`, `Accept-Language`)
-- When retrieving from cache, httpcache checks if the current request headers match the stored values
-- If they don't match, the cache is considered invalid and a new request is made
-- **However**, the new response **overwrites** the previous cache entry instead of creating a separate entry
-
-**Example of current behavior:**
-
-```go
-// Server responds with: Vary: Accept
-
-// Request 1: Accept: application/json
-resp1, _ := client.Do(req1)  // Fetches from server, caches with Accept: application/json
-
-// Request 2: Accept: text/html (different Accept header)
-resp2, _ := client.Do(req2)  // Cache miss (doesn't match), fetches from server
-                              // ❌ OVERWRITES previous cache entry
-
-// Request 3: Accept: application/json (same as Request 1)
-resp3, _ := client.Do(req3)  // ❌ Cache miss! (was overwritten by Request 2)
-```
-
-**Recommended Solution:**
-
-Use `CacheKeyHeaders` to create true separate cache entries based on request headers:
+**Configuration:**
 
 ```go
 transport := httpcache.NewMemoryCacheTransport()
-transport.CacheKeyHeaders = []string{"Accept", "Accept-Language"}
-
-// Now each unique combination creates a separate cache entry
-req1.Header.Set("Accept", "application/json")
-client.Do(req1)  // Cached separately
-
-req2.Header.Set("Accept", "text/html")
-client.Do(req2)  // Cached separately (doesn't overwrite req1)
-
-req3.Header.Set("Accept", "application/json")
-client.Do(req3)  // ✅ Cache hit! (separate entry still exists)
+transport.EnableVarySeparation = true  // Enable RFC 9111 compliant vary separation
 ```
 
-**Note**: This limitation may be addressed in a future version to fully comply with RFC 7234 Section 4.1 (Vary header semantics).
+**Default Behavior (EnableVarySeparation = false):**
+
+- Responses with Vary headers use the Vary header for **validation only**
+- New variants **overwrite** previous cache entries for the same URL
+- This is the legacy behavior maintained for backward compatibility
+
+**New Behavior (EnableVarySeparation = true):**
+
+- Responses with Vary headers create **separate cache entries** for each variant
+- Each unique combination of vary header values gets its own cache entry
+- Variants do not overwrite each other
+- Full RFC 9111 compliance for content negotiation
+
+**How it works when enabled:**
+
+- When a response includes a `Vary` header (e.g., `Vary: Accept-Language`), httpcache creates separate cache entries for each unique combination of vary header values
+- Each variant is stored with a cache key that includes both the URL and the values of the varied headers
+- Subsequent requests automatically retrieve the correct variant based on their header values
+- This ensures proper content negotiation and prevents variants from overwriting each other
+
+**Example with EnableVarySeparation = true:**
+
+```go
+transport := httpcache.NewMemoryCacheTransport()
+transport.EnableVarySeparation = true  // Enable vary separation
+
+// Server responds with: Vary: Accept-Language, Cache-Control: max-age=3600
+
+// Request 1: Accept-Language: en
+resp1, _ := client.Do(req1)  // Fetches from server, caches English variant
+// Cache key: "GET|https://example.com/api|vary:Accept-Language:en"
+
+// Request 2: Accept-Language: fr (different language)
+resp2, _ := client.Do(req2)  // Fetches from server, caches French variant
+// Cache key: "GET|https://example.com/api|vary:Accept-Language:fr"
+// ✅ DOES NOT overwrite English variant
+
+// Request 3: Accept-Language: en (same as Request 1)
+resp3, _ := client.Do(req3)  // ✅ Cache hit! Returns English variant
+```
+
+**Example with EnableVarySeparation = false (default):**
+
+```go
+// Default behavior - variants overwrite each other
+transport := httpcache.NewMemoryCacheTransport()
+// EnableVarySeparation defaults to false
+
+// Request 1: Accept-Language: en
+resp1, _ := client.Do(req1)  // Fetches from server, caches with Accept-Language: en
+
+// Request 2: Accept-Language: fr (different language)
+resp2, _ := client.Do(req2)  // Cache miss (doesn't match), fetches from server
+// ❌ OVERWRITES previous cache entry
+
+// Request 3: Accept-Language: en (same as Request 1)
+resp3, _ := client.Do(req3)  // ❌ Cache miss! (was overwritten by Request 2)
+```
+
+**Multiple Vary headers:**
+
+When a response varies by multiple headers, all are included in the cache key:
+
+```go
+transport.EnableVarySeparation = true
+
+// Server responds with: Vary: Accept, Accept-Language
+
+req1.Header.Set("Accept", "application/json")
+req1.Header.Set("Accept-Language", "en")
+client.Do(req1)  // Cache key includes both headers
+
+req2.Header.Set("Accept", "application/json")
+req2.Header.Set("Accept-Language", "fr")
+client.Do(req2)  // Different cache entry (different language)
+
+req3.Header.Set("Accept", "text/html")
+req3.Header.Set("Accept-Language", "en")
+client.Do(req3)  // Different cache entry (different Accept)
+```
+
+**Additional control with CacheKeyHeaders:**
+
+You can still use `CacheKeyHeaders` for custom cache separation beyond server-specified Vary headers:
+
+```go
+transport := httpcache.NewMemoryCacheTransport()
+transport.EnableVarySeparation = true
+// Separate cache entries by user, even if server doesn't specify Vary
+transport.CacheKeyHeaders = []string{"X-User-ID"}
+
+req1.Header.Set("X-User-ID", "user-123")
+client.Do(req1)  // Cached separately for user-123
+
+req2.Header.Set("X-User-ID", "user-456")
+client.Do(req2)  // Cached separately for user-456
+```
+
+**When to enable vary separation:**
+
+- ✅ Enable when you need full RFC 9111 compliance
+- ✅ Enable for proper content negotiation (language-specific content, different formats)
+- ✅ Enable when caching APIs that return different content based on Accept headers
+- ⚠️ Be aware that this may increase cache storage usage
+- ⚠️ Default is disabled for backward compatibility
+
+**Benefits when enabled:**
+
+- ✅ Full RFC 9111 compliance for content negotiation
+- ✅ Correctly handles language-specific content (Accept-Language)
+- ✅ Supports multiple content types (Accept)
+- ✅ Works with encoding preferences (Accept-Encoding)
+- ✅ Prevents cache pollution from mixed variants
+- ✅ Each variant is cached independently
 
 ## RFC 7234 Compliance Features
 

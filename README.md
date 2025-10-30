@@ -23,8 +23,7 @@
     - [🔍 Quick Navigation](#-quick-navigation)
   - [Practical Examples](#practical-examples)
   - [Limitations](#limitations)
-    - [Vary Header](#vary-header)
-    - [Private Directive](#private-directive)
+    - [Private Directive for Public Caches](#private-directive-for-public-caches)
   - [Performance](#performance)
   - [Testing](#testing)
   - [Contributing](#contributing)
@@ -43,6 +42,7 @@
   - ✅ Content-Location and Location header invalidation (RFC 9111 Section 4.4)
   - ✅ Same-origin policy enforcement for cache invalidation
   - ✅ Cache-Control: private directive support (RFC 9111 Section 5.2.2.6)
+  - ✅ Vary header separation - Optional separate cache entries for response variants (RFC 9111 Section 4.1)
 - ✅ **Multiple Backends** - Memory, Disk, Redis, LevelDB, Memcache, PostgreSQL, MongoDB, NATS K/V, Hazelcast, Cloud Storage (S3/GCS/Azure)
 - ✅ **Multi-Tier Caching** - Combine multiple backends with automatic fallback and promotion
 - ✅ **Security Wrapper** - Optional SHA-256 key hashing and AES-256 encryption
@@ -150,23 +150,15 @@ Each example includes:
 
 ## Limitations
 
-### Vary Header
+### Private Directive for Public Caches
 
-⚠️ **Current Limitation**: The `Vary` response header is used for **validation only**, not for creating separate cache entries.
+⚠️ **Note**: When configured as a public cache (`IsPublicCache: true`), responses with the `Cache-Control: private` directive are not cached.
 
-**Workaround**: Use [`CacheKeyHeaders`](./docs/advanced-features.md#cache-key-headers) to create true separate cache entries.
+**Default Behavior**: By default, httpcache operates as a private cache, which allows caching of responses marked as `private`.
 
-See [How It Works - Vary Header Support](./docs/how-it-works.md#vary-header-support) for details.
+**Public Cache Mode**: When `IsPublicCache` is set to `true`, the cache behaves as a shared cache and respects the `private` directive by not caching such responses.
 
-### Private Directive
-
-⚠️ **Current Limitation**: The `Cache-Control: private` directive is ignored because httpcache implements a private cache.
-
-**Impact**: In multi-user scenarios, responses marked as `private` will still be cached and potentially shared.
-
-**Workaround**: Use `Cache-Control: no-store` or configure [`CacheKeyHeaders`](./docs/advanced-features.md#cache-key-headers).
-
-See [Security Considerations](./docs/security.md#private-cache-and-multi-user-applications) for details.
+See [Security Considerations](./docs/security.md#private-cache-and-multi-user-applications) and [Advanced Features - Private vs Public Cache](./docs/advanced-features.md#private-vs-public-cache) for details.
 
 ## Performance
 

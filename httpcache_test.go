@@ -772,6 +772,7 @@ func TestGetWithLastModified(t *testing.T) {
 
 func TestGetWithVary(t *testing.T) {
 	resetTest()
+	s.transport.EnableVarySeparation = true // Enable vary separation for this test
 	req, err := http.NewRequest(methodGET, s.server.URL+"/varyaccept", nil)
 	if err != nil {
 		t.Fatal(err)
@@ -827,6 +828,7 @@ func TestGetWithVary(t *testing.T) {
 
 func TestGetWithDoubleVary(t *testing.T) {
 	resetTest()
+	s.transport.EnableVarySeparation = true // Enable vary separation for this test
 	req, err := http.NewRequest(methodGET, s.server.URL+"/doublevary", nil)
 	if err != nil {
 		t.Fatal(err)
@@ -883,6 +885,7 @@ func TestGetWithDoubleVary(t *testing.T) {
 
 func TestGetWith2VaryHeaders(t *testing.T) {
 	resetTest()
+	s.transport.EnableVarySeparation = true // Enable vary separation for this test
 	// Tests that multiple Vary headers' comma-separated lists are
 	// merged. See https://github.com/sandrolain/httpcache/issues/27.
 	const (
@@ -982,6 +985,7 @@ func TestGetWith2VaryHeaders(t *testing.T) {
 
 func TestGetVaryUnused(t *testing.T) {
 	resetTest()
+	s.transport.EnableVarySeparation = true // Enable vary separation for this test
 	req, err := http.NewRequest(methodGET, s.server.URL+"/varyunused", nil)
 	if err != nil {
 		t.Fatal(err)
