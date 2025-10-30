@@ -42,6 +42,7 @@
   - ✅ Content-Location and Location header invalidation (RFC 9111 Section 4.4)
   - ✅ Same-origin policy enforcement for cache invalidation
   - ✅ Cache-Control: private directive support (RFC 9111 Section 5.2.2.6)
+  - ✅ Cache-Control: must-understand directive support (RFC 9111 Section 5.2.2.3)
   - ✅ Vary header separation - Optional separate cache entries for response variants (RFC 9111 Section 4.1)
 - ✅ **Multiple Backends** - Memory, Disk, Redis, LevelDB, Memcache, PostgreSQL, MongoDB, NATS K/V, Hazelcast, Cloud Storage (S3/GCS/Azure)
 - ✅ **Multi-Tier Caching** - Combine multiple backends with automatic fallback and promotion

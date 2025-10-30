@@ -57,6 +57,7 @@ const (
 	cacheControlMaxAge               = "max-age"
 	cacheControlNoStore              = "no-store"
 	cacheControlPrivate              = "private"
+	cacheControlMustUnderstand       = "must-understand"
 
 	headerPragma  = "Pragma"
 	pragmaNoCache = "no-cache"
@@ -74,6 +75,23 @@ const (
 	freshnessStringTransparent          = "transparent"
 	freshnessStringUnknown              = "unknown"
 )
+
+// RFC 9111 Section 5.2.2.3: HTTP status codes that are understood by this cache.
+// When must-understand directive is present, only responses with these status codes
+// can be cached, even if other cache directives would normally prevent caching.
+var understoodStatusCodes = map[int]bool{
+	200: true, // OK
+	203: true, // Non-Authoritative Information
+	204: true, // No Content
+	206: true, // Partial Content
+	300: true, // Multiple Choices
+	301: true, // Moved Permanently
+	404: true, // Not Found
+	405: true, // Method Not Allowed
+	410: true, // Gone
+	414: true, // URI Too Long
+	501: true, // Not Implemented
+}
 
 // A Cache interface is used by the Transport to store and retrieve responses.
 type Cache interface {
@@ -532,10 +550,18 @@ func processUncachedRequest(transport http.RoundTripper, req *http.Request) (*ht
 
 // storeResponseInCache stores the response in cache if applicable
 func (t *Transport) storeResponseInCache(resp *http.Response, req *http.Request, cacheKey string, cacheable bool) {
-	if !cacheable || !canStore(parseCacheControl(req.Header), parseCacheControl(resp.Header), t.IsPublicCache) {
+	respCacheControl := parseCacheControl(resp.Header)
+	reqCacheControl := parseCacheControl(req.Header)
+
+	if !cacheable || !canStore(reqCacheControl, respCacheControl, t.IsPublicCache, resp.StatusCode) {
 		t.Cache.Delete(cacheKey)
 		return
 	}
+
+	// RFC 9111 Section 5.2.2.3: must-understand directive
+	// When must-understand is present and status code is understood, always cache
+	_, hasMustUnderstand := respCacheControl[cacheControlMustUnderstand]
+	mustUnderstandAllowsCaching := hasMustUnderstand && understoodStatusCodes[resp.StatusCode]
 
 	// Check if we should cache based on status code
 	// RFC 7231 section 6.1: Cacheable by default status codes
@@ -549,7 +575,8 @@ func (t *Transport) storeResponseInCache(resp *http.Response, req *http.Request,
 		resp.StatusCode == http.StatusMethodNotAllowed || // 405
 		resp.StatusCode == http.StatusGone || // 410
 		resp.StatusCode == http.StatusRequestURITooLong || // 414
-		resp.StatusCode == http.StatusNotImplemented // 501
+		resp.StatusCode == http.StatusNotImplemented || // 501
+		mustUnderstandAllowsCaching // must-understand overrides status code check
 
 	// Allow custom override via ShouldCache hook
 	if !shouldCache && t.ShouldCache != nil {
@@ -572,7 +599,6 @@ func (t *Transport) storeResponseInCache(resp *http.Response, req *http.Request,
 		baseKey := cacheKey
 		// Use vary-specific cache key for this variant
 		varyKey := cacheKeyWithVary(req, varyHeaders)
-		cacheKey = varyKey
 
 		if req.Method == methodGET {
 			// Store the full response under both the variant key and the base key so
@@ -1169,12 +1195,35 @@ func getEndToEndHeaders(respHeaders http.Header) []string {
 
 // canStore determines if a response can be stored in the cache based on Cache-Control directives.
 // isPublicCache: true if this is a shared/public cache, false for private cache (default)
-func canStore(reqCacheControl, respCacheControl cacheControl, isPublicCache bool) (canStore bool) {
-	if _, ok := respCacheControl[cacheControlNoStore]; ok {
-		return false
-	}
-	if _, ok := reqCacheControl[cacheControlNoStore]; ok {
-		return false
+// canStore returns whether the response can be stored in the cache.
+// RFC 9111 Section 3: Storing Responses in Caches
+// RFC 9111 Section 5.2.2.3: must-understand directive
+func canStore(reqCacheControl, respCacheControl cacheControl, isPublicCache bool, statusCode int) (canStore bool) {
+	// RFC 9111 Section 5.2.2.3: must-understand directive
+	// When must-understand is present, the cache can only store the response if:
+	// 1. The status code is understood by the cache, AND
+	// 2. All other cache directives are comprehended
+	//
+	// If must-understand is present and the status code is not understood,
+	// the cache MUST NOT store the response, even if other directives would permit it.
+	//
+	// If must-understand is present and the status code IS understood,
+	// then no-store is effectively ignored (the response can be cached).
+	if _, hasMustUnderstand := respCacheControl[cacheControlMustUnderstand]; hasMustUnderstand {
+		if !understoodStatusCodes[statusCode] {
+			// Status code not understood → MUST NOT cache
+			return false
+		}
+		// Status code understood → proceed with caching
+		// (this effectively overrides no-store when must-understand is present)
+	} else {
+		// Normal behavior when must-understand is NOT present
+		if _, ok := respCacheControl[cacheControlNoStore]; ok {
+			return false
+		}
+		if _, ok := reqCacheControl[cacheControlNoStore]; ok {
+			return false
+		}
 	}
 
 	// RFC 9111: Check Cache-Control: private directive

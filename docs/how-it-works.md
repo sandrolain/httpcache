@@ -177,6 +177,89 @@ client.Do(req2)  // Cached separately for user-456
 - ✅ Prevents cache pollution from mixed variants
 - ✅ Each variant is cached independently
 
+## must-understand Directive Support (RFC 9111 Section 5.2.2.3)
+
+The `must-understand` directive is a new cache directive introduced in RFC 9111 that allows responses to be cached even when they would normally be prohibited by other directives, **if and only if** the cache understands the response's status code.
+
+### How it Works
+
+The `must-understand` directive modifies the caching behavior as follows:
+
+1. **Known Status Codes**: If the response status code is "understood" by the cache (see list below), the response CAN be cached even if `no-store` is present
+2. **Unknown Status Codes**: If the response status code is NOT understood, the response MUST NOT be cached, regardless of other directives
+
+### Understood Status Codes
+
+httpcache recognizes the following HTTP status codes as "understood":
+
+- **2xx Success**: 200 (OK), 203 (Non-Authoritative Information), 204 (No Content), 206 (Partial Content)
+- **3xx Redirection**: 300 (Multiple Choices), 301 (Moved Permanently)
+- **4xx Client Errors**: 404 (Not Found), 405 (Method Not Allowed), 410 (Gone), 414 (URI Too Long)
+- **5xx Server Errors**: 501 (Not Implemented)
+
+### Examples
+
+**Example 1: Known status + must-understand + no-store → CACHED**
+
+```go
+// Server response:
+HTTP/1.1 200 OK
+Cache-Control: must-understand, no-store, max-age=3600
+Content-Type: application/json
+
+// Result: Response IS cached because:
+// - Status 200 is understood
+// - must-understand is present
+// - must-understand overrides no-store for understood status codes
+```
+
+**Example 2: Unknown status + must-understand → NOT CACHED**
+
+```go
+// Server response:
+HTTP/1.1 418 I'm a teapot
+Cache-Control: must-understand, max-age=3600
+Content-Type: text/plain
+
+// Result: Response is NOT cached because:
+// - Status 418 is NOT in the understood list
+// - must-understand requires understood status for caching
+```
+
+**Example 3: Known status + must-understand + private → Respects IsPublicCache**
+
+```go
+// Private cache (default):
+transport := httpcache.NewMemoryCacheTransport()
+transport.IsPublicCache = false  // default
+
+// Server response:
+HTTP/1.1 200 OK
+Cache-Control: must-understand, private, max-age=3600
+
+// Result: Response IS cached (private cache can cache private responses)
+
+// Public cache:
+transport.IsPublicCache = true
+
+// Result: Response is NOT cached (public cache cannot cache private responses)
+```
+
+### Use Cases
+
+The `must-understand` directive is useful when:
+
+1. **Custom Status Codes**: You use custom or extended HTTP status codes and want to ensure caches only cache them if they understand what they mean
+2. **Sensitive Errors**: You want to cache certain error responses (like 404) but not others
+3. **Future-Proofing**: Your API evolves with new status codes, and older caches won't accidentally cache responses they don't understand
+
+### Implementation Notes
+
+- The directive is parsed automatically from `Cache-Control` headers
+- No configuration needed - works out of the box
+- Compatible with all other cache directives (except `no-store` for understood status codes)
+- Follows RFC 9111 Section 5.2.2.3 specification exactly
+
 ## RFC 7234 Compliance Features
 
 httpcache implements several important RFC 7234 features for production-ready HTTP caching:
