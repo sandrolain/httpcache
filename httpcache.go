@@ -35,6 +35,10 @@ const (
 	XFreshness = "X-Cache-Freshness"
 	// XCachedTime is the internal header used to store when a response was cached
 	XCachedTime = "X-Cached-Time"
+	// XRequestTime stores when the HTTP request was initiated (for Age calculation per RFC 9111)
+	XRequestTime = "X-Request-Time"
+	// XResponseTime stores when the HTTP response was received (for Age calculation per RFC 9111)
+	XResponseTime = "X-Response-Time"
 
 	methodGET    = "GET"
 	methodHEAD   = "HEAD"
@@ -428,7 +432,26 @@ func performRequest(transport http.RoundTripper, req *http.Request, onlyIfCached
 	if onlyIfCached {
 		return newGatewayTimeoutResponse(req), nil
 	}
-	return transport.RoundTrip(req)
+
+	// RFC 9111 Section 4.2.3: Track request_time for Age calculation
+	requestTime := time.Now().UTC()
+
+	resp, err := transport.RoundTrip(req)
+	if err != nil {
+		return nil, err
+	}
+
+	// RFC 9111 Section 4.2.3: Track response_time for Age calculation
+	responseTime := time.Now().UTC()
+
+	// Store timing information in response headers for Age calculation
+	// Only if response has headers (defensive check)
+	if resp != nil && resp.Header != nil {
+		resp.Header.Set(XRequestTime, requestTime.Format(time.RFC3339))
+		resp.Header.Set(XResponseTime, responseTime.Format(time.RFC3339))
+	}
+
+	return resp, nil
 }
 
 // storeVaryHeaders stores the Vary header values in the response for future cache validation
@@ -450,8 +473,9 @@ func (t *Transport) setupCachingBody(resp *http.Response, cacheKey string) {
 		OnEOF: func(r io.Reader) {
 			resp := *resp
 			resp.Body = io.NopCloser(r)
-			// Add timestamp when caching
-			resp.Header.Set(XCachedTime, time.Now().UTC().Format(time.RFC3339))
+			// Add cached timestamp (backward compatibility with X-Cached-Time)
+			// X-Request-Time and X-Response-Time are already set by performRequest
+			resp.Header.Set(XCachedTime, resp.Header.Get(XResponseTime))
 			respBytes, err := httputil.DumpResponse(&resp, true)
 			if err == nil {
 				t.Cache.Set(cacheKey, respBytes)
@@ -469,8 +493,9 @@ func (t *Transport) setupCachingBodyMultiple(resp *http.Response, cacheKeys []st
 		OnEOF: func(r io.Reader) {
 			respCopy := *resp
 			respCopy.Body = io.NopCloser(r)
-			// Add timestamp when caching
-			respCopy.Header.Set(XCachedTime, time.Now().UTC().Format(time.RFC3339))
+			// Add cached timestamp (backward compatibility with X-Cached-Time)
+			// X-Request-Time and X-Response-Time are already set by performRequest
+			respCopy.Header.Set(XCachedTime, respCopy.Header.Get(XResponseTime))
 			respBytes, err := httputil.DumpResponse(&respCopy, true)
 			if err == nil {
 				for _, k := range cacheKeys {
@@ -483,8 +508,9 @@ func (t *Transport) setupCachingBodyMultiple(resp *http.Response, cacheKeys []st
 
 // storeCachedResponse caches the response immediately
 func (t *Transport) storeCachedResponse(resp *http.Response, cacheKey string) {
-	// Add timestamp when caching
-	resp.Header.Set(XCachedTime, time.Now().UTC().Format(time.RFC3339))
+	// Add cached timestamp (backward compatibility with X-Cached-Time)
+	// X-Request-Time and X-Response-Time are already set by performRequest
+	resp.Header.Set(XCachedTime, resp.Header.Get(XResponseTime))
 	respBytes, err := httputil.DumpResponse(resp, true)
 	if err == nil {
 		t.Cache.Set(cacheKey, respBytes)
@@ -833,62 +859,147 @@ func Date(respHeaders http.Header) (date time.Time, err error) {
 //   - age_value: Age header from the response (if present)
 //   - date_value: Time since the Date header
 //   - resident_time: Time the response has been cached (from X-Cached-Time)
+//
+// parseAgeHeader parses the Age header according to RFC 9111 Section 5.1.
+// Returns the age duration and a boolean indicating if the header is valid.
+//
+// RFC 9111 requirements:
+// - If multiple Age headers exist, use the first value and discard others
+// - If the value is invalid (negative, non-numeric), ignore it completely
+// - Age header value must be a non-negative integer representing seconds
+func parseAgeHeader(headers http.Header) (age time.Duration, valid bool) {
+	ageValues := headers.Values(headerAge)
+
+	if len(ageValues) == 0 {
+		return 0, false
+	}
+
+	// RFC 9111: use the first value, discard others
+	ageStr := strings.TrimSpace(ageValues[0])
+
+	if len(ageValues) > 1 {
+		GetLogger().Warn("multiple Age headers detected, using first value",
+			"count", len(ageValues),
+			"first", ageStr,
+			"all", ageValues)
+	}
+
+	// Validate that it's a non-negative integer
+	ageInt, err := strconv.ParseInt(ageStr, 10, 64)
+	if err != nil {
+		GetLogger().Warn("invalid Age header value, ignoring",
+			"value", ageStr,
+			"error", err)
+		return 0, false
+	}
+
+	if ageInt < 0 {
+		GetLogger().Warn("negative Age header value, ignoring",
+			"value", ageInt)
+		return 0, false
+	}
+
+	return time.Duration(ageInt) * time.Second, true
+}
+
+// calculateAge implements the Age calculation algorithm from RFC 9111 Section 4.2.3.
+//
+// RFC 9111 formula:
+//
+//	apparent_age = max(0, response_time - date_value)
+//	response_delay = response_time - request_time
+//	corrected_age_value = age_value + response_delay
+//	corrected_initial_age = max(apparent_age, corrected_age_value)
+//	resident_time = now - response_time
+//	current_age = corrected_initial_age + resident_time
+//
+// For cached responses:
+//   - request_time is stored in X-Request-Time header
+//   - response_time is stored in X-Response-Time header (falls back to X-Cached-Time for compatibility)
+//   - date_value comes from Date header
+//   - age_value comes from Age header (if present)
 func calculateAge(respHeaders http.Header) (age time.Duration, err error) {
 	// Get the Date header (required)
-	date, err := Date(respHeaders)
+	dateValue, err := Date(respHeaders)
 	if err != nil {
 		return 0, err
 	}
 
-	// apparent_age = max(0, response_time - date_value)
-	// For cached responses, response_time is when we received it (X-Cached-Time)
+	// Get response_time (when we received the response)
+	// Try X-Response-Time first, fall back to X-Cached-Time for backward compatibility
+	responseTimeStr := respHeaders.Get(XResponseTime)
+	if responseTimeStr == "" {
+		responseTimeStr = respHeaders.Get(XCachedTime)
+	}
+
+	if responseTimeStr == "" {
+		// If no cached time, use simplified calculation
+		age = clock.since(dateValue)
+
+		// Add any existing Age header
+		if ageValue, valid := parseAgeHeader(respHeaders); valid {
+			age += ageValue
+		}
+
+		return age, nil
+	}
+
+	// Parse response_time
+	responseTime, parseErr := time.Parse(time.RFC3339, responseTimeStr)
+	if parseErr != nil {
+		GetLogger().Warn("failed to parse response time header",
+			"header", responseTimeStr,
+			"error", parseErr)
+
+		// Fallback to simplified calculation
+		age = clock.since(dateValue)
+		if ageValue, valid := parseAgeHeader(respHeaders); valid {
+			age += ageValue
+		}
+		return age, nil
+	}
+
+	// RFC 9111 Section 4.2.3: apparent_age = max(0, response_time - date_value)
 	apparentAge := time.Duration(0)
+	if responseTime.After(dateValue) {
+		apparentAge = responseTime.Sub(dateValue)
+	}
 
-	cachedTimeStr := respHeaders.Get(XCachedTime)
-	if cachedTimeStr != "" {
-		// Parse the cached time
-		cachedTime, parseErr := time.Parse(time.RFC3339, cachedTimeStr)
-		if parseErr == nil {
-			// apparent_age = max(0, cached_time - date_value)
-			if cachedTime.After(date) {
-				apparentAge = cachedTime.Sub(date)
-			}
+	// Parse age_value from Age header (if present)
+	ageValue, _ := parseAgeHeader(respHeaders)
 
-			// resident_time = now - cached_time
-			residentTime := clock.since(cachedTime)
+	// Get request_time (when we started the request)
+	requestTimeStr := respHeaders.Get(XRequestTime)
+	responseDelay := time.Duration(0)
 
-			// Parse any Age header that was already present
-			ageValue := time.Duration(0)
-			if ageHeader := respHeaders.Get(headerAge); ageHeader != "" {
-				if seconds, parseErr := time.ParseDuration(ageHeader + "s"); parseErr == nil {
-					ageValue = seconds
-				}
-			}
-
-			// corrected_age_value = age_value + resident_time
-			correctedAgeValue := ageValue + residentTime
-
-			// age = max(apparent_age, corrected_age_value)
-			age = apparentAge
-			if correctedAgeValue > age {
-				age = correctedAgeValue
-			}
-
-			return age, nil
+	if requestTimeStr != "" {
+		requestTime, parseErr := time.Parse(time.RFC3339, requestTimeStr)
+		if parseErr == nil && responseTime.After(requestTime) {
+			// RFC 9111: response_delay = response_time - request_time
+			responseDelay = responseTime.Sub(requestTime)
+		} else if parseErr != nil {
+			GetLogger().Warn("failed to parse request time header",
+				"header", requestTimeStr,
+				"error", parseErr)
 		}
 	}
 
-	// If no cached time, just use time since Date header
-	age = clock.since(date)
+	// RFC 9111: corrected_age_value = age_value + response_delay
+	correctedAgeValue := ageValue + responseDelay
 
-	// Add any existing Age header
-	if ageHeader := respHeaders.Get(headerAge); ageHeader != "" {
-		if seconds, parseErr := time.ParseDuration(ageHeader + "s"); parseErr == nil {
-			age += seconds
-		}
+	// RFC 9111: corrected_initial_age = max(apparent_age, corrected_age_value)
+	correctedInitialAge := apparentAge
+	if correctedAgeValue > correctedInitialAge {
+		correctedInitialAge = correctedAgeValue
 	}
 
-	return age, nil
+	// RFC 9111: resident_time = now - response_time
+	residentTime := clock.since(responseTime)
+
+	// RFC 9111: current_age = corrected_initial_age + resident_time
+	currentAge := correctedInitialAge + residentTime
+
+	return currentAge, nil
 }
 
 // formatAge formats a duration as an Age header value (seconds)

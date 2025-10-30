@@ -264,15 +264,82 @@ The `must-understand` directive is useful when:
 
 httpcache implements several important RFC 7234 features for production-ready HTTP caching:
 
-### Age Header (Section 4.2.3)
+### Age Header (RFC 9111 Section 4.2.3)
 
-The `Age` header is automatically calculated and added to all cached responses, indicating how long the response has been in the cache:
+The `Age` header is automatically calculated and added to all cached responses using the complete RFC 9111 formula. This header indicates how long the response has been in the cache and helps clients determine remaining freshness lifetime.
+
+#### RFC 9111 Age Calculation Algorithm
+
+httpcache implements the full RFC 9111 Section 4.2.3 algorithm for precise Age calculation:
+
+```text
+apparent_age = max(0, response_time - date_value)
+response_delay = response_time - request_time
+corrected_age_value = age_value + response_delay
+corrected_initial_age = max(apparent_age, corrected_age_value)
+resident_time = now - response_time
+current_age = corrected_initial_age + resident_time
+```
+
+**Components:**
+
+- **request_time**: When the HTTP request was initiated (tracked in `X-Request-Time` header)
+- **response_time**: When the HTTP response was received (tracked in `X-Response-Time` header)
+- **date_value**: Value from the `Date` header in the response
+- **age_value**: Value from the `Age` header (if present from origin server)
+- **response_delay**: Network transmission delay
+- **resident_time**: How long the response has been stored in cache
+
+#### Age Header Validation (RFC 9111 Section 5.1)
+
+httpcache validates Age headers according to RFC 9111 Section 5.1 requirements:
+
+- **Multiple Age headers**: Uses the first value, logs warning about others
+- **Invalid values**: Rejects negative numbers, non-numeric values, floats
+- **Graceful handling**: Logs warnings for invalid Age headers without failing requests
+
+```go
+// Example: Multiple Age headers
+// Age: 300
+// Age: 600
+// Result: Uses 300 (first value), logs warning
+
+// Example: Invalid Age header
+// Age: -100
+// Result: Ignores header, logs warning
+
+// Example: Non-numeric Age header
+// Age: invalid
+// Result: Ignores header, logs warning
+```
+
+#### Usage Example
 
 ```go
 resp, _ := client.Get(url)
 age := resp.Header.Get("Age")  // e.g., "120" (seconds)
-// Clients can calculate: time_until_expiration = max-age - age
+
+// Calculate remaining freshness lifetime
+maxAge := getMaxAge(resp)  // From Cache-Control: max-age
+remainingLife := maxAge - age  // Time until expiration
 ```
+
+#### Precision and Timing
+
+The Age calculation maintains high precision by:
+
+1. Tracking exact request and response times
+2. Accounting for network transmission delays
+3. Using RFC3339 timestamp format for internal storage
+4. Recalculating Age on every cache retrieval
+
+#### Backward Compatibility
+
+The implementation maintains backward compatibility:
+
+- Falls back to `X-Cached-Time` header when `X-Response-Time` is not present
+- Supports simplified Age calculation for legacy cached responses
+- Provides smooth migration path from older cache entries
 
 ### Warning Headers (Section 5.5)
 
