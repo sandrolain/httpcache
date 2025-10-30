@@ -13,6 +13,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httputil"
+	"net/url"
 	"sort"
 	"strconv"
 	"strings"
@@ -559,76 +560,119 @@ func isUnsafeMethod(method string) bool {
 	return method == methodPOST || method == methodPUT || method == methodDELETE || method == methodPATCH
 }
 
-// invalidateCache invalidates cache entries per RFC 7234 Section 4.4
+// invalidateCache invalidates cache entries per RFC 9111 Section 4.4
 // When receiving a non-error response to an unsafe method, invalidate:
 // 1. The effective Request-URI
-// 2. URIs in Location and Content-Location response headers (if present)
+// 2. URIs in Location and Content-Location response headers (if present and same-origin)
+//
+// RFC 9111 restricts invalidation to same-origin URIs for security.
 func (t *Transport) invalidateCache(req *http.Request, resp *http.Response) {
-	// RFC 7234 Section 4.4: Only invalidate on non-error responses
+	// RFC 9111 Section 4.4: Only invalidate on non-error responses
 	if resp.StatusCode >= 400 {
+		if logger := GetLogger(); logger != nil {
+			logger.Debug("skipping cache invalidation for error response",
+				"status", resp.StatusCode,
+				"url", req.URL.String())
+		}
 		return
 	}
 
-	// Invalidate the request URI
-	// Need to invalidate the GET version since cacheKey for GET uses only URL
+	// Always invalidate the Request-URI
+	t.invalidateURI(req.URL, "request-uri")
+
+	// Invalidate Location header URI (RFC 9111 Section 4.4)
+	if location := resp.Header.Get(headerLocation); location != "" {
+		if err := t.invalidateHeaderURI(req.URL, location, "Location"); err != nil {
+			if logger := GetLogger(); logger != nil {
+				logger.Debug("failed to invalidate Location URI",
+					"location", location,
+					"error", err.Error())
+			}
+		}
+	}
+
+	// Invalidate Content-Location header URI (RFC 9111 Section 4.4)
+	if contentLocation := resp.Header.Get(headerContentLocation); contentLocation != "" {
+		if err := t.invalidateHeaderURI(req.URL, contentLocation, "Content-Location"); err != nil {
+			if logger := GetLogger(); logger != nil {
+				logger.Debug("failed to invalidate Content-Location URI",
+					"content-location", contentLocation,
+					"error", err.Error())
+			}
+		}
+	}
+}
+
+// invalidateHeaderURI parses and invalidates a URI from a response header.
+// It ensures same-origin policy compliance per RFC 9111.
+// Returns an error if the URI cannot be parsed.
+func (t *Transport) invalidateHeaderURI(requestURL *url.URL, headerValue string, headerName string) error {
+	// Parse the header value as a URI (may be relative or absolute)
+	targetURL, err := requestURL.Parse(headerValue)
+	if err != nil {
+		return err
+	}
+
+	// RFC 9111 Section 4.4: Only invalidate same-origin URIs
+	// Origin = scheme + host (host includes port if present)
+	if !isSameOrigin(requestURL, targetURL) {
+		if logger := GetLogger(); logger != nil {
+			logger.Debug("skipping cross-origin invalidation",
+				"header", headerName,
+				"request-origin", getOrigin(requestURL),
+				"target-origin", getOrigin(targetURL))
+		}
+		return nil
+	}
+
+	t.invalidateURI(targetURL, headerName)
+	return nil
+}
+
+// invalidateURI removes cache entries for the given URI.
+// It invalidates both GET and HEAD requests for the URI.
+func (t *Transport) invalidateURI(targetURL *url.URL, source string) {
+	// Invalidate GET request for this URL
 	getReq := &http.Request{
 		Method: methodGET,
-		URL:    req.URL,
+		URL:    targetURL,
 	}
 	getKey := cacheKey(getReq)
 	t.Cache.Delete(getKey)
 
-	// Also invalidate HEAD if different
+	if logger := GetLogger(); logger != nil {
+		logger.Debug("invalidated cache entry",
+			"key", getKey,
+			"source", source,
+			"url", targetURL.String())
+	}
+
+	// Also invalidate HEAD request if different key
 	headReq := &http.Request{
 		Method: methodHEAD,
-		URL:    req.URL,
+		URL:    targetURL,
 	}
 	headKey := cacheKey(headReq)
 	if headKey != getKey {
 		t.Cache.Delete(headKey)
-	}
-
-	// Invalidate Location header URI if present
-	if locationHeader := resp.Header.Get(headerLocation); locationHeader != "" {
-		if locationURL, err := req.URL.Parse(locationHeader); err == nil {
-			// Invalidate GET and HEAD for location URL
-			locationGetReq := &http.Request{
-				Method: methodGET,
-				URL:    locationURL,
-			}
-			t.Cache.Delete(cacheKey(locationGetReq))
-
-			locationHeadReq := &http.Request{
-				Method: methodHEAD,
-				URL:    locationURL,
-			}
-			locationHeadKey := cacheKey(locationHeadReq)
-			if locationHeadKey != cacheKey(locationGetReq) {
-				t.Cache.Delete(locationHeadKey)
-			}
+		if logger := GetLogger(); logger != nil {
+			logger.Debug("invalidated HEAD cache entry",
+				"key", headKey,
+				"source", source)
 		}
 	}
+}
 
-	// Invalidate Content-Location header URI if present
-	if contentLocationHeader := resp.Header.Get(headerContentLocation); contentLocationHeader != "" {
-		if contentLocationURL, err := req.URL.Parse(contentLocationHeader); err == nil {
-			// Invalidate GET and HEAD for content-location URL
-			contentLocationGetReq := &http.Request{
-				Method: methodGET,
-				URL:    contentLocationURL,
-			}
-			t.Cache.Delete(cacheKey(contentLocationGetReq))
+// isSameOrigin checks if two URLs have the same origin.
+// Per RFC 9111, origin is defined as scheme + host (including port).
+func isSameOrigin(url1, url2 *url.URL) bool {
+	return url1.Scheme == url2.Scheme && url1.Host == url2.Host
+}
 
-			contentLocationHeadReq := &http.Request{
-				Method: methodHEAD,
-				URL:    contentLocationURL,
-			}
-			contentLocationHeadKey := cacheKey(contentLocationHeadReq)
-			if contentLocationHeadKey != cacheKey(contentLocationGetReq) {
-				t.Cache.Delete(contentLocationHeadKey)
-			}
-		}
-	}
+// getOrigin returns the origin string for a URL (scheme://host).
+// Used for debugging and logging purposes.
+func getOrigin(u *url.URL) string {
+	return u.Scheme + "://" + u.Host
 }
 
 // ErrNoDateHeader indicates that the HTTP headers contained no Date header.
