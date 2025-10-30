@@ -13,7 +13,73 @@ transport.MarkCachedResponses = true  // Default: true
 // Skip serving server errors (5xx) from cache, even if fresh
 // This forces a new request to the server for error responses
 transport.SkipServerErrorsFromCache = true  // Default: false
+
+// Configure as public/shared cache instead of private cache
+transport.IsPublicCache = true  // Default: false (private cache)
 ```
+
+### Private vs Public Cache
+
+By default, httpcache operates as a **private cache** (like a web browser cache). This means:
+
+- ✅ **Can cache** responses with `Cache-Control: private`
+- ✅ **Can cache** responses with `Cache-Control: public`
+- ✅ **Can cache** responses without explicit caching directives (if otherwise cacheable)
+- ✅ Suitable for single-user scenarios (web browsers, API clients)
+
+When `IsPublicCache = true`, httpcache operates as a **shared/public cache** (like a CDN or reverse proxy). This means:
+
+- ❌ **Cannot cache** responses with `Cache-Control: private`
+- ✅ **Can cache** responses with `Cache-Control: public`
+- ✅ **Can cache** responses without explicit caching directives (if otherwise cacheable)
+- ✅ Suitable for multi-user scenarios (CDNs, reverse proxies, shared caches)
+
+**Example: Private Cache (default)**
+
+```go
+transport := httpcache.NewMemoryCacheTransport()
+// transport.IsPublicCache = false  // Default
+
+client := transport.Client()
+
+// Response: Cache-Control: private, max-age=3600
+resp, _ := client.Get("https://api.example.com/user/profile")
+// ✅ Response is cached (private caches can cache private responses)
+
+// Second request
+resp, _ = client.Get("https://api.example.com/user/profile")
+// Returns from cache (X-From-Cache: 1)
+```
+
+**Example: Public Cache**
+
+```go
+transport := httpcache.NewMemoryCacheTransport()
+transport.IsPublicCache = true  // Shared cache mode
+
+client := transport.Client()
+
+// Response: Cache-Control: private, max-age=3600
+resp, _ := client.Get("https://api.example.com/user/profile")
+// ❌ Response is NOT cached (public caches must not cache private responses)
+
+// Second request
+resp, _ = client.Get("https://api.example.com/user/profile")
+// Makes a fresh request to the server (not from cache)
+
+// Response: Cache-Control: public, max-age=3600
+resp, _ = client.Get("https://api.example.com/public/data")
+// ✅ Response is cached (public caches can cache public responses)
+```
+
+**When to use IsPublicCache:**
+
+- **false (default)**: Web browsers, mobile apps, API clients, desktop applications
+- **true**: CDN nodes, reverse proxies, shared caching layers, multi-tenant services
+
+This implements RFC 9111 Section 5.2.2.6 (Cache-Control: private directive).
+
+### SkipServerErrorsFromCache
 
 **`SkipServerErrorsFromCache`** is useful when you want to:
 

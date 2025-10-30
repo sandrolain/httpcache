@@ -55,6 +55,8 @@ const (
 	cacheControlNoCache              = "no-cache"
 	cacheControlStaleWhileRevalidate = "stale-while-revalidate"
 	cacheControlMaxAge               = "max-age"
+	cacheControlNoStore              = "no-store"
+	cacheControlPrivate              = "private"
 
 	headerPragma  = "Pragma"
 	pragmaNoCache = "no-cache"
@@ -160,6 +162,13 @@ type Transport struct {
 	// AsyncRevalidateTimeout is the context timeout for async requests triggered by stale-while-revalidate.
 	// If zero, no timeout is applied to async revalidation requests.
 	AsyncRevalidateTimeout time.Duration
+	// IsPublicCache enables public cache mode (default: false for private cache).
+	// When true, the cache will NOT store responses with Cache-Control: private directive.
+	// When false (default), the cache acts as a private cache and CAN store private responses.
+	// RFC 9111: Private caches (browsers, API clients) can cache private responses.
+	// Shared caches (CDNs, proxies) must NOT cache private responses.
+	// Set to true only if using httpcache as a shared/public cache (CDN, reverse proxy).
+	IsPublicCache bool
 	// ShouldCache allows configuring non-standard caching behaviour based on the response.
 	// If set, this function is called to determine whether a non-200 response should be cached.
 	// This enables caching of responses like 404 Not Found, 301 Moved Permanently, etc.
@@ -467,7 +476,7 @@ func processUncachedRequest(transport http.RoundTripper, req *http.Request) (*ht
 
 // storeResponseInCache stores the response in cache if applicable
 func (t *Transport) storeResponseInCache(resp *http.Response, req *http.Request, cacheKey string, cacheable bool) {
-	if !cacheable || !canStore(parseCacheControl(req.Header), parseCacheControl(resp.Header)) {
+	if !cacheable || !canStore(parseCacheControl(req.Header), parseCacheControl(resp.Header), t.IsPublicCache) {
 		t.Cache.Delete(cacheKey)
 		return
 	}
@@ -918,8 +927,10 @@ var clock timer = &realClock{}
 // stale indicates that the response needs validating before it is returned
 // transparent indicates the response should not be used to fulfil the request
 //
-// Because this is only a private cache, 'public' and 'private' in cache-control aren't
-// signficant. Similarly, smax-age isn't used.
+// RFC 9111 Note: This is a private cache implementation.
+// - Cache-Control: private - Allowed (private caches CAN store these responses)
+// - Cache-Control: public - Ignored (has no additional effect in private caches)
+// - s-maxage - Ignored (only applies to shared caches)
 func getFreshness(respHeaders, reqHeaders http.Header) (freshness int) {
 	respCacheControl := parseCacheControl(respHeaders)
 	reqCacheControl := parseCacheControl(reqHeaders)
@@ -1052,13 +1063,25 @@ func getEndToEndHeaders(respHeaders http.Header) []string {
 	return endToEndHeaders
 }
 
-func canStore(reqCacheControl, respCacheControl cacheControl) (canStore bool) {
-	if _, ok := respCacheControl["no-store"]; ok {
+// canStore determines if a response can be stored in the cache based on Cache-Control directives.
+// isPublicCache: true if this is a shared/public cache, false for private cache (default)
+func canStore(reqCacheControl, respCacheControl cacheControl, isPublicCache bool) (canStore bool) {
+	if _, ok := respCacheControl[cacheControlNoStore]; ok {
 		return false
 	}
-	if _, ok := reqCacheControl["no-store"]; ok {
+	if _, ok := reqCacheControl[cacheControlNoStore]; ok {
 		return false
 	}
+
+	// RFC 9111: Check Cache-Control: private directive
+	if _, hasPrivate := respCacheControl[cacheControlPrivate]; hasPrivate {
+		// Public/shared caches MUST NOT store responses with private directive
+		if isPublicCache {
+			return false
+		}
+		// Private caches CAN store responses with Cache-Control: private
+	}
+
 	return true
 }
 

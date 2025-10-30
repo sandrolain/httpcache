@@ -42,6 +42,7 @@
   - ✅ Cache invalidation on unsafe methods (Section 4.4)
   - ✅ Content-Location and Location header invalidation (RFC 9111 Section 4.4)
   - ✅ Same-origin policy enforcement for cache invalidation
+  - ✅ Cache-Control: private directive support (RFC 9111 Section 5.2.2.6)
 - ✅ **Multiple Backends** - Memory, Disk, Redis, LevelDB, Memcache, PostgreSQL, MongoDB, NATS K/V, Hazelcast, Cloud Storage (S3/GCS/Azure)
 - ✅ **Multi-Tier Caching** - Combine multiple backends with automatic fallback and promotion
 - ✅ **Security Wrapper** - Optional SHA-256 key hashing and AES-256 encryption
@@ -51,7 +52,7 @@
 - ✅ **ETag & Validation** - Automatic cache revalidation
 - ✅ **Stale-If-Error** - Resilient caching with RFC 5861 support
 - ✅ **Stale-While-Revalidate** - Async cache updates for better performance
-- ✅ **Private Cache** - Suitable for web browsers and API clients
+- ✅ **Configurable Cache Mode** - Use as private cache (default) or shared/public cache
 
 ## Quick Start
 
