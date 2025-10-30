@@ -40,6 +40,8 @@
   - ✅ must-revalidate directive enforcement (Section 5.2.2.1)
   - ✅ Pragma: no-cache support (Section 5.4)
   - ✅ Cache invalidation on unsafe methods (Section 4.4)
+  - ✅ Content-Location and Location header invalidation (RFC 9111 Section 4.4)
+  - ✅ Same-origin policy enforcement for cache invalidation
 - ✅ **Multiple Backends** - Memory, Disk, Redis, LevelDB, Memcache, PostgreSQL, MongoDB, NATS K/V, Hazelcast, Cloud Storage (S3/GCS/Azure)
 - ✅ **Multi-Tier Caching** - Combine multiple backends with automatic fallback and promotion
 - ✅ **Security Wrapper** - Optional SHA-256 key hashing and AES-256 encryption

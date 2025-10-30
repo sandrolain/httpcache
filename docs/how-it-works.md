@@ -151,18 +151,84 @@ resp, _ := client.Do(req)
 
 ### Cache Invalidation (Section 4.4)
 
-Cache is automatically invalidated for affected URIs when unsafe methods succeed:
+Cache is automatically invalidated for affected URIs when unsafe methods (POST, PUT, DELETE, PATCH) receive successful responses (2xx or 3xx status codes):
 
 ```go
 // POST/PUT/DELETE/PATCH with 2xx or 3xx response invalidates:
-// - Request-URI
-// - Location header URI (if present)
-// - Content-Location header URI (if present)
+// 1. Request-URI
+// 2. Location header URI (if present, same-origin only)
+// 3. Content-Location header URI (if present, same-origin only)
 
 client.Post(url, "application/json", body)  // Invalidates GET cache for url
 ```
 
-This ensures cache consistency after data modifications.
+This ensures cache consistency after data modifications per RFC 9111 Section 4.4.
+
+#### Content-Location and Location Header Invalidation
+
+httpcache implements **RFC 9111 Section 4.4** compliant invalidation with enhanced support for `Content-Location` and `Location` headers:
+
+**Key Features:**
+
+- **Same-origin enforcement**: Only invalidates URIs on the same origin (scheme://host:port) to prevent cross-origin cache poisoning
+- **Relative URI support**: Properly resolves relative URIs in headers
+- **Error response protection**: Skips invalidation for error responses (status >= 400)
+- **Graceful error handling**: Invalid URIs are logged without causing failures
+
+**Example - RESTful API with Content-Location:**
+
+```go
+// Server responds to PUT /api/users/123 with:
+// Status: 200 OK
+// Content-Location: /api/users/123
+// This invalidates the cached GET /api/users/123
+
+client := transport.Client()
+req, _ := http.NewRequest("PUT", "https://api.example.com/api/users/123", body)
+resp, _ := client.Do(req)
+// Cache for GET https://api.example.com/api/users/123 is now invalidated
+```
+
+**Example - Resource Creation with Location:**
+
+```go
+// Server responds to POST /api/users with:
+// Status: 201 Created
+// Location: /api/users/456
+// This invalidates the cached GET /api/users/456
+
+resp, _ := client.Post("https://api.example.com/api/users", "application/json", body)
+// Cache for GET https://api.example.com/api/users/456 is now invalidated
+```
+
+**Security - Same-origin protection:**
+
+```go
+// Cross-origin Content-Location is IGNORED for security
+// POST to https://api.example.com/resource
+// Response: Content-Location: https://evil.com/resource
+// ✅ https://evil.com/resource is NOT invalidated (different origin)
+// ✅ Only same-origin URIs are invalidated
+```
+
+**Error response handling:**
+
+```go
+// Error responses (5xx) do NOT trigger invalidation
+// PUT /api/users/123 returns 500 Internal Server Error
+// ✅ Cache for /api/users/123 remains valid
+// This prevents cache invalidation on temporary failures
+```
+
+**Use Cases:**
+
+1. **RESTful APIs**: Automatic cache invalidation when resources are modified
+2. **Content Negotiation**: Invalidate specific content variants via Content-Location
+3. **Resource Creation**: Location header points to newly created resource
+4. **Redirects**: Location header invalidates redirect target cache
+5. **Multi-representation resources**: Invalidate both request URI and Content-Location
+
+When debugging is enabled, invalidation actions are logged for troubleshooting.
 
 ## Custom Cache Implementation
 
