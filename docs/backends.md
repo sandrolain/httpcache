@@ -16,6 +16,7 @@ httpcache supports multiple storage backends. Choose the one that fits your use 
 | **[NATS K/V](../natskv)** | ⚡⚡ Fast | ✅ Configurable | ✅ Yes | NATS-based microservices, JetStream |
 | **[Hazelcast](../hazelcast)** | ⚡⚡ Fast | ✅ Yes | ✅ Yes | Enterprise distributed systems, in-memory data grids |
 | **[FreeCache](../freecache)** | ⚡⚡⚡ Fastest | ❌ No | ❌ No | High-performance in-memory with zero GC overhead |
+| **[BlobCache](../blobcache)** | ⚡ Medium | ✅ Yes | ✅ Yes | Cloud storage (S3, GCS, Azure), multi-cloud deployments |
 
 ## Third-Party Backends
 
@@ -220,6 +221,71 @@ client := &http.Client{Transport: transport}
 ```
 
 **Best for**: High-performance in-memory caching with zero GC overhead, memory-constrained environments
+
+### BlobCache - Cloud Storage
+
+```go
+import (
+    "github.com/sandrolain/httpcache/blobcache"
+    _ "gocloud.dev/blob/s3blob"      // For AWS S3
+    // _ "gocloud.dev/blob/gcsblob"  // For Google Cloud Storage
+    // _ "gocloud.dev/blob/azureblob" // For Azure Blob Storage
+)
+
+ctx := context.Background()
+
+// AWS S3
+cache, _ := blobcache.New(ctx, blobcache.Config{
+    BucketURL: "s3://my-bucket?region=us-east-1",
+    KeyPrefix: "httpcache/",
+    Timeout:   30 * time.Second,
+})
+
+// Google Cloud Storage
+// cache, _ := blobcache.New(ctx, blobcache.Config{
+//     BucketURL: "gs://my-bucket",
+//     KeyPrefix: "httpcache/",
+// })
+
+// Azure Blob Storage
+// cache, _ := blobcache.New(ctx, blobcache.Config{
+//     BucketURL: "azblob://my-container",
+//     KeyPrefix: "httpcache/",
+// })
+
+defer cache.(interface{ Close() error }).Close()
+
+transport := httpcache.NewTransport(cache)
+client := &http.Client{Transport: transport}
+```
+
+**Best for**: Cloud-native applications, multi-cloud deployments, serverless functions, long-term cache storage
+
+**Features**:
+
+- ✓ **Cloud-Agnostic** - Works with AWS S3, Google Cloud Storage, Azure Blob Storage
+- ✓ **S3-Compatible** - Supports MinIO, Ceph, SeaweedFS, and other S3-compatible services
+- ✓ **SHA-256 Key Hashing** - Ensures compatibility with cloud storage naming restrictions
+- ✓ **Local Storage** - Supports `file://` and `mem://` URLs for development/testing
+
+**Authentication**:
+
+Set credentials via environment variables:
+
+```bash
+# AWS S3
+export AWS_ACCESS_KEY_ID=your-access-key
+export AWS_SECRET_ACCESS_KEY=your-secret-key
+
+# Google Cloud Storage
+export GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account-key.json
+
+# Azure Blob Storage
+export AZURE_STORAGE_ACCOUNT=youraccount
+export AZURE_STORAGE_KEY=your-key
+```
+
+See [BlobCache Integration Tests](../blobcache/INTEGRATION_TESTS.md) for more examples.
 
 ### Secure Cache Wrapper
 

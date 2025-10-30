@@ -227,7 +227,27 @@ Persistent distributed caching using MongoDB.
 - Document-based systems
 - When you need flexible schema for cache entries
 
-### 12. [Security Best Practices](./security-best-practices/)
+### 12. [BlobCache - Cloud Storage](./blobcache/)
+
+Cloud-agnostic caching using blob storage (S3, GCS, Azure).
+
+**Features:**
+
+- Multi-cloud support (AWS S3, Google Cloud Storage, Azure Blob Storage)
+- S3-compatible services (MinIO, Ceph, SeaweedFS)
+- SHA-256 key hashing for cloud storage compatibility
+- Local development with `file://` and `mem://`
+- Context-aware operations with timeouts
+
+**When to use:**
+
+- Cloud-native applications
+- Multi-cloud deployments
+- Serverless functions (Lambda, Cloud Functions)
+- Long-term cache storage
+- When you need vendor-independent storage
+
+### 13. [Security Best Practices](./security-best-practices/)
 
 Secure cache implementation with encryption and key hashing.
 
@@ -279,6 +299,7 @@ go run main.go
 | Memcache | ⚡⚡ | ❌ | ✅ | ⭐⭐⭐ | Distributed, no persistence |
 | NATS K/V | ⚡⚡ | ✅* | ✅ | ⭐⭐⭐ | NATS users |
 | Hazelcast | ⚡⚡⚡ | ✅* | ✅ | ⭐⭐⭐ | Enterprise, HA |
+| BlobCache | ⚡ | ✅ | ✅ | ⭐⭐⭐ | Cloud storage, multi-cloud |
 | **MultiCache** | **⚡⚡⚡→⚡** | **✅** | **✅** | **⭐⭐** | **Multi-tier strategies** |
 
 *Redis, NATS K/V, and Hazelcast persistence depends on configuration
