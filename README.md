@@ -24,6 +24,7 @@
   - [Practical Examples](#practical-examples)
   - [Limitations](#limitations)
     - [Private Directive for Public Caches](#private-directive-for-public-caches)
+    - [Authorization Header in Shared Caches](#authorization-header-in-shared-caches)
   - [Performance](#performance)
   - [Testing](#testing)
   - [Contributing](#contributing)
@@ -57,6 +58,7 @@
 - ✅ **Stale-If-Error** - Resilient caching with RFC 5861 support
 - ✅ **Stale-While-Revalidate** - Async cache updates for better performance
 - ✅ **Configurable Cache Mode** - Use as private cache (default) or shared/public cache
+- ✅ **RFC 9111 Authorization Handling** - Secure caching of authenticated requests in shared caches
 
 ## Quick Start
 
@@ -116,6 +118,7 @@ go get github.com/sandrolain/httpcache
 
 - [Detecting cache hits](./docs/how-it-works.md#detecting-cache-hits)
 - [User-specific caching](./docs/advanced-features.md#cache-key-headers)
+- [Authorization header handling](./docs/advanced-features.md#authorization-header-and-shared-caches)
 - [Securing sensitive data](./docs/security.md#secure-cache-wrapper)
 - [Monitoring performance](./docs/monitoring.md#quick-start)
 
@@ -163,6 +166,27 @@ Each example includes:
 **Public Cache Mode**: When `IsPublicCache` is set to `true`, the cache behaves as a shared cache and respects the `private` directive by not caching such responses.
 
 See [Security Considerations](./docs/security.md#private-cache-and-multi-user-applications) and [Advanced Features - Private vs Public Cache](./docs/advanced-features.md#private-vs-public-cache) for details.
+
+### Authorization Header in Shared Caches
+
+⚠️ **Note**: When configured as a shared/public cache (`IsPublicCache: true`), requests with an `Authorization` header are **NOT cached** unless the response contains one of these directives:
+
+- `Cache-Control: public`
+- `Cache-Control: must-revalidate`
+- `Cache-Control: s-maxage=<seconds>`
+
+This implements **RFC 9111 Section 3.5** to prevent unauthorized access to cached authenticated responses in shared caches.
+
+**Default Behavior**: Private caches (default) can cache Authorization responses without restrictions.
+
+**Shared Cache Mode**: Requires explicit server permission via the directives above. Additionally, use `CacheKeyHeaders` to separate cache entries per user:
+
+```go
+transport.IsPublicCache = true
+transport.CacheKeyHeaders = []string{"Authorization"}  // Separate cache per user
+```
+
+See [Authorization Header and Shared Caches](./docs/advanced-features.md#authorization-header-and-shared-caches) for detailed examples and security considerations.
 
 ## Performance
 

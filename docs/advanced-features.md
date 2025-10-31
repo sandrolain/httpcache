@@ -79,6 +79,122 @@ resp, _ = client.Get("https://api.example.com/public/data")
 
 This implements RFC 9111 Section 5.2.2.6 (Cache-Control: private directive).
 
+### Authorization Header and Shared Caches
+
+**RFC 9111 Section 3.5** specifies special handling for requests with `Authorization` headers in shared/public caches to prevent unauthorized access to cached authenticated responses.
+
+**Private Cache (default, `IsPublicCache = false`):**
+
+- ✅ **Always caches** responses to requests with `Authorization` header
+- No special directives required
+- Safe for single-user scenarios (browsers, API clients)
+
+**Shared/Public Cache (`IsPublicCache = true`):**
+
+- ❌ **MUST NOT cache** responses to requests with `Authorization` header **unless** the response contains one of:
+  - `Cache-Control: public`
+  - `Cache-Control: must-revalidate`
+  - `Cache-Control: s-maxage=<seconds>`
+
+**Example: Private Cache with Authorization (default)**
+
+```go
+transport := httpcache.NewMemoryCacheTransport()
+// transport.IsPublicCache = false  // Default (private cache)
+
+client := transport.Client()
+
+req, _ := http.NewRequest("GET", "https://api.example.com/user/profile", nil)
+req.Header.Set("Authorization", "Bearer user_token")
+
+// Response: Cache-Control: max-age=3600
+resp, _ := client.Do(req)
+// ✅ Response is cached (private caches can cache Authorization responses)
+
+// Second request with same Authorization
+req2, _ := http.NewRequest("GET", "https://api.example.com/user/profile", nil)
+req2.Header.Set("Authorization", "Bearer user_token")
+resp2, _ := client.Do(req2)
+// Returns from cache (X-From-Cache: 1)
+```
+
+**Example: Shared Cache WITHOUT proper directives**
+
+```go
+transport := httpcache.NewMemoryCacheTransport()
+transport.IsPublicCache = true  // Shared/public cache mode
+
+client := transport.Client()
+
+req, _ := http.NewRequest("GET", "https://api.example.com/user/profile", nil)
+req.Header.Set("Authorization", "Bearer user_token")
+
+// Response: Cache-Control: max-age=3600  (no public/must-revalidate/s-maxage)
+resp, _ := client.Do(req)
+// ❌ Response is NOT cached (shared cache + Authorization without proper directives)
+
+// Second request
+resp2, _ := client.Do(req)
+// Makes a fresh request to the server (not from cache)
+```
+
+**Example: Shared Cache WITH public directive**
+
+```go
+transport := httpcache.NewMemoryCacheTransport()
+transport.IsPublicCache = true  // Shared/public cache mode
+
+client := transport.Client()
+
+req, _ := http.NewRequest("GET", "https://api.example.com/public-user-data", nil)
+req.Header.Set("Authorization", "Bearer user_token")
+
+// Response: Cache-Control: public, max-age=3600
+resp, _ := client.Do(req)
+// ✅ Response is cached (shared cache + Authorization + public directive)
+
+// Second request
+resp2, _ := client.Do(req)
+// Returns from cache (X-From-Cache: 1)
+```
+
+**When to use each directive:**
+
+| Directive | Purpose | Use Case |
+|-----------|---------|----------|
+| `public` | Explicitly marks response as cacheable by any cache | Public API data that's safe to share across users |
+| `must-revalidate` | Cache must revalidate when stale | Data that needs freshness guarantee |
+| `s-maxage` | Separate max-age for shared caches | Different TTL for CDN vs browser |
+
+**⚠️ Important Security Notes:**
+
+1. **User-Specific Data**: If using a shared cache for user-specific authenticated endpoints, you MUST also configure `CacheKeyHeaders` to separate cache entries per user:
+
+   ```go
+   transport := httpcache.NewMemoryCacheTransport()
+   transport.IsPublicCache = true
+   transport.CacheKeyHeaders = []string{"Authorization"}  // Separate cache per user
+   
+   // Server must respond with:
+   // Cache-Control: public, max-age=3600
+   ```
+
+2. **Without CacheKeyHeaders**: All users would share the same cached response (security risk!)
+
+3. **Best Practice**: For user-specific data in shared caches:
+   - Use `CacheKeyHeaders = []string{"Authorization"}` to separate entries per user
+   - Ensure server responds with `Cache-Control: public` or `must-revalidate` or `s-maxage`
+   - Consider using private cache mode if caching authenticated data for single user
+
+**Comparison Table:**
+
+| Cache Type | Authorization Request | Default Behavior | With `public` directive |
+|------------|----------------------|------------------|------------------------|
+| Private Cache (`IsPublicCache=false`) | ✅ Cached | ✅ Cached | ✅ Cached |
+| Shared Cache (`IsPublicCache=true`) | ❌ NOT cached | ❌ NOT cached | ✅ Cached |
+
+See also: [Cache Key Headers](#cache-key-headers) for separating cache entries per user in shared caches.
+
 ### SkipServerErrorsFromCache
 
 **`SkipServerErrorsFromCache`** is useful when you want to:

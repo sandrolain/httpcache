@@ -672,7 +672,7 @@ func (t *Transport) storeResponseInCache(resp *http.Response, req *http.Request,
 	respCacheControl := parseCacheControl(resp.Header)
 	reqCacheControl := parseCacheControl(req.Header)
 
-	if !cacheable || !canStore(reqCacheControl, respCacheControl, t.IsPublicCache, resp.StatusCode) {
+	if !cacheable || !canStore(req, reqCacheControl, respCacheControl, t.IsPublicCache, resp.StatusCode) {
 		t.Cache.Delete(cacheKey)
 		return
 	}
@@ -1402,7 +1402,8 @@ func getEndToEndHeaders(respHeaders http.Header) []string {
 // canStore returns whether the response can be stored in the cache.
 // RFC 9111 Section 3: Storing Responses in Caches
 // RFC 9111 Section 5.2.2.3: must-understand directive
-func canStore(reqCacheControl, respCacheControl cacheControl, isPublicCache bool, statusCode int) (canStore bool) {
+// RFC 9111 Section 3.5: Storing Responses to Authenticated Requests
+func canStore(req *http.Request, reqCacheControl, respCacheControl cacheControl, isPublicCache bool, statusCode int) (canStore bool) {
 	// RFC 9111 Section 5.2.2.3: must-understand directive
 	// When must-understand is present, the cache can only store the response if:
 	// 1. The status code is understood by the cache, AND
@@ -1426,6 +1427,23 @@ func canStore(reqCacheControl, respCacheControl cacheControl, isPublicCache bool
 			return false
 		}
 		if _, ok := reqCacheControl[cacheControlNoStore]; ok {
+			return false
+		}
+	}
+
+	// RFC 9111 Section 3.5: Storing Responses to Authenticated Requests
+	// A shared cache MUST NOT use a cached response to a request with an Authorization
+	// header field unless the response contains a Cache-Control field with the "public",
+	// "must-revalidate", or "s-maxage" response directive.
+	if isPublicCache && req.Header.Get("Authorization") != "" {
+		_, hasPublic := respCacheControl[cacheControlPublic]
+		_, hasMustRevalidate := respCacheControl[cacheControlMustRevalidate]
+		_, hasSMaxAge := respCacheControl[cacheControlSMaxAge]
+
+		if !hasPublic && !hasMustRevalidate && !hasSMaxAge {
+			GetLogger().Debug("refusing to cache Authorization request in shared cache",
+				"url", req.URL.String(),
+				"reason", "no public/must-revalidate/s-maxage directive")
 			return false
 		}
 	}
