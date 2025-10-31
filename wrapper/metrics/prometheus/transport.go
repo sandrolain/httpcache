@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/sandrolain/httpcache"
-	"github.com/sandrolain/httpcache/metrics"
+	"github.com/sandrolain/httpcache/wrapper/metrics"
 )
 
 // InstrumentedTransport wraps an httpcache.Transport with Prometheus metrics

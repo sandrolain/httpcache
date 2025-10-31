@@ -12,7 +12,7 @@ httpcache includes **optional** Prometheus metrics integration to monitor cache 
 ```go
 import (
     "github.com/sandrolain/httpcache"
-    prommetrics "github.com/sandrolain/httpcache/metrics/prometheus"
+    prommetrics "github.com/sandrolain/httpcache/wrapper/metrics/prometheus"
 )
 
 // Create metrics collector

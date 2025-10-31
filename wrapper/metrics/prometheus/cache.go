@@ -4,7 +4,7 @@ import (
 	"time"
 
 	"github.com/sandrolain/httpcache"
-	"github.com/sandrolain/httpcache/metrics"
+	"github.com/sandrolain/httpcache/wrapper/metrics"
 )
 
 // InstrumentedCache wraps an httpcache.Cache with Prometheus metrics

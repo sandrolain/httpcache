@@ -8,7 +8,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
-	"github.com/sandrolain/httpcache/metrics"
+	"github.com/sandrolain/httpcache/wrapper/metrics"
 )
 
 // Collector implements metrics.Collector for Prometheus

@@ -9,7 +9,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sandrolain/httpcache"
-	prommetrics "github.com/sandrolain/httpcache/metrics/prometheus"
+	prommetrics "github.com/sandrolain/httpcache/wrapper/metrics/prometheus"
 )
 
 func main() {
