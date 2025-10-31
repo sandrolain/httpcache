@@ -177,6 +177,205 @@ client.Do(req2)  // Cached separately for user-456
 - ✅ Prevents cache pollution from mixed variants
 - ✅ Each variant is cached independently
 
+## Vary Header Matching (RFC 9111 Section 4.1)
+
+httpcache implements RFC 9111 Section 4.1 compliant Vary header matching with full support for wildcard handling, whitespace normalization, and case-insensitive header names.
+
+### Vary: * Wildcard
+
+Per RFC 9111, a response with `Vary: *` indicates that the cached response **cannot be used for any subsequent request**:
+
+```go
+// Server responds with:
+// Cache-Control: max-age=3600
+// Vary: *
+
+// Request 1
+resp1, _ := client.Do(req1)  // Fetches from server, stores in cache
+
+// Request 2 with identical headers
+resp2, _ := client.Do(req2)  // ❌ Cache miss! Vary: * prevents matching
+```
+
+**Behavior:**
+
+- `Vary: *` ALWAYS fails to match, regardless of request headers
+- The response is still cached, but it will never match any subsequent request
+- Useful for responses that vary based on factors outside of HTTP headers (cookies, session state, etc.)
+
+### Whitespace Normalization
+
+httpcache normalizes whitespace in header values to ensure consistent matching:
+
+```go
+// Request 1: Accept-Language header with spaces
+req1.Header.Set("Accept-Language", "en, fr, de")
+
+// Request 2: Same languages, different whitespace
+req2.Header.Set("Accept-Language", "en,fr,de")  // No spaces
+
+// ✅ Both requests match! Normalized to "en,fr,de"
+```
+
+**Normalization Rules:**
+
+1. **Leading/trailing whitespace removed**: `" en, fr "` → `"en,fr"`
+2. **All whitespace types collapsed to single space**:
+   - Multiple spaces: `"en,    fr"` → `"en,fr"`
+   - Tabs: `"en,\tfr"` → `"en,fr"`
+   - Newlines: `"en,\nfr"` → `"en,fr"`
+3. **Comma-separated list normalization**: `"en, fr"` → `"en,fr"`
+
+**Examples:**
+
+```go
+// All of these match each other:
+"en, fr"        → normalized to "en,fr"
+"en,fr"         → normalized to "en,fr"
+"  en, fr  "    → normalized to "en,fr"
+"en,  fr"       → normalized to "en,fr"
+"en,\tfr"       → normalized to "en,fr"
+"en,    fr"     → normalized to "en,fr"
+```
+
+### Case-Insensitive Header Names
+
+HTTP header names are case-insensitive. httpcache uses `http.CanonicalHeaderKey()` to standardize all header names:
+
+```go
+// Server responds with: Vary: accept-language (lowercase)
+
+// All these header names match:
+req1.Header.Set("accept-language", "en")     // lowercase
+req2.Header.Set("Accept-Language", "en")     // Title case
+req3.Header.Set("ACCEPT-LANGUAGE", "en")     // UPPERCASE
+
+// ✅ All match! Canonicalized to "Accept-Language"
+```
+
+### Absent Header Handling
+
+When both cached response and current request lack a Vary header, they match:
+
+```go
+// Server responds with: Vary: Accept-Language
+
+// Request 1: No Accept-Language header
+req1, _ := http.NewRequest("GET", url, nil)
+resp1, _ := client.Do(req1)  // Fetches from server, caches
+
+// Request 2: Also no Accept-Language header
+req2, _ := http.NewRequest("GET", url, nil)
+resp2, _ := client.Do(req2)  // ✅ Cache hit! Both absent = match
+```
+
+**Rules:**
+
+- Both absent → **MATCH**
+- Cached has value, request doesn't → **NO MATCH**
+- Request has value, cached doesn't → **NO MATCH**
+
+### Multiple Vary Headers
+
+All Vary headers must match for a cache hit:
+
+```go
+// Server responds with: Vary: Accept, Accept-Language
+
+// Request 1
+req1.Header.Set("Accept", "application/json")
+req1.Header.Set("Accept-Language", "en")
+resp1, _ := client.Do(req1)  // Cached
+
+// Request 2: Accept matches, Accept-Language doesn't
+req2.Header.Set("Accept", "application/json")
+req2.Header.Set("Accept-Language", "fr")
+resp2, _ := client.Do(req2)  // ❌ Cache miss! (language mismatch)
+
+// Request 3: Both match
+req3.Header.Set("Accept", "application/json")
+req3.Header.Set("Accept-Language", "en")
+resp3, _ := client.Do(req3)  // ✅ Cache hit!
+```
+
+### Integration with Cache Key Generation
+
+Vary header values are normalized **before** being included in cache keys:
+
+```go
+// Request with spaces in header value
+req.Header.Set("Accept-Language", "en, fr, de")
+
+// Cache key includes normalized value:
+// "GET|https://example.com/api|vary:Accept-Language:en,fr,de"
+
+// Later request with different whitespace
+req2.Header.Set("Accept-Language", "en,fr,de")  // No spaces
+
+// Same cache key generated:
+// "GET|https://example.com/api|vary:Accept-Language:en,fr,de"
+// ✅ Cache hit!
+```
+
+### Real-World Examples
+
+**API with Language Support:**
+
+```go
+// API returns different content per language
+// Server responds with: Vary: Accept-Language
+
+// English request (with spaces)
+req1.Header.Set("Accept-Language", "en, en-US")
+resp1, _ := client.Do(req1)  // Fetches English content
+
+// French request (no spaces)
+req2.Header.Set("Accept-Language", "fr,fr-FR")
+resp2, _ := client.Do(req2)  // Fetches French content
+
+// Another English request (tabs)
+req3.Header.Set("Accept-Language", "en,\ten-US")
+resp3, _ := client.Do(req3)  // ✅ Cache hit! Normalized match
+```
+
+**Content Negotiation:**
+
+```go
+// API supports multiple formats
+// Server responds with: Vary: Accept
+
+req1.Header.Set("Accept", "application/json")
+resp1, _ := client.Do(req1)  // JSON cached
+
+req2.Header.Set("Accept", "application/xml")
+resp2, _ := client.Do(req2)  // XML cached (different entry)
+
+req3.Header.Set("Accept", "  application/json  ")  // Extra spaces
+resp3, _ := client.Do(req3)  // ✅ Cache hit! Normalized to "application/json"
+```
+
+**Vary Wildcard Protection:**
+
+```go
+// Server wants to prevent caching based on factors
+// beyond HTTP headers (e.g., cookies, session state)
+// Server responds with: Vary: *, Cache-Control: max-age=3600
+
+resp1, _ := client.Do(req1)  // Response stored in cache
+
+// Even with identical request
+resp2, _ := client.Do(req2)  // ❌ Always cache miss! Vary: * prevents match
+```
+
+### Benefits
+
+- ✅ **Robust matching**: Whitespace differences don't prevent cache hits
+- ✅ **RFC 9111 compliance**: Full implementation of Section 4.1
+- ✅ **Consistent behavior**: Normalization applied at all stages (storage, matching, key generation)
+- ✅ **Case-insensitive**: Standard HTTP header name handling
+- ✅ **Wildcard support**: Correct Vary: * handling per specification
+- ✅ **Developer-friendly**: Flexible whitespace handling reduces cache misses
+
 ## must-understand Directive Support (RFC 9111 Section 5.2.2.3)
 
 The `must-understand` directive is a new cache directive introduced in RFC 9111 that allows responses to be cached even when they would normally be prohibited by other directives, **if and only if** the cache understands the response's status code.
