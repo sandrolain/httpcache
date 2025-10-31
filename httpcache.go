@@ -62,9 +62,15 @@ const (
 	cacheControlNoStore              = "no-store"
 	cacheControlPrivate              = "private"
 	cacheControlMustUnderstand       = "must-understand"
+	cacheControlPublic               = "public"
+	cacheControlMustRevalidate       = "must-revalidate"
+	cacheControlSMaxAge              = "s-maxage"
 
 	headerPragma  = "Pragma"
 	pragmaNoCache = "no-cache"
+
+	// Log messages
+	logConflictingDirectives = "conflicting Cache-Control directives detected"
 
 	// RFC 7234 Section 5.5: Warning header codes
 	warningResponseIsStale     = `110 - "Response is Stale"`
@@ -1130,7 +1136,7 @@ func adjustAgeForRequestControls(respCacheControl, reqCacheControl cacheControl,
 	// "once it has become stale, a cache MUST NOT use the response to satisfy
 	// subsequent requests without successful validation on the origin server"
 	// This overrides max-stale from the request
-	if _, mustRevalidate := respCacheControl["must-revalidate"]; mustRevalidate {
+	if _, mustRevalidate := respCacheControl[cacheControlMustRevalidate]; mustRevalidate {
 		// Ignore max-stale when must-revalidate is present
 		return currentAge, lifetime, false
 	}
@@ -1376,22 +1382,133 @@ func cloneRequest(r *http.Request) *http.Request {
 
 type cacheControl map[string]string
 
+// parseCacheControl parses the Cache-Control header and returns a map of directives.
+// Implements RFC 9111 Section 4.2.1 validation:
+// - Duplicate directives: uses the first occurrence, logs warning
+// - Conflicting directives: applies the most restrictive, logs warning
+// - Invalid values: logs warning but continues processing
 func parseCacheControl(headers http.Header) cacheControl {
 	cc := cacheControl{}
+	seen := make(map[string]bool)
 	ccHeader := headers.Get("Cache-Control")
+
 	for _, part := range strings.Split(ccHeader, ",") {
 		part = strings.Trim(part, " ")
 		if part == "" {
 			continue
 		}
+
+		var directive, value string
 		if strings.ContainsRune(part, '=') {
 			keyval := strings.Split(part, "=")
-			cc[strings.Trim(keyval[0], " ")] = strings.Trim(keyval[1], ",")
+			directive = strings.Trim(keyval[0], " ")
+			value = strings.Trim(keyval[1], " ")
 		} else {
-			cc[part] = ""
+			directive = part
+			value = ""
+		}
+
+		// RFC 9111: Duplicate directives - use first occurrence
+		if seen[directive] {
+			GetLogger().Warn("duplicate Cache-Control directive detected, using first value",
+				"directive", directive,
+				"ignored_value", value)
+			continue
+		}
+
+		seen[directive] = true
+		cc[directive] = value
+	}
+
+	// RFC 9111: Detect conflicting directives and apply most restrictive
+	detectConflictingDirectives(cc)
+
+	return cc
+}
+
+// detectConflictingDirectives checks for conflicting Cache-Control directives
+// and applies the most restrictive according to RFC 9111 Section 4.2.1
+func detectConflictingDirectives(cc cacheControl) {
+	// Conflict: no-cache + max-age
+	// no-cache is more restrictive (requires revalidation)
+	if _, hasNoCache := cc[cacheControlNoCache]; hasNoCache {
+		if maxAge, hasMaxAge := cc[cacheControlMaxAge]; hasMaxAge && maxAge != "" {
+			GetLogger().Warn(logConflictingDirectives,
+				"conflict", "no-cache + max-age",
+				"resolution", "no-cache takes precedence (requires revalidation)")
+			// Keep no-cache, but also keep max-age for freshness calculation
+			// The presence of no-cache will force revalidation regardless
 		}
 	}
-	return cc
+
+	// Conflict: public + private
+	// private is more restrictive (prevents shared cache storage)
+	if _, hasPrivate := cc[cacheControlPrivate]; hasPrivate {
+		if _, hasPublic := cc[cacheControlPublic]; hasPublic {
+			GetLogger().Warn(logConflictingDirectives,
+				"conflict", "public + private",
+				"resolution", "private takes precedence (more restrictive)")
+			// Remove public directive as private is more restrictive
+			delete(cc, cacheControlPublic)
+		}
+	}
+
+	// Conflict: no-store + max-age
+	// no-store is more restrictive (prevents storage completely)
+	if _, hasNoStore := cc[cacheControlNoStore]; hasNoStore {
+		if maxAge, hasMaxAge := cc[cacheControlMaxAge]; hasMaxAge && maxAge != "" {
+			GetLogger().Warn(logConflictingDirectives,
+				"conflict", "no-store + max-age",
+				"resolution", "no-store takes precedence (prevents caching)")
+			// Keep both, but no-store will prevent caching in canStore()
+		}
+	}
+
+	// Conflict: no-store + must-revalidate
+	// no-store is more restrictive (no caching vs stale serving)
+	if _, hasNoStore := cc[cacheControlNoStore]; hasNoStore {
+		if _, hasMustRevalidate := cc[cacheControlMustRevalidate]; hasMustRevalidate {
+			GetLogger().Warn(logConflictingDirectives,
+				"conflict", "no-store + must-revalidate",
+				"resolution", "no-store takes precedence (prevents caching)")
+			// must-revalidate is irrelevant if we're not caching
+		}
+	}
+
+	// Validate max-age and s-maxage values
+	validateMaxAgeDirective(cc, cacheControlMaxAge, "max-age")
+	validateMaxAgeDirective(cc, cacheControlSMaxAge, "s-maxage")
+}
+
+// validateMaxAgeDirective validates max-age or s-maxage directive values
+func validateMaxAgeDirective(cc cacheControl, directiveKey, directiveName string) {
+	if value, hasDirective := cc[directiveKey]; hasDirective && value != "" {
+		// Check if value contains decimal point (float)
+		if strings.Contains(value, ".") {
+			GetLogger().Warn("invalid Cache-Control value (float not allowed)",
+				"directive", directiveName,
+				"value", value,
+				"resolution", "ignoring directive")
+			delete(cc, directiveKey)
+			return
+		}
+
+		if duration, err := time.ParseDuration(value + "s"); err == nil {
+			if duration < 0 {
+				GetLogger().Warn("invalid Cache-Control value (negative)",
+					"directive", directiveName,
+					"value", value,
+					"resolution", "treating as 0")
+				cc[directiveKey] = "0"
+			}
+		} else {
+			GetLogger().Warn("invalid Cache-Control value (non-numeric)",
+				"directive", directiveName,
+				"value", value,
+				"resolution", "ignoring directive")
+			delete(cc, directiveKey)
+		}
+	}
 }
 
 // headerAllCommaSepValues returns all comma-separated values (each

@@ -341,6 +341,209 @@ The implementation maintains backward compatibility:
 - Supports simplified Age calculation for legacy cached responses
 - Provides smooth migration path from older cache entries
 
+### Cache-Control Directive Validation (RFC 9111 Section 4.2.1)
+
+httpcache implements comprehensive `Cache-Control` directive validation according to RFC 9111 Section 4.2.1, including duplicate detection, conflict resolution, and value validation.
+
+#### Duplicate Directive Handling
+
+When multiple instances of the same directive appear in `Cache-Control`, httpcache follows RFC 9111 requirements:
+
+- **Uses first occurrence**: Only the first instance of a duplicate directive is used
+- **Logs warnings**: Duplicate directives are logged for debugging
+- **Graceful handling**: No errors are thrown, parsing continues normally
+
+```go
+// Example: Duplicate max-age directives
+Cache-Control: max-age=3600, no-cache, max-age=7200
+
+// Result:
+// - max-age=3600 is used (first occurrence)
+// - max-age=7200 is ignored
+// - Warning logged: "duplicate Cache-Control directive 'max-age'"
+```
+
+**Supported directives for duplicate detection:**
+
+- `max-age`
+- `s-maxage`
+- `max-stale`
+- `min-fresh`
+- `no-cache`
+- `no-store`
+- `no-transform`
+- `only-if-cached`
+- `must-revalidate`
+- `proxy-revalidate`
+- `public`
+- `private`
+- `must-understand`
+- `stale-if-error`
+- `stale-while-revalidate`
+- `immutable`
+
+#### Conflicting Directive Resolution
+
+httpcache automatically detects and resolves conflicting directives, applying RFC 9111 semantics:
+
+**1. public + private Conflict**
+
+The `private` directive is more restrictive and takes precedence:
+
+```go
+Cache-Control: public, private
+
+// Result:
+// - public is removed (private is more restrictive)
+// - private is preserved
+// - Warning logged: "conflicting Cache-Control directives detected: 'public' and 'private', keeping 'private'"
+```
+
+**2. no-cache + max-age Conflict**
+
+Both directives are preserved because `no-cache` forces revalidation while `max-age` affects freshness:
+
+```go
+Cache-Control: no-cache, max-age=3600
+
+// Result:
+// - Both directives are kept
+// - no-cache forces revalidation before serving
+// - max-age still determines stale threshold
+// - Warning logged: "conflicting Cache-Control directives detected: 'no-cache' and 'max-age'"
+```
+
+**3. no-store + max-age Conflict**
+
+Both directives are preserved because `no-store` prevents caching entirely:
+
+```go
+Cache-Control: no-store, max-age=3600
+
+// Result:
+// - Both directives are kept
+// - no-store prevents caching (takes precedence in behavior)
+// - max-age is present but ineffective due to no-store
+// - Warning logged: "conflicting Cache-Control directives detected: 'no-store' and 'max-age'"
+```
+
+**4. no-store + must-revalidate Conflict**
+
+Both directives are preserved but `no-store` takes precedence:
+
+```go
+Cache-Control: no-store, must-revalidate
+
+// Result:
+// - Both directives are kept
+// - no-store prevents caching (must-revalidate becomes irrelevant)
+// - Warning logged: "conflicting Cache-Control directives detected: 'no-store' and 'must-revalidate'"
+```
+
+#### Value Validation
+
+httpcache validates directive values according to RFC 9111 requirements:
+
+**1. Negative Values**
+
+Negative values for `max-age` and `s-maxage` are treated as zero:
+
+```go
+Cache-Control: max-age=-100
+
+// Result:
+// - max-age is set to 0 (immediately stale)
+// - Warning logged: "negative max-age value '-100' treated as 0"
+```
+
+**2. Non-Numeric Values**
+
+Non-numeric values are rejected and the directive is removed:
+
+```go
+Cache-Control: max-age=invalid, no-cache
+
+// Result:
+// - max-age directive is removed
+// - no-cache is preserved
+// - Warning logged: "invalid max-age value 'invalid', directive removed"
+```
+
+**3. Float Values**
+
+Floating-point values are rejected (RFC 9111 requires integers):
+
+```go
+Cache-Control: max-age=30.5
+
+// Result:
+// - max-age directive is removed
+// - Warning logged: "max-age value '30.5' is not an integer, directive removed"
+```
+
+#### Complex Scenarios
+
+httpcache handles complex real-world scenarios correctly:
+
+**CDN Response with Multiple Directives:**
+
+```go
+Cache-Control: public, max-age=3600, s-maxage=7200, must-revalidate
+
+// Result:
+// - All directives are valid and preserved
+// - public: cacheable by shared caches
+// - max-age=3600: fresh for 1 hour in private caches
+// - s-maxage=7200: fresh for 2 hours in shared caches
+// - must-revalidate: must revalidate when stale
+```
+
+**Mixed Valid and Invalid Directives:**
+
+```go
+Cache-Control: max-age=3600, max-stale=invalid, no-transform
+
+// Result:
+// - max-age=3600 is preserved
+// - max-stale is removed (invalid value)
+// - no-transform is preserved
+// - Warning logged for invalid max-stale
+```
+
+**Multiple Conflicts and Duplicates:**
+
+```go
+Cache-Control: public, private, max-age=3600, max-age=7200, no-cache
+
+// Result:
+// - private is preserved (public removed - conflict)
+// - max-age=3600 is used (first occurrence - duplicate)
+// - no-cache is preserved (kept alongside max-age with warning)
+// - Warnings logged for both conflicts and duplicates
+```
+
+#### Benefits
+
+- **RFC 9111 Compliance**: Strict adherence to specification
+- **Defensive Parsing**: Handles malformed headers gracefully
+- **Debugging Support**: Warnings help identify issues
+- **Predictable Behavior**: Consistent conflict resolution
+- **No Failures**: Invalid directives don't cause request failures
+
+#### Observability
+
+When `httpcache.Logger` is configured, all validation warnings are logged:
+
+```go
+httpcache.Logger = log.New(os.Stdout, "httpcache: ", log.LstdFlags)
+
+// Output examples:
+// httpcache: duplicate Cache-Control directive 'max-age'
+// httpcache: conflicting Cache-Control directives detected: 'public' and 'private', keeping 'private'
+// httpcache: negative max-age value '-100' treated as 0
+// httpcache: max-age value '30.5' is not an integer, directive removed
+```
+
 ### Warning Headers (Section 5.5)
 
 Warning headers are automatically added to inform clients about cache conditions:

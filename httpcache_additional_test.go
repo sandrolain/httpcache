@@ -154,8 +154,10 @@ func TestGetFreshnessEdgeCases(t *testing.T) {
 		reqHeaders := http.Header{
 			"Cache-Control": []string{"max-age=invalid"},
 		}
-		if got := getFreshness(respHeaders, reqHeaders); got != stale {
-			t.Errorf("getFreshness() = %v, want %v", got, stale)
+		// RFC 9111: Invalid directive should be ignored, response should be fresh
+		// because response has valid max-age=3600
+		if got := getFreshness(respHeaders, reqHeaders); got != fresh {
+			t.Errorf("getFreshness() = %v, want %v (invalid request max-age ignored)", got, fresh)
 		}
 	})
 
