@@ -3,9 +3,11 @@ module github.com/sandrolain/httpcache
 go 1.25.3
 
 require (
+	github.com/andybalholm/brotli v1.2.0
 	github.com/aws/aws-sdk-go v1.55.7
 	github.com/bradfitz/gomemcache v0.0.0-20250403215159-8d39553ac7cf
 	github.com/coocood/freecache v1.2.4
+	github.com/golang/snappy v1.0.0
 	github.com/gomodule/redigo v1.9.3
 	github.com/hazelcast/hazelcast-go-client v1.4.3
 	github.com/jackc/pgx/v5 v5.7.6
@@ -67,7 +69,6 @@ require (
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-ole/go-ole v1.3.0 // indirect
-	github.com/golang/snappy v1.0.0 // indirect
 	github.com/google/btree v1.1.3 // indirect
 	github.com/google/go-tpm v0.9.6 // indirect
 	github.com/google/uuid v1.6.0 // indirect

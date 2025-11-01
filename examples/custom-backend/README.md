@@ -42,7 +42,7 @@ Custom cache backends are useful for:
 - **Monitoring**: Track cache hits/misses and performance
 - **Size limits**: Implement LRU or LFU eviction policies
 - **TTL support**: Automatic expiration independent of HTTP headers
-- **Compression**: Compress cached responses to save memory
+- **Compression**: See [CompressCache example](../compresscache/) for production-ready compression
 - **Encryption**: Secure sensitive cached data
 - **Multi-tier**: Combine multiple cache backends (e.g., memory + disk)
 - **Database**: Store cache in PostgreSQL, MySQL, etc.
@@ -86,7 +86,7 @@ Automatic expiration:
 ## Ideas for Other Custom Caches
 
 - **Size-limited cache**: LRU eviction when size limit reached
-- **Compressed cache**: gzip responses before storing
+- **Compressed cache**: See [CompressCache](../compresscache/) for production implementation
 - **Encrypted cache**: Encrypt sensitive data at rest
 - **Logging cache**: Log all cache operations for debugging
 - **Circuit breaker cache**: Fail fast on repeated errors

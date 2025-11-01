@@ -42,6 +42,7 @@
   - ✅ Cache invalidation on unsafe methods (Section 4.4)
 - ✅ **Multiple Backends** - Memory, Disk, Redis, LevelDB, Memcache, PostgreSQL, MongoDB, NATS K/V, Hazelcast, Cloud Storage (S3/GCS/Azure)
 - ✅ **Multi-Tier Caching** - Combine multiple backends with automatic fallback and promotion
+- ✅ **Compression Wrapper** - Automatic Gzip, Brotli, or Snappy compression for cached data
 - ✅ **Security Wrapper** - Optional SHA-256 key hashing and AES-256 encryption
 - ✅ **Thread-Safe** - Safe for concurrent use
 - ✅ **Zero Dependencies** - Core package uses only Go standard library
@@ -117,6 +118,7 @@ go get github.com/sandrolain/httpcache
 - [RFC 7234 compliance](./docs/how-it-works.md#rfc-7234-compliance-features)
 - [Stale-while-revalidate](./docs/advanced-features.md#stale-while-revalidate-support)
 - [Multi-tier caching strategies](./wrapper/multicache/README.md)
+- [Compression wrapper](./wrapper/compresscache/README.md) - Gzip, Brotli, Snappy compression
 - [Custom cache implementation](./docs/how-it-works.md#custom-cache-implementation)
 - [Multi-user considerations](./docs/security.md#private-cache-and-multi-user-applications)
 
@@ -133,6 +135,7 @@ See the [`examples/`](./examples) directory for complete, runnable examples:
 - **[Hazelcast](./examples/hazelcast/)** - Enterprise distributed cache
 - **[FreeCache](./examples/freecache/)** - High-performance in-memory with zero GC
 - **[Security Best Practices](./examples/security-best-practices/)** - Secure cache with encryption and key hashing
+- **[Compress Cache](./examples/compresscache/)** - Automatic Gzip/Brotli/Snappy compression
 - **[Multi-Tier Cache](./examples/multicache/)** - Multi-tiered caching with automatic fallback and promotion
 - **[Custom Backend](./examples/custom-backend/)** - Build your own cache backend
 - **[Prometheus Metrics](./examples/prometheus/)** - Monitoring cache performance

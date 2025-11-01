@@ -112,7 +112,27 @@ Learn how to create custom cache backends.
 - Building specialized caching strategies
 - Adding monitoring/metrics
 
-### 6. [Cache Key Headers](./cachekeyheaders/)
+### 7. [Compress Cache](./compresscache/)
+
+Automatic compression for cached data using Gzip, Brotli, or Snappy.
+
+**Features:**
+
+- Multiple compression algorithms (Gzip, Brotli, Snappy)
+- Algorithm-specific configuration
+- Compression statistics tracking
+- Cross-algorithm compatibility
+- Works with any cache backend
+
+**When to use:**
+
+- Distributed cache backends (Redis, PostgreSQL, cloud storage)
+- Large response bodies
+- Bandwidth-constrained environments
+- Storage cost optimization
+- When network transfer is expensive
+
+### 8. [Cache Key Headers](./cachekeyheaders/)
 
 Differentiate cache entries based on request header values.
 
@@ -131,7 +151,7 @@ Differentiate cache entries based on request header values.
 - API versioning by header
 - Any scenario requiring cache separation by request headers
 
-### 7. [NATS K/V Cache](./natskv/)
+### 9. [NATS K/V Cache](./natskv/)
 
 Distributed caching using NATS JetStream Key/Value store.
 
@@ -169,7 +189,7 @@ Distributed caching using Hazelcast in-memory data grid.
 - Enterprise applications requiring HA
 - When you need automatic data partitioning
 
-### 9. [Multi-Tier Cache](./multicache/)
+### 11. [Multi-Tier Cache](./multicache/)
 
 Combine multiple cache backends with automatic fallback and promotion.
 
@@ -189,7 +209,7 @@ Combine multiple cache backends with automatic fallback and promotion.
 - Complex caching strategies with multiple storage levels
 - When you need both speed and resilience
 
-### 10. [PostgreSQL Cache](./postgresql/)
+### 12. [PostgreSQL Cache](./postgresql/)
 
 Persistent distributed caching using PostgreSQL.
 
@@ -208,7 +228,7 @@ Persistent distributed caching using PostgreSQL.
 - SQL-based systems
 - When you need persistent distributed cache
 
-### 11. [MongoDB Cache](./mongodb/)
+### 13. [MongoDB Cache](./mongodb/)
 
 Persistent distributed caching using MongoDB.
 
@@ -227,7 +247,7 @@ Persistent distributed caching using MongoDB.
 - Document-based systems
 - When you need flexible schema for cache entries
 
-### 12. [BlobCache - Cloud Storage](./blobcache/)
+### 14. [BlobCache - Cloud Storage](./blobcache/)
 
 Cloud-agnostic caching using blob storage (S3, GCS, Azure).
 
@@ -247,7 +267,7 @@ Cloud-agnostic caching using blob storage (S3, GCS, Azure).
 - Long-term cache storage
 - When you need vendor-independent storage
 
-### 13. [Security Best Practices](./security-best-practices/)
+### 15. [Security Best Practices](./security-best-practices/)
 
 Secure cache implementation with encryption and key hashing.
 
