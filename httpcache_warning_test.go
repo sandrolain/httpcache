@@ -274,3 +274,204 @@ func TestMultipleWarningHeaders(t *testing.T) {
 		resp3.Body.Close()
 	}
 }
+
+// TestDisableWarningHeaderStaleWhileRevalidate verifies that Warning headers are not added when DisableWarningHeader is true
+func TestDisableWarningHeaderStaleWhileRevalidate(t *testing.T) {
+	resetTest()
+
+	counter := 0
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		counter++
+		w.Header().Set("Cache-Control", "max-age=1, stale-while-revalidate=10")
+		w.Header().Set("Date", time.Now().UTC().Format(time.RFC1123))
+		w.Write([]byte("test"))
+	}))
+	defer ts.Close()
+
+	cache := NewMemoryCache()
+	tp := &Transport{
+		Cache:                cache,
+		MarkCachedResponses:  true,
+		DisableWarningHeader: true, // Disable Warning headers
+	}
+	client := &http.Client{Transport: tp}
+
+	// First request
+	req, _ := http.NewRequest("GET", ts.URL, nil)
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	io.ReadAll(resp.Body)
+	resp.Body.Close()
+
+	// Wait for response to become stale but within stale-while-revalidate window
+	time.Sleep(2 * time.Second)
+
+	// Second request - should serve stale WITHOUT Warning 110
+	resp2, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	io.ReadAll(resp2.Body)
+	resp2.Body.Close()
+
+	// Should NOT have Warning header
+	warning := resp2.Header.Get("Warning")
+	if warning != "" {
+		t.Fatalf("Expected no Warning header with DisableWarningHeader=true, got: %q", warning)
+	}
+}
+
+// TestDisableWarningHeaderRevalidationFailed verifies that Warning 111 is not added when DisableWarningHeader is true
+func TestDisableWarningHeaderRevalidationFailed(t *testing.T) {
+	resetTest()
+
+	counter := 0
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		counter++
+		if counter > 1 {
+			// Second request returns error
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte("error"))
+			return
+		}
+		w.Header().Set("Cache-Control", "max-age=1, stale-if-error=10")
+		w.Header().Set("Date", time.Now().UTC().Format(time.RFC1123))
+		w.Write([]byte("test"))
+	}))
+	defer ts.Close()
+
+	cache := NewMemoryCache()
+	tp := &Transport{
+		Cache:                cache,
+		MarkCachedResponses:  true,
+		DisableWarningHeader: true, // Disable Warning headers
+	}
+	client := &http.Client{Transport: tp}
+
+	// First request
+	req, _ := http.NewRequest("GET", ts.URL, nil)
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	io.ReadAll(resp.Body)
+	resp.Body.Close()
+
+	// Wait for response to become stale
+	time.Sleep(2 * time.Second)
+
+	// Second request - server returns 500, should serve stale WITHOUT Warning 111
+	resp2, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	io.ReadAll(resp2.Body)
+	resp2.Body.Close()
+
+	// Should NOT have Warning header
+	warning := resp2.Header.Get("Warning")
+	if warning != "" {
+		t.Fatalf("Expected no Warning header with DisableWarningHeader=true, got: %q", warning)
+	}
+
+	// But should still have X-Stale header
+	if resp2.Header.Get("X-Stale") != "1" {
+		t.Fatal("Expected X-Stale header to be set")
+	}
+}
+
+// TestDisableWarningHeaderMaxStale verifies that Warning 110 is not added when DisableWarningHeader is true
+func TestDisableWarningHeaderMaxStale(t *testing.T) {
+	resetTest()
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "max-age=1")
+		w.Header().Set("Date", time.Now().UTC().Format(time.RFC1123))
+		w.Write([]byte("test"))
+	}))
+	defer ts.Close()
+
+	cache := NewMemoryCache()
+	tp := &Transport{
+		Cache:                cache,
+		MarkCachedResponses:  true,
+		DisableWarningHeader: true, // Disable Warning headers
+	}
+	client := &http.Client{Transport: tp}
+
+	// First request
+	req, _ := http.NewRequest("GET", ts.URL, nil)
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	io.ReadAll(resp.Body)
+	resp.Body.Close()
+
+	// Wait for response to become stale
+	time.Sleep(2 * time.Second)
+
+	// Second request with max-stale - should serve stale WITHOUT Warning 110
+	req2, _ := http.NewRequest("GET", ts.URL, nil)
+	req2.Header.Set("Cache-Control", "max-stale=3600")
+	resp2, err := client.Do(req2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	io.ReadAll(resp2.Body)
+	resp2.Body.Close()
+
+	// Should NOT have Warning header
+	warning := resp2.Header.Get("Warning")
+	if warning != "" {
+		t.Fatalf("Expected no Warning header with DisableWarningHeader=true, got: %q", warning)
+	}
+}
+
+// TestWarningHeaderEnabledByDefault verifies that Warning headers are enabled by default
+func TestWarningHeaderEnabledByDefault(t *testing.T) {
+	resetTest()
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "max-age=1, stale-while-revalidate=10")
+		w.Header().Set("Date", time.Now().UTC().Format(time.RFC1123))
+		w.Write([]byte("test"))
+	}))
+	defer ts.Close()
+
+	cache := NewMemoryCache()
+	tp := &Transport{
+		Cache:               cache,
+		MarkCachedResponses: true,
+		// DisableWarningHeader not set - should default to false
+	}
+	client := &http.Client{Transport: tp}
+
+	// First request
+	req, _ := http.NewRequest("GET", ts.URL, nil)
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	io.ReadAll(resp.Body)
+	resp.Body.Close()
+
+	// Wait for response to become stale but within stale-while-revalidate window
+	time.Sleep(2 * time.Second)
+
+	// Second request - should serve stale WITH Warning 110
+	resp2, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	io.ReadAll(resp2.Body)
+	resp2.Body.Close()
+
+	// Should have Warning header (default behavior)
+	warning := resp2.Header.Get("Warning")
+	if !strings.Contains(warning, "110") {
+		t.Fatalf("Expected Warning 110 by default, got: %q", warning)
+	}
+}

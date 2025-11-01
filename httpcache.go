@@ -254,6 +254,12 @@ type Transport struct {
 	// Example: []string{"Authorization", "Accept-Language"}
 	// Note: This is different from the HTTP Vary response header mechanism, which is handled separately.
 	CacheKeyHeaders []string
+	// DisableWarningHeader disables the deprecated Warning header (RFC 7234) in responses.
+	// RFC 9111 has obsoleted the Warning header field, making it no longer part of the standard.
+	// When true, Warning headers (110, 111, etc.) will not be added to cached responses.
+	// Default is false (Warning headers are enabled for backward compatibility).
+	// Set to true to comply with RFC 9111 and avoid deprecated headers.
+	DisableWarningHeader bool
 }
 
 // NewTransport returns a new Transport with the
@@ -455,7 +461,7 @@ func (t *Transport) handleCachedResponse(cachedResp *http.Response, req *http.Re
 
 	if freshness == fresh {
 		// Check if it's actually stale but served due to max-stale
-		if isActuallyStale(cachedResp.Header) {
+		if !t.DisableWarningHeader && isActuallyStale(cachedResp.Header) {
 			// RFC 7234 Section 5.5: Add Warning 110 (Response is Stale)
 			addStaleWarning(cachedResp)
 		}
@@ -464,7 +470,9 @@ func (t *Transport) handleCachedResponse(cachedResp *http.Response, req *http.Re
 
 	if freshness == staleWhileRevalidate {
 		// RFC 7234 Section 5.5: Add Warning 110 (Response is Stale)
-		addStaleWarning(cachedResp)
+		if !t.DisableWarningHeader {
+			addStaleWarning(cachedResp)
+		}
 		// Trigger async revalidation
 		t.asyncRevalidate(req)
 		return req, true
@@ -645,7 +653,9 @@ func (t *Transport) processCachedResponse(cachedResp *http.Response, req *http.R
 			cachedResp.Header.Set(XStale, "1")
 		}
 		// RFC 7234 Section 5.5: Add Warning 111 (Revalidation Failed)
-		addRevalidationFailedWarning(cachedResp)
+		if !t.DisableWarningHeader {
+			addRevalidationFailedWarning(cachedResp)
+		}
 		return cachedResp, nil
 	}
 
@@ -1106,16 +1116,19 @@ func formatAge(age time.Duration) string {
 
 // addWarningHeader adds a Warning header to the response per RFC 7234 Section 5.5
 // Warning headers can be stacked, so we use Add instead of Set
+// Note: RFC 9111 has obsoleted the Warning header field.
 func addWarningHeader(resp *http.Response, warningCode string) {
 	resp.Header.Add(headerWarning, warningCode)
 }
 
 // addStaleWarning adds "110 Response is Stale" warning header
+// Note: RFC 9111 has obsoleted the Warning header field.
 func addStaleWarning(resp *http.Response) {
 	addWarningHeader(resp, warningResponseIsStale)
 }
 
 // addRevalidationFailedWarning adds "111 Revalidation Failed" warning header
+// Note: RFC 9111 has obsoleted the Warning header field.
 func addRevalidationFailedWarning(resp *http.Response) {
 	addWarningHeader(resp, warningRevalidationFailed)
 }

@@ -16,7 +16,58 @@ transport.SkipServerErrorsFromCache = true  // Default: false
 
 // Configure as public/shared cache instead of private cache
 transport.IsPublicCache = true  // Default: false (private cache)
+
+// Disable deprecated Warning headers (RFC 9111 compliance)
+// RFC 9111 has obsoleted the Warning header field
+transport.DisableWarningHeader = true  // Default: false (enabled for backward compatibility)
 ```
+
+### Disabling Warning Headers (RFC 9111)
+
+**RFC 9111** has obsoleted the `Warning` header field that was defined in RFC 7234. To comply with the latest HTTP caching specification, you can disable the automatic addition of Warning headers:
+
+```go
+transport := httpcache.NewMemoryCacheTransport()
+transport.DisableWarningHeader = true  // Disable Warning headers
+
+client := transport.Client()
+```
+
+**When `DisableWarningHeader = false` (default):**
+
+The library adds Warning headers to cached responses in these situations:
+
+- `110 - "Response is Stale"` - When serving a stale response (e.g., with `stale-while-revalidate` or `max-stale`)
+- `111 - "Revalidation Failed"` - When revalidation fails and a stale response is served (with `stale-if-error`)
+
+**When `DisableWarningHeader = true`:**
+
+No Warning headers are added to responses, ensuring RFC 9111 compliance.
+
+**Example:**
+
+```go
+// RFC 9111 compliant configuration
+transport := httpcache.NewMemoryCacheTransport()
+transport.DisableWarningHeader = true
+
+client := transport.Client()
+
+// First request
+resp, _ := client.Get("https://example.com/api")  // Cache-Control: max-age=1, stale-while-revalidate=10
+// Response cached
+
+time.Sleep(2 * time.Second)  // Wait for response to become stale
+
+// Second request - serves stale response while revalidating
+resp, _ = client.Get("https://example.com/api")
+// Response is served from cache but WITHOUT Warning header
+// X-From-Cache: 1
+// X-Freshness: stale-while-revalidate
+// (No Warning header)
+```
+
+**Recommendation:** Set `DisableWarningHeader = true` for new applications to comply with RFC 9111. The default is `false` for backward compatibility with existing code.
 
 ### Private vs Public Cache
 
