@@ -3,17 +3,26 @@
 [![CI](https://github.com/sandrolain/httpcache/workflows/CI/badge.svg)](https://github.com/sandrolain/httpcache/actions/workflows/ci.yml)
 [![Security](https://github.com/sandrolain/httpcache/workflows/Security/badge.svg)](https://github.com/sandrolain/httpcache/actions/workflows/security.yml)
 [![Coverage](https://img.shields.io/badge/coverage-95%25-brightgreen.svg)](https://github.com/sandrolain/httpcache)
-[![GoDoc](https://godoc.org/github.com/sandrolain/httpcache?status.svg)](https://godoc.org/github.com/sandrolain/httpcache)
 [![Go Report Card](https://goreportcard.com/badge/github.com/sandrolain/httpcache)](https://goreportcard.com/report/github.com/sandrolain/httpcache)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE.txt)
+[![GoDoc](https://godoc.org/github.com/sandrolain/httpcache?status.svg)](https://godoc.org/github.com/sandrolain/httpcache)
 
-**Package httpcache** provides an `http.RoundTripper` implementation that works as a mostly [RFC 7234](https://tools.ietf.org/html/rfc7234) compliant cache for HTTP responses.
+**Package httpcache** provides an `http.RoundTripper` implementation that works as a mostly [RFC 7234](https://tools.ietf.org/html/rfc7234) compliant cache for HTTP responses. It improves application performance by reducing redundant HTTP requests and supports various backends for use cases such as API caching, web scraping, and microservices.
 
 > **Note**: This is a maintained fork of [gregjones/httpcache](https://github.com/gregjones/httpcache), which is no longer actively maintained. This fork aims to modernize the codebase while maintaining backward compatibility, fix bugs, and add new features.
+
+## Use Cases
+
+- **API Caching**: Reduce latency and server load by caching API responses.
+- **Web Scraping**: Avoid repeated requests to the same endpoints.
+- **Microservices**: Cache responses between services for better performance.
+- **Web Applications**: Improve user experience by caching dynamic content.
+- **Resource Caching**: Store static or frequently accessed resources locally.
 
 ## Table of Contents
 
 - [httpcache](#httpcache)
+  - [Use Cases](#use-cases)
   - [Table of Contents](#table-of-contents)
   - [Features](#features)
   - [Quick Start](#quick-start)
