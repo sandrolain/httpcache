@@ -10,6 +10,8 @@ on:
       - "context/**"
       - "TODO.md"
       - "examples/**/README.md"
+      - "**/*.png"
+      - "**/*.jpg"
   pull_request:
     branches: [master, main, develop]
     paths-ignore:
@@ -19,6 +21,8 @@ on:
       - "context/**"
       - "TODO.md"
       - "examples/**/README.md"
+      - "**/*.png"
+      - "**/*.jpg"
 
 jobs:
   test:
