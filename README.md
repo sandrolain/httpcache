@@ -1,3 +1,5 @@
+<center><img src="httpcache.png" width="320" alt="httpcache" /></center>
+
 # httpcache
 
 [![CI](https://github.com/sandrolain/httpcache/workflows/CI/badge.svg)](https://github.com/sandrolain/httpcache/actions/workflows/ci.yml)
