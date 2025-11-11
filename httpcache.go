@@ -13,6 +13,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httputil"
+	"net/url"
 	"sort"
 	"strconv"
 	"strings"
@@ -34,6 +35,10 @@ const (
 	XFreshness = "X-Cache-Freshness"
 	// XCachedTime is the internal header used to store when a response was cached
 	XCachedTime = "X-Cached-Time"
+	// XRequestTime stores when the HTTP request was initiated (for Age calculation per RFC 9111)
+	XRequestTime = "X-Request-Time"
+	// XResponseTime stores when the HTTP response was received (for Age calculation per RFC 9111)
+	XResponseTime = "X-Response-Time"
 
 	methodGET    = "GET"
 	methodHEAD   = "HEAD"
@@ -54,9 +59,18 @@ const (
 	cacheControlNoCache              = "no-cache"
 	cacheControlStaleWhileRevalidate = "stale-while-revalidate"
 	cacheControlMaxAge               = "max-age"
+	cacheControlNoStore              = "no-store"
+	cacheControlPrivate              = "private"
+	cacheControlMustUnderstand       = "must-understand"
+	cacheControlPublic               = "public"
+	cacheControlMustRevalidate       = "must-revalidate"
+	cacheControlSMaxAge              = "s-maxage"
 
 	headerPragma  = "Pragma"
 	pragmaNoCache = "no-cache"
+
+	// Log messages
+	logConflictingDirectives = "conflicting Cache-Control directives detected"
 
 	// RFC 7234 Section 5.5: Warning header codes
 	warningResponseIsStale     = `110 - "Response is Stale"`
@@ -71,6 +85,23 @@ const (
 	freshnessStringTransparent          = "transparent"
 	freshnessStringUnknown              = "unknown"
 )
+
+// RFC 9111 Section 5.2.2.3: HTTP status codes that are understood by this cache.
+// When must-understand directive is present, only responses with these status codes
+// can be cached, even if other cache directives would normally prevent caching.
+var understoodStatusCodes = map[int]bool{
+	200: true, // OK
+	203: true, // Non-Authoritative Information
+	204: true, // No Content
+	206: true, // Partial Content
+	300: true, // Multiple Choices
+	301: true, // Moved Permanently
+	404: true, // Not Found
+	405: true, // Method Not Allowed
+	410: true, // Gone
+	414: true, // URI Too Long
+	501: true, // Not Implemented
+}
 
 // A Cache interface is used by the Transport to store and retrieve responses.
 type Cache interface {
@@ -118,6 +149,41 @@ func cacheKeyWithHeaders(req *http.Request, headers []string) string {
 	return key
 }
 
+// cacheKeyWithVary returns the cache key for req, including Vary header values from the cached response.
+// This implements RFC 9111 vary separation: separate cache entries for each variant.
+// The varyHeaders parameter contains the list of headers specified in the Vary response header.
+// RFC 9111 Section 4.1: Header values are normalized before inclusion in the cache key.
+func cacheKeyWithVary(req *http.Request, varyHeaders []string) string {
+	key := cacheKey(req)
+
+	if len(varyHeaders) == 0 {
+		return key
+	}
+
+	// Collect vary header values from the request
+	var varyParts []string
+	for _, header := range varyHeaders {
+		canonicalHeader := http.CanonicalHeaderKey(strings.TrimSpace(header))
+		if canonicalHeader == "" || canonicalHeader == "*" {
+			continue
+		}
+
+		value := req.Header.Get(canonicalHeader)
+		// RFC 9111 Section 4.1: Normalize value before including in cache key
+		normalizedValue := normalizeHeaderValue(value)
+		// Include even empty values to ensure proper cache separation
+		varyParts = append(varyParts, canonicalHeader+":"+normalizedValue)
+	}
+
+	if len(varyParts) > 0 {
+		// Sort to ensure consistent key generation
+		sort.Strings(varyParts)
+		key = key + "|vary:" + strings.Join(varyParts, "|")
+	}
+
+	return key
+}
+
 // CachedResponse returns the cached http.Response for req if present, and nil
 // otherwise.
 func CachedResponse(c Cache, req *http.Request) (resp *http.Response, err error) {
@@ -159,6 +225,20 @@ type Transport struct {
 	// AsyncRevalidateTimeout is the context timeout for async requests triggered by stale-while-revalidate.
 	// If zero, no timeout is applied to async revalidation requests.
 	AsyncRevalidateTimeout time.Duration
+	// IsPublicCache enables public cache mode (default: false for private cache).
+	// When true, the cache will NOT store responses with Cache-Control: private directive.
+	// When false (default), the cache acts as a private cache and CAN store private responses.
+	// RFC 9111: Private caches (browsers, API clients) can cache private responses.
+	// Shared caches (CDNs, proxies) must NOT cache private responses.
+	// Set to true only if using httpcache as a shared/public cache (CDN, reverse proxy).
+	IsPublicCache bool
+	// EnableVarySeparation enables RFC 9111 compliant Vary header separation (default: false).
+	// When true, responses with Vary headers create separate cache entries for each variant.
+	// When false (default), the previous behavior is maintained where variants overwrite each other.
+	// RFC 9111 Section 4.1: Caches should maintain separate entries for different variants.
+	// Enable this for full RFC 9111 compliance with content negotiation (Accept-Language, Accept, etc.).
+	// Note: Enabling this may increase cache storage usage as each variant is stored separately.
+	EnableVarySeparation bool
 	// ShouldCache allows configuring non-standard caching behaviour based on the response.
 	// If set, this function is called to determine whether a non-200 response should be cached.
 	// This enables caching of responses like 404 Not Found, 301 Moved Permanently, etc.
@@ -174,6 +254,12 @@ type Transport struct {
 	// Example: []string{"Authorization", "Accept-Language"}
 	// Note: This is different from the HTTP Vary response header mechanism, which is handled separately.
 	CacheKeyHeaders []string
+	// DisableWarningHeader disables the deprecated Warning header (RFC 7234) in responses.
+	// RFC 9111 has obsoleted the Warning header field, making it no longer part of the standard.
+	// When true, Warning headers (110, 111, etc.) will not be added to cached responses.
+	// Default is false (Warning headers are enabled for backward compatibility).
+	// Set to true to comply with RFC 9111 and avoid deprecated headers.
+	DisableWarningHeader bool
 }
 
 // NewTransport returns a new Transport with the
@@ -190,13 +276,84 @@ func (t *Transport) Client() *http.Client {
 // varyMatches will return false unless all of the cached values for the headers listed in Vary
 // match the new request
 func varyMatches(cachedResp *http.Response, req *http.Request) bool {
-	for _, header := range headerAllCommaSepValues(cachedResp.Header, "vary") {
-		header = http.CanonicalHeaderKey(header)
-		if header != "" && req.Header.Get(header) != cachedResp.Header.Get(headerXVariedPrefix+header) {
+	varyHeaders := headerAllCommaSepValues(cachedResp.Header, "vary")
+
+	// RFC 9111 Section 4.1: A stored response with "Vary: *" always fails to match
+	for _, header := range varyHeaders {
+		if strings.TrimSpace(header) == "*" {
+			return false
+		}
+	}
+
+	// Check each varied header for matching
+	for _, header := range varyHeaders {
+		header = http.CanonicalHeaderKey(strings.TrimSpace(header))
+		if header == "" || header == "*" {
+			continue
+		}
+
+		// Get the current request header value
+		reqValue := req.Header.Get(header)
+		// Get the stored request header value from X-Varied-* headers
+		storedValue := cachedResp.Header.Get(headerXVariedPrefix + header)
+
+		// RFC 9111 Section 4.1: If header is absent from request, it matches if also absent in stored request
+		// Both empty: match
+		// One empty, one not: no match
+		if !normalizedHeaderValuesMatch(reqValue, storedValue) {
 			return false
 		}
 	}
 	return true
+}
+
+// normalizedHeaderValuesMatch implements RFC 9111 Section 4.1 header field matching.
+// Header fields match if they can be transformed to be identical by:
+// - adding or removing whitespace (where allowed)
+// - normalizing values in ways known to have identical semantics
+//
+// This implementation provides basic normalization that works for most headers.
+// For production use, more sophisticated normalization could be added for specific
+// header types (e.g., Accept-Language, Accept-Encoding).
+func normalizedHeaderValuesMatch(value1, value2 string) bool {
+	// Exact match (fast path)
+	if value1 == value2 {
+		return true
+	}
+
+	// Normalize whitespace: trim and collapse internal whitespace
+	norm1 := normalizeHeaderValue(value1)
+	norm2 := normalizeHeaderValue(value2)
+
+	return norm1 == norm2
+}
+
+// normalizeHeaderValue normalizes a header value according to RFC 9111 Section 4.1.
+// This handles common whitespace variations while preserving semantics.
+func normalizeHeaderValue(value string) string {
+	// Trim leading/trailing whitespace
+	value = strings.TrimSpace(value)
+
+	// First, normalize all whitespace characters (space, tab, newline) to single space
+	var normalized strings.Builder
+	prevSpace := false
+	for _, r := range value {
+		if r == ' ' || r == '\t' || r == '\n' || r == '\r' {
+			if !prevSpace {
+				normalized.WriteRune(' ')
+				prevSpace = true
+			}
+		} else {
+			normalized.WriteRune(r)
+			prevSpace = false
+		}
+	}
+
+	// Now normalize comma-separated lists: "en, fr" and "en,fr" should match
+	// Replace ", " with "," (all comma+space combinations already normalized to single space above)
+	result := strings.ReplaceAll(normalized.String(), ", ", ",")
+
+	return result
 }
 
 // addValidatorsToRequest adds conditional request headers (If-None-Match, If-Modified-Since)
@@ -304,7 +461,7 @@ func (t *Transport) handleCachedResponse(cachedResp *http.Response, req *http.Re
 
 	if freshness == fresh {
 		// Check if it's actually stale but served due to max-stale
-		if isActuallyStale(cachedResp.Header) {
+		if !t.DisableWarningHeader && isActuallyStale(cachedResp.Header) {
 			// RFC 7234 Section 5.5: Add Warning 110 (Response is Stale)
 			addStaleWarning(cachedResp)
 		}
@@ -313,7 +470,9 @@ func (t *Transport) handleCachedResponse(cachedResp *http.Response, req *http.Re
 
 	if freshness == staleWhileRevalidate {
 		// RFC 7234 Section 5.5: Add Warning 110 (Response is Stale)
-		addStaleWarning(cachedResp)
+		if !t.DisableWarningHeader {
+			addStaleWarning(cachedResp)
+		}
 		// Trigger async revalidation
 		t.asyncRevalidate(req)
 		return req, true
@@ -365,18 +524,46 @@ func performRequest(transport http.RoundTripper, req *http.Request, onlyIfCached
 	if onlyIfCached {
 		return newGatewayTimeoutResponse(req), nil
 	}
-	return transport.RoundTrip(req)
+
+	// RFC 9111 Section 4.2.3: Track request_time for Age calculation
+	requestTime := time.Now().UTC()
+
+	resp, err := transport.RoundTrip(req)
+	if err != nil {
+		return nil, err
+	}
+
+	// RFC 9111 Section 4.2.3: Track response_time for Age calculation
+	responseTime := time.Now().UTC()
+
+	// Store timing information in response headers for Age calculation
+	// Only if response has headers (defensive check)
+	if resp != nil && resp.Header != nil {
+		resp.Header.Set(XRequestTime, requestTime.Format(time.RFC3339))
+		resp.Header.Set(XResponseTime, responseTime.Format(time.RFC3339))
+	}
+
+	return resp, nil
 }
 
 // storeVaryHeaders stores the Vary header values in the response for future cache validation
+// storeVaryHeaders stores the Vary header values in the response for future cache validation.
+// RFC 9111 Section 4.1: Values are normalized before storage to enable proper matching.
 func storeVaryHeaders(resp *http.Response, req *http.Request) {
 	for _, varyKey := range headerAllCommaSepValues(resp.Header, "vary") {
-		varyKey = http.CanonicalHeaderKey(varyKey)
-		reqValue := req.Header.Get(varyKey)
-		if reqValue != "" {
-			fakeHeader := headerXVariedPrefix + varyKey
-			resp.Header.Set(fakeHeader, reqValue)
+		varyKey = http.CanonicalHeaderKey(strings.TrimSpace(varyKey))
+		if varyKey == "" || varyKey == "*" {
+			continue
 		}
+
+		reqValue := req.Header.Get(varyKey)
+		fakeHeader := headerXVariedPrefix + varyKey
+
+		// RFC 9111 Section 4.1: Normalize the value before storing
+		// This ensures that future requests with equivalent (but differently formatted)
+		// header values will match correctly
+		normalizedValue := normalizeHeaderValue(reqValue)
+		resp.Header.Set(fakeHeader, normalizedValue)
 	}
 }
 
@@ -387,8 +574,9 @@ func (t *Transport) setupCachingBody(resp *http.Response, cacheKey string) {
 		OnEOF: func(r io.Reader) {
 			resp := *resp
 			resp.Body = io.NopCloser(r)
-			// Add timestamp when caching
-			resp.Header.Set(XCachedTime, time.Now().UTC().Format(time.RFC3339))
+			// Add cached timestamp (backward compatibility with X-Cached-Time)
+			// X-Request-Time and X-Response-Time are already set by performRequest
+			resp.Header.Set(XCachedTime, resp.Header.Get(XResponseTime))
 			respBytes, err := httputil.DumpResponse(&resp, true)
 			if err == nil {
 				t.Cache.Set(cacheKey, respBytes)
@@ -397,10 +585,33 @@ func (t *Transport) setupCachingBody(resp *http.Response, cacheKey string) {
 	}
 }
 
+// setupCachingBodyMultiple stores the cached response under multiple cache keys when the
+// response body is fully read. This is used for Vary separation where we also keep
+// a manifest or pointer under the base key to allow discovery of variant keys.
+func (t *Transport) setupCachingBodyMultiple(resp *http.Response, cacheKeys []string) {
+	resp.Body = &cachingReadCloser{
+		R: resp.Body,
+		OnEOF: func(r io.Reader) {
+			respCopy := *resp
+			respCopy.Body = io.NopCloser(r)
+			// Add cached timestamp (backward compatibility with X-Cached-Time)
+			// X-Request-Time and X-Response-Time are already set by performRequest
+			respCopy.Header.Set(XCachedTime, respCopy.Header.Get(XResponseTime))
+			respBytes, err := httputil.DumpResponse(&respCopy, true)
+			if err == nil {
+				for _, k := range cacheKeys {
+					t.Cache.Set(k, respBytes)
+				}
+			}
+		},
+	}
+}
+
 // storeCachedResponse caches the response immediately
 func (t *Transport) storeCachedResponse(resp *http.Response, cacheKey string) {
-	// Add timestamp when caching
-	resp.Header.Set(XCachedTime, time.Now().UTC().Format(time.RFC3339))
+	// Add cached timestamp (backward compatibility with X-Cached-Time)
+	// X-Request-Time and X-Response-Time are already set by performRequest
+	resp.Header.Set(XCachedTime, resp.Header.Get(XResponseTime))
 	respBytes, err := httputil.DumpResponse(resp, true)
 	if err == nil {
 		t.Cache.Set(cacheKey, respBytes)
@@ -442,7 +653,9 @@ func (t *Transport) processCachedResponse(cachedResp *http.Response, req *http.R
 			cachedResp.Header.Set(XStale, "1")
 		}
 		// RFC 7234 Section 5.5: Add Warning 111 (Revalidation Failed)
-		addRevalidationFailedWarning(cachedResp)
+		if !t.DisableWarningHeader {
+			addRevalidationFailedWarning(cachedResp)
+		}
 		return cachedResp, nil
 	}
 
@@ -466,10 +679,18 @@ func processUncachedRequest(transport http.RoundTripper, req *http.Request) (*ht
 
 // storeResponseInCache stores the response in cache if applicable
 func (t *Transport) storeResponseInCache(resp *http.Response, req *http.Request, cacheKey string, cacheable bool) {
-	if !cacheable || !canStore(parseCacheControl(req.Header), parseCacheControl(resp.Header)) {
+	respCacheControl := parseCacheControl(resp.Header)
+	reqCacheControl := parseCacheControl(req.Header)
+
+	if !cacheable || !canStore(req, reqCacheControl, respCacheControl, t.IsPublicCache, resp.StatusCode) {
 		t.Cache.Delete(cacheKey)
 		return
 	}
+
+	// RFC 9111 Section 5.2.2.3: must-understand directive
+	// When must-understand is present and status code is understood, always cache
+	_, hasMustUnderstand := respCacheControl[cacheControlMustUnderstand]
+	mustUnderstandAllowsCaching := hasMustUnderstand && understoodStatusCodes[resp.StatusCode]
 
 	// Check if we should cache based on status code
 	// RFC 7231 section 6.1: Cacheable by default status codes
@@ -483,7 +704,8 @@ func (t *Transport) storeResponseInCache(resp *http.Response, req *http.Request,
 		resp.StatusCode == http.StatusMethodNotAllowed || // 405
 		resp.StatusCode == http.StatusGone || // 410
 		resp.StatusCode == http.StatusRequestURITooLong || // 414
-		resp.StatusCode == http.StatusNotImplemented // 501
+		resp.StatusCode == http.StatusNotImplemented || // 501
+		mustUnderstandAllowsCaching // must-understand overrides status code check
 
 	// Allow custom override via ShouldCache hook
 	if !shouldCache && t.ShouldCache != nil {
@@ -496,6 +718,33 @@ func (t *Transport) storeResponseInCache(resp *http.Response, req *http.Request,
 	}
 
 	storeVaryHeaders(resp, req)
+
+	// RFC 9111 Vary Separation: If EnableVarySeparation is true and response has Vary headers,
+	// create separate cache entries for each variant (new behavior).
+	// Otherwise, use the previous behavior where variants overwrite each other (default).
+	varyHeaders := headerAllCommaSepValues(resp.Header, "vary")
+	if t.EnableVarySeparation && len(varyHeaders) > 0 {
+		// Keep original base key so we can also persist a manifest/last-variant there
+		baseKey := cacheKey
+		// Use vary-specific cache key for this variant
+		varyKey := cacheKeyWithVary(req, varyHeaders)
+
+		if req.Method == methodGET {
+			// Store the full response under both the variant key and the base key so
+			// that RoundTrip can read the base entry (to discover Vary) and then
+			// re-lookup the variant-specific entry. This preserves backward compatibility
+			// with existing lookup behaviour while providing separate entries per variant.
+			t.setupCachingBodyMultiple(resp, []string{varyKey, baseKey})
+			return
+		}
+
+		// Non-GET responses: store under both keys immediately
+		t.storeCachedResponse(resp, varyKey)
+		// Also store a copy under base key
+		respCopy := *resp
+		t.storeCachedResponse(&respCopy, baseKey)
+		return
+	}
 
 	if req.Method == methodGET {
 		t.setupCachingBody(resp, cacheKey)
@@ -518,7 +767,27 @@ func (t *Transport) RoundTrip(req *http.Request) (resp *http.Response, err error
 
 	var cachedResp *http.Response
 	if cacheable {
+		// Try to get cached response
 		cachedResp, err = cachedResponseWithKey(t.Cache, req, cacheKey)
+
+		// RFC 9111 Vary Separation: If EnableVarySeparation is true and cached response has Vary headers,
+		// recalculate cache key with vary values and try again for the correct variant.
+		// This only applies when the new vary separation behavior is enabled.
+		if t.EnableVarySeparation && cachedResp != nil && err == nil {
+			varyHeaders := headerAllCommaSepValues(cachedResp.Header, "vary")
+			if len(varyHeaders) > 0 {
+				// Recalculate key with vary headers for proper variant lookup
+				varyCacheKey := cacheKeyWithVary(req, varyHeaders)
+				if varyCacheKey != cacheKey {
+					// Try with vary-specific key
+					varyCachedResp, varyErr := cachedResponseWithKey(t.Cache, req, varyCacheKey)
+					if varyErr == nil && varyCachedResp != nil {
+						cachedResp = varyCachedResp
+						cacheKey = varyCacheKey
+					}
+				}
+			}
+		}
 	} else {
 		// RFC 7234 Section 4.4: Invalidate cache on unsafe methods
 		// Delete the request URI immediately for unsafe methods
@@ -559,76 +828,119 @@ func isUnsafeMethod(method string) bool {
 	return method == methodPOST || method == methodPUT || method == methodDELETE || method == methodPATCH
 }
 
-// invalidateCache invalidates cache entries per RFC 7234 Section 4.4
+// invalidateCache invalidates cache entries per RFC 9111 Section 4.4
 // When receiving a non-error response to an unsafe method, invalidate:
 // 1. The effective Request-URI
-// 2. URIs in Location and Content-Location response headers (if present)
+// 2. URIs in Location and Content-Location response headers (if present and same-origin)
+//
+// RFC 9111 restricts invalidation to same-origin URIs for security.
 func (t *Transport) invalidateCache(req *http.Request, resp *http.Response) {
-	// RFC 7234 Section 4.4: Only invalidate on non-error responses
+	// RFC 9111 Section 4.4: Only invalidate on non-error responses
 	if resp.StatusCode >= 400 {
+		if logger := GetLogger(); logger != nil {
+			logger.Debug("skipping cache invalidation for error response",
+				"status", resp.StatusCode,
+				"url", req.URL.String())
+		}
 		return
 	}
 
-	// Invalidate the request URI
-	// Need to invalidate the GET version since cacheKey for GET uses only URL
+	// Always invalidate the Request-URI
+	t.invalidateURI(req.URL, "request-uri")
+
+	// Invalidate Location header URI (RFC 9111 Section 4.4)
+	if location := resp.Header.Get(headerLocation); location != "" {
+		if err := t.invalidateHeaderURI(req.URL, location, "Location"); err != nil {
+			if logger := GetLogger(); logger != nil {
+				logger.Debug("failed to invalidate Location URI",
+					"location", location,
+					"error", err.Error())
+			}
+		}
+	}
+
+	// Invalidate Content-Location header URI (RFC 9111 Section 4.4)
+	if contentLocation := resp.Header.Get(headerContentLocation); contentLocation != "" {
+		if err := t.invalidateHeaderURI(req.URL, contentLocation, "Content-Location"); err != nil {
+			if logger := GetLogger(); logger != nil {
+				logger.Debug("failed to invalidate Content-Location URI",
+					"content-location", contentLocation,
+					"error", err.Error())
+			}
+		}
+	}
+}
+
+// invalidateHeaderURI parses and invalidates a URI from a response header.
+// It ensures same-origin policy compliance per RFC 9111.
+// Returns an error if the URI cannot be parsed.
+func (t *Transport) invalidateHeaderURI(requestURL *url.URL, headerValue string, headerName string) error {
+	// Parse the header value as a URI (may be relative or absolute)
+	targetURL, err := requestURL.Parse(headerValue)
+	if err != nil {
+		return err
+	}
+
+	// RFC 9111 Section 4.4: Only invalidate same-origin URIs
+	// Origin = scheme + host (host includes port if present)
+	if !isSameOrigin(requestURL, targetURL) {
+		if logger := GetLogger(); logger != nil {
+			logger.Debug("skipping cross-origin invalidation",
+				"header", headerName,
+				"request-origin", getOrigin(requestURL),
+				"target-origin", getOrigin(targetURL))
+		}
+		return nil
+	}
+
+	t.invalidateURI(targetURL, headerName)
+	return nil
+}
+
+// invalidateURI removes cache entries for the given URI.
+// It invalidates both GET and HEAD requests for the URI.
+func (t *Transport) invalidateURI(targetURL *url.URL, source string) {
+	// Invalidate GET request for this URL
 	getReq := &http.Request{
 		Method: methodGET,
-		URL:    req.URL,
+		URL:    targetURL,
 	}
 	getKey := cacheKey(getReq)
 	t.Cache.Delete(getKey)
 
-	// Also invalidate HEAD if different
+	if logger := GetLogger(); logger != nil {
+		logger.Debug("invalidated cache entry",
+			"key", getKey,
+			"source", source,
+			"url", targetURL.String())
+	}
+
+	// Also invalidate HEAD request if different key
 	headReq := &http.Request{
 		Method: methodHEAD,
-		URL:    req.URL,
+		URL:    targetURL,
 	}
 	headKey := cacheKey(headReq)
 	if headKey != getKey {
 		t.Cache.Delete(headKey)
-	}
-
-	// Invalidate Location header URI if present
-	if locationHeader := resp.Header.Get(headerLocation); locationHeader != "" {
-		if locationURL, err := req.URL.Parse(locationHeader); err == nil {
-			// Invalidate GET and HEAD for location URL
-			locationGetReq := &http.Request{
-				Method: methodGET,
-				URL:    locationURL,
-			}
-			t.Cache.Delete(cacheKey(locationGetReq))
-
-			locationHeadReq := &http.Request{
-				Method: methodHEAD,
-				URL:    locationURL,
-			}
-			locationHeadKey := cacheKey(locationHeadReq)
-			if locationHeadKey != cacheKey(locationGetReq) {
-				t.Cache.Delete(locationHeadKey)
-			}
+		if logger := GetLogger(); logger != nil {
+			logger.Debug("invalidated HEAD cache entry",
+				"key", headKey,
+				"source", source)
 		}
 	}
+}
 
-	// Invalidate Content-Location header URI if present
-	if contentLocationHeader := resp.Header.Get(headerContentLocation); contentLocationHeader != "" {
-		if contentLocationURL, err := req.URL.Parse(contentLocationHeader); err == nil {
-			// Invalidate GET and HEAD for content-location URL
-			contentLocationGetReq := &http.Request{
-				Method: methodGET,
-				URL:    contentLocationURL,
-			}
-			t.Cache.Delete(cacheKey(contentLocationGetReq))
+// isSameOrigin checks if two URLs have the same origin.
+// Per RFC 9111, origin is defined as scheme + host (including port).
+func isSameOrigin(url1, url2 *url.URL) bool {
+	return url1.Scheme == url2.Scheme && url1.Host == url2.Host
+}
 
-			contentLocationHeadReq := &http.Request{
-				Method: methodHEAD,
-				URL:    contentLocationURL,
-			}
-			contentLocationHeadKey := cacheKey(contentLocationHeadReq)
-			if contentLocationHeadKey != cacheKey(contentLocationGetReq) {
-				t.Cache.Delete(contentLocationHeadKey)
-			}
-		}
-	}
+// getOrigin returns the origin string for a URL (scheme://host).
+// Used for debugging and logging purposes.
+func getOrigin(u *url.URL) string {
+	return u.Scheme + "://" + u.Host
 }
 
 // ErrNoDateHeader indicates that the HTTP headers contained no Date header.
@@ -650,62 +962,147 @@ func Date(respHeaders http.Header) (date time.Time, err error) {
 //   - age_value: Age header from the response (if present)
 //   - date_value: Time since the Date header
 //   - resident_time: Time the response has been cached (from X-Cached-Time)
+//
+// parseAgeHeader parses the Age header according to RFC 9111 Section 5.1.
+// Returns the age duration and a boolean indicating if the header is valid.
+//
+// RFC 9111 requirements:
+// - If multiple Age headers exist, use the first value and discard others
+// - If the value is invalid (negative, non-numeric), ignore it completely
+// - Age header value must be a non-negative integer representing seconds
+func parseAgeHeader(headers http.Header) (age time.Duration, valid bool) {
+	ageValues := headers.Values(headerAge)
+
+	if len(ageValues) == 0 {
+		return 0, false
+	}
+
+	// RFC 9111: use the first value, discard others
+	ageStr := strings.TrimSpace(ageValues[0])
+
+	if len(ageValues) > 1 {
+		GetLogger().Warn("multiple Age headers detected, using first value",
+			"count", len(ageValues),
+			"first", ageStr,
+			"all", ageValues)
+	}
+
+	// Validate that it's a non-negative integer
+	ageInt, err := strconv.ParseInt(ageStr, 10, 64)
+	if err != nil {
+		GetLogger().Warn("invalid Age header value, ignoring",
+			"value", ageStr,
+			"error", err)
+		return 0, false
+	}
+
+	if ageInt < 0 {
+		GetLogger().Warn("negative Age header value, ignoring",
+			"value", ageInt)
+		return 0, false
+	}
+
+	return time.Duration(ageInt) * time.Second, true
+}
+
+// calculateAge implements the Age calculation algorithm from RFC 9111 Section 4.2.3.
+//
+// RFC 9111 formula:
+//
+//	apparent_age = max(0, response_time - date_value)
+//	response_delay = response_time - request_time
+//	corrected_age_value = age_value + response_delay
+//	corrected_initial_age = max(apparent_age, corrected_age_value)
+//	resident_time = now - response_time
+//	current_age = corrected_initial_age + resident_time
+//
+// For cached responses:
+//   - request_time is stored in X-Request-Time header
+//   - response_time is stored in X-Response-Time header (falls back to X-Cached-Time for compatibility)
+//   - date_value comes from Date header
+//   - age_value comes from Age header (if present)
 func calculateAge(respHeaders http.Header) (age time.Duration, err error) {
 	// Get the Date header (required)
-	date, err := Date(respHeaders)
+	dateValue, err := Date(respHeaders)
 	if err != nil {
 		return 0, err
 	}
 
-	// apparent_age = max(0, response_time - date_value)
-	// For cached responses, response_time is when we received it (X-Cached-Time)
+	// Get response_time (when we received the response)
+	// Try X-Response-Time first, fall back to X-Cached-Time for backward compatibility
+	responseTimeStr := respHeaders.Get(XResponseTime)
+	if responseTimeStr == "" {
+		responseTimeStr = respHeaders.Get(XCachedTime)
+	}
+
+	if responseTimeStr == "" {
+		// If no cached time, use simplified calculation
+		age = clock.since(dateValue)
+
+		// Add any existing Age header
+		if ageValue, valid := parseAgeHeader(respHeaders); valid {
+			age += ageValue
+		}
+
+		return age, nil
+	}
+
+	// Parse response_time
+	responseTime, parseErr := time.Parse(time.RFC3339, responseTimeStr)
+	if parseErr != nil {
+		GetLogger().Warn("failed to parse response time header",
+			"header", responseTimeStr,
+			"error", parseErr)
+
+		// Fallback to simplified calculation
+		age = clock.since(dateValue)
+		if ageValue, valid := parseAgeHeader(respHeaders); valid {
+			age += ageValue
+		}
+		return age, nil
+	}
+
+	// RFC 9111 Section 4.2.3: apparent_age = max(0, response_time - date_value)
 	apparentAge := time.Duration(0)
+	if responseTime.After(dateValue) {
+		apparentAge = responseTime.Sub(dateValue)
+	}
 
-	cachedTimeStr := respHeaders.Get(XCachedTime)
-	if cachedTimeStr != "" {
-		// Parse the cached time
-		cachedTime, parseErr := time.Parse(time.RFC3339, cachedTimeStr)
-		if parseErr == nil {
-			// apparent_age = max(0, cached_time - date_value)
-			if cachedTime.After(date) {
-				apparentAge = cachedTime.Sub(date)
-			}
+	// Parse age_value from Age header (if present)
+	ageValue, _ := parseAgeHeader(respHeaders)
 
-			// resident_time = now - cached_time
-			residentTime := clock.since(cachedTime)
+	// Get request_time (when we started the request)
+	requestTimeStr := respHeaders.Get(XRequestTime)
+	responseDelay := time.Duration(0)
 
-			// Parse any Age header that was already present
-			ageValue := time.Duration(0)
-			if ageHeader := respHeaders.Get(headerAge); ageHeader != "" {
-				if seconds, parseErr := time.ParseDuration(ageHeader + "s"); parseErr == nil {
-					ageValue = seconds
-				}
-			}
-
-			// corrected_age_value = age_value + resident_time
-			correctedAgeValue := ageValue + residentTime
-
-			// age = max(apparent_age, corrected_age_value)
-			age = apparentAge
-			if correctedAgeValue > age {
-				age = correctedAgeValue
-			}
-
-			return age, nil
+	if requestTimeStr != "" {
+		requestTime, parseErr := time.Parse(time.RFC3339, requestTimeStr)
+		if parseErr == nil && responseTime.After(requestTime) {
+			// RFC 9111: response_delay = response_time - request_time
+			responseDelay = responseTime.Sub(requestTime)
+		} else if parseErr != nil {
+			GetLogger().Warn("failed to parse request time header",
+				"header", requestTimeStr,
+				"error", parseErr)
 		}
 	}
 
-	// If no cached time, just use time since Date header
-	age = clock.since(date)
+	// RFC 9111: corrected_age_value = age_value + response_delay
+	correctedAgeValue := ageValue + responseDelay
 
-	// Add any existing Age header
-	if ageHeader := respHeaders.Get(headerAge); ageHeader != "" {
-		if seconds, parseErr := time.ParseDuration(ageHeader + "s"); parseErr == nil {
-			age += seconds
-		}
+	// RFC 9111: corrected_initial_age = max(apparent_age, corrected_age_value)
+	correctedInitialAge := apparentAge
+	if correctedAgeValue > correctedInitialAge {
+		correctedInitialAge = correctedAgeValue
 	}
 
-	return age, nil
+	// RFC 9111: resident_time = now - response_time
+	residentTime := clock.since(responseTime)
+
+	// RFC 9111: current_age = corrected_initial_age + resident_time
+	currentAge := correctedInitialAge + residentTime
+
+	return currentAge, nil
 }
 
 // formatAge formats a duration as an Age header value (seconds)
@@ -719,16 +1116,19 @@ func formatAge(age time.Duration) string {
 
 // addWarningHeader adds a Warning header to the response per RFC 7234 Section 5.5
 // Warning headers can be stacked, so we use Add instead of Set
+// Note: RFC 9111 has obsoleted the Warning header field.
 func addWarningHeader(resp *http.Response, warningCode string) {
 	resp.Header.Add(headerWarning, warningCode)
 }
 
 // addStaleWarning adds "110 Response is Stale" warning header
+// Note: RFC 9111 has obsoleted the Warning header field.
 func addStaleWarning(resp *http.Response) {
 	addWarningHeader(resp, warningResponseIsStale)
 }
 
 // addRevalidationFailedWarning adds "111 Revalidation Failed" warning header
+// Note: RFC 9111 has obsoleted the Warning header field.
 func addRevalidationFailedWarning(resp *http.Response) {
 	addWarningHeader(resp, warningRevalidationFailed)
 }
@@ -836,7 +1236,7 @@ func adjustAgeForRequestControls(respCacheControl, reqCacheControl cacheControl,
 	// "once it has become stale, a cache MUST NOT use the response to satisfy
 	// subsequent requests without successful validation on the origin server"
 	// This overrides max-stale from the request
-	if _, mustRevalidate := respCacheControl["must-revalidate"]; mustRevalidate {
+	if _, mustRevalidate := respCacheControl[cacheControlMustRevalidate]; mustRevalidate {
 		// Ignore max-stale when must-revalidate is present
 		return currentAge, lifetime, false
 	}
@@ -874,8 +1274,10 @@ var clock timer = &realClock{}
 // stale indicates that the response needs validating before it is returned
 // transparent indicates the response should not be used to fulfil the request
 //
-// Because this is only a private cache, 'public' and 'private' in cache-control aren't
-// signficant. Similarly, smax-age isn't used.
+// RFC 9111 Note: This is a private cache implementation.
+// - Cache-Control: private - Allowed (private caches CAN store these responses)
+// - Cache-Control: public - Ignored (has no additional effect in private caches)
+// - s-maxage - Ignored (only applies to shared caches)
 func getFreshness(respHeaders, reqHeaders http.Header) (freshness int) {
 	respCacheControl := parseCacheControl(respHeaders)
 	reqCacheControl := parseCacheControl(reqHeaders)
@@ -1008,13 +1410,66 @@ func getEndToEndHeaders(respHeaders http.Header) []string {
 	return endToEndHeaders
 }
 
-func canStore(reqCacheControl, respCacheControl cacheControl) (canStore bool) {
-	if _, ok := respCacheControl["no-store"]; ok {
-		return false
+// canStore determines if a response can be stored in the cache based on Cache-Control directives.
+// isPublicCache: true if this is a shared/public cache, false for private cache (default)
+// canStore returns whether the response can be stored in the cache.
+// RFC 9111 Section 3: Storing Responses in Caches
+// RFC 9111 Section 5.2.2.3: must-understand directive
+// RFC 9111 Section 3.5: Storing Responses to Authenticated Requests
+func canStore(req *http.Request, reqCacheControl, respCacheControl cacheControl, isPublicCache bool, statusCode int) (canStore bool) {
+	// RFC 9111 Section 5.2.2.3: must-understand directive
+	// When must-understand is present, the cache can only store the response if:
+	// 1. The status code is understood by the cache, AND
+	// 2. All other cache directives are comprehended
+	//
+	// If must-understand is present and the status code is not understood,
+	// the cache MUST NOT store the response, even if other directives would permit it.
+	//
+	// If must-understand is present and the status code IS understood,
+	// then no-store is effectively ignored (the response can be cached).
+	if _, hasMustUnderstand := respCacheControl[cacheControlMustUnderstand]; hasMustUnderstand {
+		if !understoodStatusCodes[statusCode] {
+			// Status code not understood → MUST NOT cache
+			return false
+		}
+		// Status code understood → proceed with caching
+		// (this effectively overrides no-store when must-understand is present)
+	} else {
+		// Normal behavior when must-understand is NOT present
+		if _, ok := respCacheControl[cacheControlNoStore]; ok {
+			return false
+		}
+		if _, ok := reqCacheControl[cacheControlNoStore]; ok {
+			return false
+		}
 	}
-	if _, ok := reqCacheControl["no-store"]; ok {
-		return false
+
+	// RFC 9111 Section 3.5: Storing Responses to Authenticated Requests
+	// A shared cache MUST NOT use a cached response to a request with an Authorization
+	// header field unless the response contains a Cache-Control field with the "public",
+	// "must-revalidate", or "s-maxage" response directive.
+	if isPublicCache && req.Header.Get("Authorization") != "" {
+		_, hasPublic := respCacheControl[cacheControlPublic]
+		_, hasMustRevalidate := respCacheControl[cacheControlMustRevalidate]
+		_, hasSMaxAge := respCacheControl[cacheControlSMaxAge]
+
+		if !hasPublic && !hasMustRevalidate && !hasSMaxAge {
+			GetLogger().Debug("refusing to cache Authorization request in shared cache",
+				"url", req.URL.String(),
+				"reason", "no public/must-revalidate/s-maxage directive")
+			return false
+		}
 	}
+
+	// RFC 9111: Check Cache-Control: private directive
+	if _, hasPrivate := respCacheControl[cacheControlPrivate]; hasPrivate {
+		// Public/shared caches MUST NOT store responses with private directive
+		if isPublicCache {
+			return false
+		}
+		// Private caches CAN store responses with Cache-Control: private
+	}
+
 	return true
 }
 
@@ -1045,22 +1500,133 @@ func cloneRequest(r *http.Request) *http.Request {
 
 type cacheControl map[string]string
 
+// parseCacheControl parses the Cache-Control header and returns a map of directives.
+// Implements RFC 9111 Section 4.2.1 validation:
+// - Duplicate directives: uses the first occurrence, logs warning
+// - Conflicting directives: applies the most restrictive, logs warning
+// - Invalid values: logs warning but continues processing
 func parseCacheControl(headers http.Header) cacheControl {
 	cc := cacheControl{}
+	seen := make(map[string]bool)
 	ccHeader := headers.Get("Cache-Control")
+
 	for _, part := range strings.Split(ccHeader, ",") {
 		part = strings.Trim(part, " ")
 		if part == "" {
 			continue
 		}
+
+		var directive, value string
 		if strings.ContainsRune(part, '=') {
 			keyval := strings.Split(part, "=")
-			cc[strings.Trim(keyval[0], " ")] = strings.Trim(keyval[1], ",")
+			directive = strings.Trim(keyval[0], " ")
+			value = strings.Trim(keyval[1], " ")
 		} else {
-			cc[part] = ""
+			directive = part
+			value = ""
+		}
+
+		// RFC 9111: Duplicate directives - use first occurrence
+		if seen[directive] {
+			GetLogger().Warn("duplicate Cache-Control directive detected, using first value",
+				"directive", directive,
+				"ignored_value", value)
+			continue
+		}
+
+		seen[directive] = true
+		cc[directive] = value
+	}
+
+	// RFC 9111: Detect conflicting directives and apply most restrictive
+	detectConflictingDirectives(cc)
+
+	return cc
+}
+
+// detectConflictingDirectives checks for conflicting Cache-Control directives
+// and applies the most restrictive according to RFC 9111 Section 4.2.1
+func detectConflictingDirectives(cc cacheControl) {
+	// Conflict: no-cache + max-age
+	// no-cache is more restrictive (requires revalidation)
+	if _, hasNoCache := cc[cacheControlNoCache]; hasNoCache {
+		if maxAge, hasMaxAge := cc[cacheControlMaxAge]; hasMaxAge && maxAge != "" {
+			GetLogger().Warn(logConflictingDirectives,
+				"conflict", "no-cache + max-age",
+				"resolution", "no-cache takes precedence (requires revalidation)")
+			// Keep no-cache, but also keep max-age for freshness calculation
+			// The presence of no-cache will force revalidation regardless
 		}
 	}
-	return cc
+
+	// Conflict: public + private
+	// private is more restrictive (prevents shared cache storage)
+	if _, hasPrivate := cc[cacheControlPrivate]; hasPrivate {
+		if _, hasPublic := cc[cacheControlPublic]; hasPublic {
+			GetLogger().Warn(logConflictingDirectives,
+				"conflict", "public + private",
+				"resolution", "private takes precedence (more restrictive)")
+			// Remove public directive as private is more restrictive
+			delete(cc, cacheControlPublic)
+		}
+	}
+
+	// Conflict: no-store + max-age
+	// no-store is more restrictive (prevents storage completely)
+	if _, hasNoStore := cc[cacheControlNoStore]; hasNoStore {
+		if maxAge, hasMaxAge := cc[cacheControlMaxAge]; hasMaxAge && maxAge != "" {
+			GetLogger().Warn(logConflictingDirectives,
+				"conflict", "no-store + max-age",
+				"resolution", "no-store takes precedence (prevents caching)")
+			// Keep both, but no-store will prevent caching in canStore()
+		}
+	}
+
+	// Conflict: no-store + must-revalidate
+	// no-store is more restrictive (no caching vs stale serving)
+	if _, hasNoStore := cc[cacheControlNoStore]; hasNoStore {
+		if _, hasMustRevalidate := cc[cacheControlMustRevalidate]; hasMustRevalidate {
+			GetLogger().Warn(logConflictingDirectives,
+				"conflict", "no-store + must-revalidate",
+				"resolution", "no-store takes precedence (prevents caching)")
+			// must-revalidate is irrelevant if we're not caching
+		}
+	}
+
+	// Validate max-age and s-maxage values
+	validateMaxAgeDirective(cc, cacheControlMaxAge, "max-age")
+	validateMaxAgeDirective(cc, cacheControlSMaxAge, "s-maxage")
+}
+
+// validateMaxAgeDirective validates max-age or s-maxage directive values
+func validateMaxAgeDirective(cc cacheControl, directiveKey, directiveName string) {
+	if value, hasDirective := cc[directiveKey]; hasDirective && value != "" {
+		// Check if value contains decimal point (float)
+		if strings.Contains(value, ".") {
+			GetLogger().Warn("invalid Cache-Control value (float not allowed)",
+				"directive", directiveName,
+				"value", value,
+				"resolution", "ignoring directive")
+			delete(cc, directiveKey)
+			return
+		}
+
+		if duration, err := time.ParseDuration(value + "s"); err == nil {
+			if duration < 0 {
+				GetLogger().Warn("invalid Cache-Control value (negative)",
+					"directive", directiveName,
+					"value", value,
+					"resolution", "treating as 0")
+				cc[directiveKey] = "0"
+			}
+		} else {
+			GetLogger().Warn("invalid Cache-Control value (non-numeric)",
+				"directive", directiveName,
+				"value", value,
+				"resolution", "ignoring directive")
+			delete(cc, directiveKey)
+		}
+	}
 }
 
 // headerAllCommaSepValues returns all comma-separated values (each

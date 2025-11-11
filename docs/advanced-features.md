@@ -13,7 +13,240 @@ transport.MarkCachedResponses = true  // Default: true
 // Skip serving server errors (5xx) from cache, even if fresh
 // This forces a new request to the server for error responses
 transport.SkipServerErrorsFromCache = true  // Default: false
+
+// Configure as public/shared cache instead of private cache
+transport.IsPublicCache = true  // Default: false (private cache)
+
+// Disable deprecated Warning headers (RFC 9111 compliance)
+// RFC 9111 has obsoleted the Warning header field
+transport.DisableWarningHeader = true  // Default: false (enabled for backward compatibility)
 ```
+
+### Disabling Warning Headers (RFC 9111)
+
+**RFC 9111** has obsoleted the `Warning` header field that was defined in RFC 7234. To comply with the latest HTTP caching specification, you can disable the automatic addition of Warning headers:
+
+```go
+transport := httpcache.NewMemoryCacheTransport()
+transport.DisableWarningHeader = true  // Disable Warning headers
+
+client := transport.Client()
+```
+
+**When `DisableWarningHeader = false` (default):**
+
+The library adds Warning headers to cached responses in these situations:
+
+- `110 - "Response is Stale"` - When serving a stale response (e.g., with `stale-while-revalidate` or `max-stale`)
+- `111 - "Revalidation Failed"` - When revalidation fails and a stale response is served (with `stale-if-error`)
+
+**When `DisableWarningHeader = true`:**
+
+No Warning headers are added to responses, ensuring RFC 9111 compliance.
+
+**Example:**
+
+```go
+// RFC 9111 compliant configuration
+transport := httpcache.NewMemoryCacheTransport()
+transport.DisableWarningHeader = true
+
+client := transport.Client()
+
+// First request
+resp, _ := client.Get("https://example.com/api")  // Cache-Control: max-age=1, stale-while-revalidate=10
+// Response cached
+
+time.Sleep(2 * time.Second)  // Wait for response to become stale
+
+// Second request - serves stale response while revalidating
+resp, _ = client.Get("https://example.com/api")
+// Response is served from cache but WITHOUT Warning header
+// X-From-Cache: 1
+// X-Freshness: stale-while-revalidate
+// (No Warning header)
+```
+
+**Recommendation:** Set `DisableWarningHeader = true` for new applications to comply with RFC 9111. The default is `false` for backward compatibility with existing code.
+
+### Private vs Public Cache
+
+By default, httpcache operates as a **private cache** (like a web browser cache). This means:
+
+- ✅ **Can cache** responses with `Cache-Control: private`
+- ✅ **Can cache** responses with `Cache-Control: public`
+- ✅ **Can cache** responses without explicit caching directives (if otherwise cacheable)
+- ✅ Suitable for single-user scenarios (web browsers, API clients)
+
+When `IsPublicCache = true`, httpcache operates as a **shared/public cache** (like a CDN or reverse proxy). This means:
+
+- ❌ **Cannot cache** responses with `Cache-Control: private`
+- ✅ **Can cache** responses with `Cache-Control: public`
+- ✅ **Can cache** responses without explicit caching directives (if otherwise cacheable)
+- ✅ Suitable for multi-user scenarios (CDNs, reverse proxies, shared caches)
+
+**Example: Private Cache (default)**
+
+```go
+transport := httpcache.NewMemoryCacheTransport()
+// transport.IsPublicCache = false  // Default
+
+client := transport.Client()
+
+// Response: Cache-Control: private, max-age=3600
+resp, _ := client.Get("https://api.example.com/user/profile")
+// ✅ Response is cached (private caches can cache private responses)
+
+// Second request
+resp, _ = client.Get("https://api.example.com/user/profile")
+// Returns from cache (X-From-Cache: 1)
+```
+
+**Example: Public Cache**
+
+```go
+transport := httpcache.NewMemoryCacheTransport()
+transport.IsPublicCache = true  // Shared cache mode
+
+client := transport.Client()
+
+// Response: Cache-Control: private, max-age=3600
+resp, _ := client.Get("https://api.example.com/user/profile")
+// ❌ Response is NOT cached (public caches must not cache private responses)
+
+// Second request
+resp, _ = client.Get("https://api.example.com/user/profile")
+// Makes a fresh request to the server (not from cache)
+
+// Response: Cache-Control: public, max-age=3600
+resp, _ = client.Get("https://api.example.com/public/data")
+// ✅ Response is cached (public caches can cache public responses)
+```
+
+**When to use IsPublicCache:**
+
+- **false (default)**: Web browsers, mobile apps, API clients, desktop applications
+- **true**: CDN nodes, reverse proxies, shared caching layers, multi-tenant services
+
+This implements RFC 9111 Section 5.2.2.6 (Cache-Control: private directive).
+
+### Authorization Header and Shared Caches
+
+**RFC 9111 Section 3.5** specifies special handling for requests with `Authorization` headers in shared/public caches to prevent unauthorized access to cached authenticated responses.
+
+**Private Cache (default, `IsPublicCache = false`):**
+
+- ✅ **Always caches** responses to requests with `Authorization` header
+- No special directives required
+- Safe for single-user scenarios (browsers, API clients)
+
+**Shared/Public Cache (`IsPublicCache = true`):**
+
+- ❌ **MUST NOT cache** responses to requests with `Authorization` header **unless** the response contains one of:
+  - `Cache-Control: public`
+  - `Cache-Control: must-revalidate`
+  - `Cache-Control: s-maxage=<seconds>`
+
+**Example: Private Cache with Authorization (default)**
+
+```go
+transport := httpcache.NewMemoryCacheTransport()
+// transport.IsPublicCache = false  // Default (private cache)
+
+client := transport.Client()
+
+req, _ := http.NewRequest("GET", "https://api.example.com/user/profile", nil)
+req.Header.Set("Authorization", "Bearer user_token")
+
+// Response: Cache-Control: max-age=3600
+resp, _ := client.Do(req)
+// ✅ Response is cached (private caches can cache Authorization responses)
+
+// Second request with same Authorization
+req2, _ := http.NewRequest("GET", "https://api.example.com/user/profile", nil)
+req2.Header.Set("Authorization", "Bearer user_token")
+resp2, _ := client.Do(req2)
+// Returns from cache (X-From-Cache: 1)
+```
+
+**Example: Shared Cache WITHOUT proper directives**
+
+```go
+transport := httpcache.NewMemoryCacheTransport()
+transport.IsPublicCache = true  // Shared/public cache mode
+
+client := transport.Client()
+
+req, _ := http.NewRequest("GET", "https://api.example.com/user/profile", nil)
+req.Header.Set("Authorization", "Bearer user_token")
+
+// Response: Cache-Control: max-age=3600  (no public/must-revalidate/s-maxage)
+resp, _ := client.Do(req)
+// ❌ Response is NOT cached (shared cache + Authorization without proper directives)
+
+// Second request
+resp2, _ := client.Do(req)
+// Makes a fresh request to the server (not from cache)
+```
+
+**Example: Shared Cache WITH public directive**
+
+```go
+transport := httpcache.NewMemoryCacheTransport()
+transport.IsPublicCache = true  // Shared/public cache mode
+
+client := transport.Client()
+
+req, _ := http.NewRequest("GET", "https://api.example.com/public-user-data", nil)
+req.Header.Set("Authorization", "Bearer user_token")
+
+// Response: Cache-Control: public, max-age=3600
+resp, _ := client.Do(req)
+// ✅ Response is cached (shared cache + Authorization + public directive)
+
+// Second request
+resp2, _ := client.Do(req)
+// Returns from cache (X-From-Cache: 1)
+```
+
+**When to use each directive:**
+
+| Directive | Purpose | Use Case |
+|-----------|---------|----------|
+| `public` | Explicitly marks response as cacheable by any cache | Public API data that's safe to share across users |
+| `must-revalidate` | Cache must revalidate when stale | Data that needs freshness guarantee |
+| `s-maxage` | Separate max-age for shared caches | Different TTL for CDN vs browser |
+
+**⚠️ Important Security Notes:**
+
+1. **User-Specific Data**: If using a shared cache for user-specific authenticated endpoints, you MUST also configure `CacheKeyHeaders` to separate cache entries per user:
+
+   ```go
+   transport := httpcache.NewMemoryCacheTransport()
+   transport.IsPublicCache = true
+   transport.CacheKeyHeaders = []string{"Authorization"}  // Separate cache per user
+   
+   // Server must respond with:
+   // Cache-Control: public, max-age=3600
+   ```
+
+2. **Without CacheKeyHeaders**: All users would share the same cached response (security risk!)
+
+3. **Best Practice**: For user-specific data in shared caches:
+   - Use `CacheKeyHeaders = []string{"Authorization"}` to separate entries per user
+   - Ensure server responds with `Cache-Control: public` or `must-revalidate` or `s-maxage`
+   - Consider using private cache mode if caching authenticated data for single user
+
+**Comparison Table:**
+
+| Cache Type | Authorization Request | Default Behavior | With `public` directive |
+|------------|----------------------|------------------|------------------------|
+| Private Cache (`IsPublicCache=false`) | ✅ Cached | ✅ Cached | ✅ Cached |
+| Shared Cache (`IsPublicCache=true`) | ❌ NOT cached | ❌ NOT cached | ✅ Cached |
+
+See also: [Cache Key Headers](#cache-key-headers) for separating cache entries per user in shared caches.
+
+### SkipServerErrorsFromCache
 
 **`SkipServerErrorsFromCache`** is useful when you want to:
 

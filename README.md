@@ -34,8 +34,8 @@
     - [🔍 Quick Navigation](#-quick-navigation)
   - [Practical Examples](#practical-examples)
   - [Limitations](#limitations)
-    - [Vary Header](#vary-header)
-    - [Private Directive](#private-directive)
+    - [Private Directive for Public Caches](#private-directive-for-public-caches)
+    - [Authorization Header in Shared Caches](#authorization-header-in-shared-caches)
   - [Performance](#performance)
   - [Testing](#testing)
   - [Contributing](#contributing)
@@ -46,11 +46,19 @@
 ## Features
 
 - ✅ **RFC 7234 Compliant** (~95% compliance) - Implements HTTP caching standards
-  - ✅ Age header calculation (Section 4.2.3)
+  - ✅ Age header calculation with full RFC 9111 Section 4.2.3 algorithm (request_time, response_time, response_delay tracking)
+  - ✅ Age header validation per RFC 9111 Section 5.1 (handles multiple values, invalid values with logging)
+  - ✅ Cache-Control directive validation per RFC 9111 Section 4.2.1 (duplicate detection, conflict resolution, value validation)
   - ✅ Warning headers for stale responses (Section 5.5)
   - ✅ must-revalidate directive enforcement (Section 5.2.2.1)
   - ✅ Pragma: no-cache support (Section 5.4)
   - ✅ Cache invalidation on unsafe methods (Section 4.4)
+  - ✅ Content-Location and Location header invalidation (RFC 9111 Section 4.4)
+  - ✅ Same-origin policy enforcement for cache invalidation
+  - ✅ Cache-Control: private directive support (RFC 9111 Section 5.2.2.6)
+  - ✅ Cache-Control: must-understand directive support (RFC 9111 Section 5.2.2.3)
+  - ✅ Vary header matching per RFC 9111 Section 4.1 (wildcard, whitespace normalization, case-insensitive)
+  - ✅ Vary header separation - Optional separate cache entries for response variants (RFC 9111 Section 4.1)
 - ✅ **Multiple Backends** - Memory, Disk, Redis, LevelDB, Memcache, PostgreSQL, MongoDB, NATS K/V, Hazelcast, Cloud Storage (S3/GCS/Azure)
 - ✅ **Multi-Tier Caching** - Combine multiple backends with automatic fallback and promotion
 - ✅ **Compression Wrapper** - Automatic Gzip, Brotli, or Snappy compression for cached data
@@ -61,7 +69,8 @@
 - ✅ **ETag & Validation** - Automatic cache revalidation
 - ✅ **Stale-If-Error** - Resilient caching with RFC 5861 support
 - ✅ **Stale-While-Revalidate** - Async cache updates for better performance
-- ✅ **Private Cache** - Suitable for web browsers and API clients
+- ✅ **Configurable Cache Mode** - Use as private cache (default) or shared/public cache
+- ✅ **RFC 9111 Authorization Handling** - Secure caching of authenticated requests in shared caches
 
 ## Quick Start
 
@@ -121,6 +130,7 @@ go get github.com/sandrolain/httpcache
 
 - [Detecting cache hits](./docs/how-it-works.md#detecting-cache-hits)
 - [User-specific caching](./docs/advanced-features.md#cache-key-headers)
+- [Authorization header handling](./docs/advanced-features.md#authorization-header-and-shared-caches)
 - [Securing sensitive data](./docs/security.md#secure-cache-wrapper)
 - [Monitoring performance](./docs/monitoring.md#quick-start)
 
@@ -161,23 +171,36 @@ Each example includes:
 
 ## Limitations
 
-### Vary Header
+### Private Directive for Public Caches
 
-⚠️ **Current Limitation**: The `Vary` response header is used for **validation only**, not for creating separate cache entries.
+⚠️ **Note**: When configured as a public cache (`IsPublicCache: true`), responses with the `Cache-Control: private` directive are not cached.
 
-**Workaround**: Use [`CacheKeyHeaders`](./docs/advanced-features.md#cache-key-headers) to create true separate cache entries.
+**Default Behavior**: By default, httpcache operates as a private cache, which allows caching of responses marked as `private`.
 
-See [How It Works - Vary Header Support](./docs/how-it-works.md#vary-header-support) for details.
+**Public Cache Mode**: When `IsPublicCache` is set to `true`, the cache behaves as a shared cache and respects the `private` directive by not caching such responses.
 
-### Private Directive
+See [Security Considerations](./docs/security.md#private-cache-and-multi-user-applications) and [Advanced Features - Private vs Public Cache](./docs/advanced-features.md#private-vs-public-cache) for details.
 
-⚠️ **Current Limitation**: The `Cache-Control: private` directive is ignored because httpcache implements a private cache.
+### Authorization Header in Shared Caches
 
-**Impact**: In multi-user scenarios, responses marked as `private` will still be cached and potentially shared.
+⚠️ **Note**: When configured as a shared/public cache (`IsPublicCache: true`), requests with an `Authorization` header are **NOT cached** unless the response contains one of these directives:
 
-**Workaround**: Use `Cache-Control: no-store` or configure [`CacheKeyHeaders`](./docs/advanced-features.md#cache-key-headers).
+- `Cache-Control: public`
+- `Cache-Control: must-revalidate`
+- `Cache-Control: s-maxage=<seconds>`
 
-See [Security Considerations](./docs/security.md#private-cache-and-multi-user-applications) for details.
+This implements **RFC 9111 Section 3.5** to prevent unauthorized access to cached authenticated responses in shared caches.
+
+**Default Behavior**: Private caches (default) can cache Authorization responses without restrictions.
+
+**Shared Cache Mode**: Requires explicit server permission via the directives above. Additionally, use `CacheKeyHeaders` to separate cache entries per user:
+
+```go
+transport.IsPublicCache = true
+transport.CacheKeyHeaders = []string{"Authorization"}  // Separate cache per user
+```
+
+See [Authorization Header and Shared Caches](./docs/advanced-features.md#authorization-header-and-shared-caches) for detailed examples and security considerations.
 
 ## Performance
 
