@@ -1,6 +1,6 @@
 # How It Works
 
-httpcache implements RFC 7234 (HTTP Caching) by:
+httpcache implements RFC 9111 (HTTP Caching, which obsoletes RFC 7234) by:
 
 1. **Intercepting HTTP requests** through a custom `RoundTripper`
 2. **Checking cache** for matching responses
@@ -15,7 +15,7 @@ httpcache implements RFC 7234 (HTTP Caching) by:
 ### Request Headers
 
 - `Cache-Control` (max-age, max-stale, min-fresh, no-cache, no-store, only-if-cached)
-- `Pragma: no-cache` (HTTP/1.0 backward compatibility per RFC 7234 Section 5.4)
+- `Pragma: no-cache` (HTTP/1.0 backward compatibility per RFC 9111 Section 5.4)
 - `If-None-Match` (ETag validation)
 - `If-Modified-Since` (Last-Modified validation)
 
@@ -26,8 +26,8 @@ httpcache implements RFC 7234 (HTTP Caching) by:
 - `Last-Modified` (date-based validation)
 - `Expires` (expiration date)
 - `Vary` (content negotiation)
-- `Age` (time in cache per RFC 7234 Section 4.2.3)
-- `Warning` (cache warnings per RFC 7234 Section 5.5)
+- `Age` (time in cache per RFC 9111 Section 4.2.3)
+- `Warning` (cache warnings per RFC 9111 Section 5.5 - deprecated but supported for compatibility)
 - `stale-if-error` (RFC 5861)
 - `stale-while-revalidate` (RFC 5861)
 
@@ -459,9 +459,9 @@ The `must-understand` directive is useful when:
 - Compatible with all other cache directives (except `no-store` for understood status codes)
 - Follows RFC 9111 Section 5.2.2.3 specification exactly
 
-## RFC 7234 Compliance Features
+## RFC 9111 Compliance Features
 
-httpcache implements several important RFC 7234 features for production-ready HTTP caching:
+httpcache implements several important RFC 9111 features for production-ready HTTP caching:
 
 ### Age Header (RFC 9111 Section 4.2.3)
 
