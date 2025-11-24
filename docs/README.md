@@ -38,7 +38,7 @@ Welcome to the httpcache documentation! This directory contains detailed guides 
 
 **Core Concepts:**
 
-- [RFC 7234 Implementation](./how-it-works.md#rfc-7234-compliance-features)
+- [RFC 9111 Implementation](./how-it-works.md#rfc-9111-compliance-features)
 - [Cache Headers](./how-it-works.md#cache-headers-supported)
 - [Cache Key Generation](./advanced-features.md#cache-key-headers)
 - [Freshness Validation](./how-it-works.md)
@@ -75,8 +75,9 @@ Welcome to the httpcache documentation! This directory contains detailed guides 
 
 ## 📖 External Resources
 
-- [RFC 7234 - HTTP Caching](https://tools.ietf.org/html/rfc7234)
-- [RFC 5861 - Cache-Control Extensions for Stale Content](https://tools.ietf.org/html/rfc5861)
+- [RFC 9111 - HTTP Caching](https://www.rfc-editor.org/rfc/rfc9111.html) (current standard, obsoletes RFC 7234)
+- [RFC 7234 - HTTP Caching](https://www.rfc-editor.org/rfc/rfc7234.html) (obsoleted by RFC 9111)
+- [RFC 5861 - Cache-Control Extensions for Stale Content](https://www.rfc-editor.org/rfc/rfc5861.html)
 - [GoDoc API Reference](https://godoc.org/github.com/sandrolain/httpcache)
 
 ## 🤝 Contributing

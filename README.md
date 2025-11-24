@@ -9,7 +9,9 @@
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE.txt)
 [![GoDoc](https://godoc.org/github.com/sandrolain/httpcache?status.svg)](https://godoc.org/github.com/sandrolain/httpcache)
 
-**Package httpcache** provides an `http.RoundTripper` implementation that works as a mostly [RFC 7234](https://tools.ietf.org/html/rfc7234) compliant cache for HTTP responses. It improves application performance by reducing redundant HTTP requests and supports various backends for use cases such as API caching, web scraping, and microservices.
+**Package httpcache** provides an `http.RoundTripper` implementation that works as a mostly [RFC 9111](https://www.rfc-editor.org/rfc/rfc9111.html) (HTTP Caching) compliant cache for HTTP responses. It improves application performance by reducing redundant HTTP requests and supports various backends for use cases such as API caching, web scraping, and microservices.
+
+> **RFC Compliance**: This implementation follows RFC 9111 (2022), which obsoletes RFC 7234 (2014). See the [compliance features](#features) for details on supported directives and behaviors.
 
 > **Note**: This is a maintained fork of [gregjones/httpcache](https://github.com/gregjones/httpcache), which is no longer actively maintained. This fork aims to modernize the codebase while maintaining backward compatibility, fix bugs, and add new features.
 
@@ -45,20 +47,21 @@
 
 ## Features
 
-- ✅ **RFC 7234 Compliant** (~95% compliance) - Implements HTTP caching standards
-  - ✅ Age header calculation with full RFC 9111 Section 4.2.3 algorithm (request_time, response_time, response_delay tracking)
-  - ✅ Age header validation per RFC 9111 Section 5.1 (handles multiple values, invalid values with logging)
-  - ✅ Cache-Control directive validation per RFC 9111 Section 4.2.1 (duplicate detection, conflict resolution, value validation)
-  - ✅ Warning headers for stale responses (Section 5.5)
+- ✅ **RFC 9111 Compliant** (~95% compliance) - Implements HTTP Caching standard (obsoletes RFC 7234)
+  - ✅ Age header calculation with full Section 4.2.3 algorithm (request_time, response_time, response_delay tracking)
+  - ✅ Age header validation per Section 5.1 (handles multiple values, invalid values with logging)
+  - ✅ Cache-Control directive validation per Section 4.2.1 (duplicate detection, conflict resolution, value validation)
+  - ✅ Warning headers for stale responses (Section 5.5 - deprecated but supported for compatibility)
   - ✅ must-revalidate directive enforcement (Section 5.2.2.1)
-  - ✅ Pragma: no-cache support (Section 5.4)
+  - ✅ Pragma: no-cache support (Section 5.4 - HTTP/1.0 backward compatibility)
   - ✅ Cache invalidation on unsafe methods (Section 4.4)
-  - ✅ Content-Location and Location header invalidation (RFC 9111 Section 4.4)
+  - ✅ Content-Location and Location header invalidation (Section 4.4)
   - ✅ Same-origin policy enforcement for cache invalidation
-  - ✅ Cache-Control: private directive support (RFC 9111 Section 5.2.2.6)
-  - ✅ Cache-Control: must-understand directive support (RFC 9111 Section 5.2.2.3)
-  - ✅ Vary header matching per RFC 9111 Section 4.1 (wildcard, whitespace normalization, case-insensitive)
-  - ✅ Vary header separation - Optional separate cache entries for response variants (RFC 9111 Section 4.1)
+  - ✅ Cache-Control: private directive support (Section 5.2.2.6)
+  - ✅ Cache-Control: must-understand directive support (Section 5.2.2.3)
+  - ✅ Vary header matching per Section 4.1 (wildcard, whitespace normalization, case-insensitive)
+  - ✅ Vary header separation - Optional separate cache entries for response variants (Section 4.1)
+  - ✅ Authorization header handling per Section 3.5 (secure caching in shared caches)
 - ✅ **Multiple Backends** - Memory, Disk, Redis, LevelDB, Memcache, PostgreSQL, MongoDB, NATS K/V, Hazelcast, Cloud Storage (S3/GCS/Azure)
 - ✅ **Multi-Tier Caching** - Combine multiple backends with automatic fallback and promotion
 - ✅ **Compression Wrapper** - Automatic Gzip, Brotli, or Snappy compression for cached data
@@ -68,9 +71,8 @@
 - ✅ **Easy Integration** - Drop-in replacement for `http.Client`
 - ✅ **ETag & Validation** - Automatic cache revalidation
 - ✅ **Stale-If-Error** - Resilient caching with RFC 5861 support
-- ✅ **Stale-While-Revalidate** - Async cache updates for better performance
+- ✅ **Stale-While-Revalidate** - Async cache updates for better performance (RFC 5861)
 - ✅ **Configurable Cache Mode** - Use as private cache (default) or shared/public cache
-- ✅ **RFC 9111 Authorization Handling** - Secure caching of authenticated requests in shared caches
 
 ## Quick Start
 
@@ -136,7 +138,7 @@ go get github.com/sandrolain/httpcache
 
 **Advanced Topics:**
 
-- [RFC 7234 compliance](./docs/how-it-works.md#rfc-7234-compliance-features)
+- [RFC 9111 compliance](./docs/how-it-works.md#rfc-9111-compliance-features)
 - [Stale-while-revalidate](./docs/advanced-features.md#stale-while-revalidate-support)
 - [Multi-tier caching strategies](./wrapper/multicache/README.md)
 - [Compression wrapper](./wrapper/compresscache/README.md) - Gzip, Brotli, Snappy compression
@@ -245,8 +247,9 @@ This project is a fork of [gregjones/httpcache](https://github.com/gregjones/htt
 
 Additional acknowledgments:
 
-- [RFC 7234](https://tools.ietf.org/html/rfc7234) - HTTP Caching specification
-- [RFC 5861](https://tools.ietf.org/html/rfc5861) - HTTP Cache-Control Extensions for Stale Content
+- [RFC 9111](https://www.rfc-editor.org/rfc/rfc9111.html) - HTTP Caching (obsoletes RFC 7234)
+- [RFC 7234](https://www.rfc-editor.org/rfc/rfc7234.html) - HTTP Caching (obsoleted by RFC 9111, still referenced for historical context)
+- [RFC 5861](https://www.rfc-editor.org/rfc/rfc5861.html) - HTTP Cache-Control Extensions for Stale Content
 - All contributors to the original and forked projects
 
 ## License

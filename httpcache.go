@@ -1,8 +1,11 @@
 // Package httpcache provides a http.RoundTripper implementation that works as a
-// mostly RFC-compliant cache for http responses.
+// mostly RFC 9111 compliant cache for HTTP responses.
 //
-// It is only suitable for use as a 'private' cache (i.e. for a web-browser or an API-client
-// and not for a shared proxy).
+// By default, it operates as a 'private' cache (suitable for web browsers or API clients).
+// It can also be configured as a 'shared/public' cache by setting IsPublicCache to true,
+// which enforces stricter caching rules for multi-user scenarios (e.g., CDNs, reverse proxies).
+//
+// RFC 9111 (HTTP Caching) obsoletes RFC 7234 and is the current HTTP caching standard.
 package httpcache
 
 import (
