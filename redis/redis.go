@@ -2,6 +2,7 @@
 package redis
 
 import (
+	"context"
 	"fmt"
 	"time"
 
@@ -61,47 +62,63 @@ func cacheKey(key string) string {
 }
 
 // Get returns the response corresponding to key if present.
-func (c cache) Get(key string) (resp []byte, ok bool) {
+// The context parameter is accepted for interface compliance. Currently, context
+// cancellation is not propagated to the underlying Redis operations due to
+// the redigo library's limitations.
+func (c cache) Get(_ context.Context, key string) (resp []byte, ok bool, err error) {
 	conn := c.pool.Get()
 	defer func() {
-		if err := conn.Close(); err != nil {
-			httpcache.GetLogger().Error("failed to close redis connection", "error", err)
+		if closeErr := conn.Close(); closeErr != nil {
+			httpcache.GetLogger().Error("failed to close redis connection", "error", closeErr)
 		}
 	}()
 
 	item, err := redis.Bytes(conn.Do("GET", cacheKey(key)))
 	if err != nil {
-		return nil, false
+		if err == redis.ErrNil {
+			return nil, false, nil
+		}
+		return nil, false, err
 	}
-	return item, true
+	return item, true, nil
 }
 
 // Set saves a response to the cache as key.
-func (c cache) Set(key string, resp []byte) {
+// The context parameter is accepted for interface compliance. Currently, context
+// cancellation is not propagated to the underlying Redis operations due to
+// the redigo library's limitations.
+func (c cache) Set(_ context.Context, key string, resp []byte) error {
 	conn := c.pool.Get()
 	defer func() {
-		if err := conn.Close(); err != nil {
-			httpcache.GetLogger().Error("failed to close redis connection", "error", err)
+		if closeErr := conn.Close(); closeErr != nil {
+			httpcache.GetLogger().Error("failed to close redis connection", "error", closeErr)
 		}
 	}()
 
 	if _, err := conn.Do("SET", cacheKey(key), resp); err != nil {
 		httpcache.GetLogger().Warn("failed to write to redis cache", "key", key, "error", err)
+		return err
 	}
+	return nil
 }
 
 // Delete removes the response with key from the cache.
-func (c cache) Delete(key string) {
+// The context parameter is accepted for interface compliance. Currently, context
+// cancellation is not propagated to the underlying Redis operations due to
+// the redigo library's limitations.
+func (c cache) Delete(_ context.Context, key string) error {
 	conn := c.pool.Get()
 	defer func() {
-		if err := conn.Close(); err != nil {
-			httpcache.GetLogger().Error("failed to close redis connection", "error", err)
+		if closeErr := conn.Close(); closeErr != nil {
+			httpcache.GetLogger().Error("failed to close redis connection", "error", closeErr)
 		}
 	}()
 
 	if _, err := conn.Do("DEL", cacheKey(key)); err != nil {
 		httpcache.GetLogger().Warn("failed to delete from redis cache", "key", key, "error", err)
+		return err
 	}
+	return nil
 }
 
 // Close closes the connection pool.

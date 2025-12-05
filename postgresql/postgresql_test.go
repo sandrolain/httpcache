@@ -224,7 +224,9 @@ func TestPostgreSQLCacheKeyPrefix(t *testing.T) {
 	testKey := "mykey"
 	testData := []byte("test data")
 
-	cache.Set(testKey, testData)
+	if err := cache.Set(ctx, testKey, testData); err != nil {
+		t.Fatalf("Set failed: %v", err)
+	}
 
 	// Verify the key in database has the prefix
 	var key string

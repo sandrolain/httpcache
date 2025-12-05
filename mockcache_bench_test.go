@@ -1,63 +1,69 @@
 package httpcache
 
 import (
+	"context"
 	"testing"
 )
 
 const benchmarkKey = "benchmark-key"
 
-func BenchmarkMemoryCacheGet(b *testing.B) {
-	cache := NewMemoryCache()
+func BenchmarkMockCacheGet(b *testing.B) {
+	ctx := context.Background()
+	cache := newMockCache()
 	value := make([]byte, 1024) // 1KB value
-	cache.Set(benchmarkKey, value)
+	_ = cache.Set(ctx, benchmarkKey, value)
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		cache.Get(benchmarkKey)
+		_, _, _ = cache.Get(ctx, benchmarkKey)
 	}
 }
 
-func BenchmarkMemoryCacheSet(b *testing.B) {
-	cache := NewMemoryCache()
+func BenchmarkMockCacheSet(b *testing.B) {
+	ctx := context.Background()
+	cache := newMockCache()
 	value := make([]byte, 1024) // 1KB value
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		cache.Set(benchmarkKey, value)
+		_ = cache.Set(ctx, benchmarkKey, value)
 	}
 }
 
-func BenchmarkMemoryCacheDelete(b *testing.B) {
-	cache := NewMemoryCache()
+func BenchmarkMockCacheDelete(b *testing.B) {
+	ctx := context.Background()
+	cache := newMockCache()
 	value := make([]byte, 1024)
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		key := string(rune('a' + i%26))
-		cache.Set(key, value)
-		cache.Delete(key)
+		_ = cache.Set(ctx, key, value)
+		_ = cache.Delete(ctx, key)
 	}
 }
 
-func BenchmarkMemoryCacheSetGet(b *testing.B) {
-	cache := NewMemoryCache()
+func BenchmarkMockCacheSetGet(b *testing.B) {
+	ctx := context.Background()
+	cache := newMockCache()
 	value := make([]byte, 1024)
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		cache.Set(benchmarkKey, value)
-		cache.Get(benchmarkKey)
+		_ = cache.Set(ctx, benchmarkKey, value)
+		_, _, _ = cache.Get(ctx, benchmarkKey)
 	}
 }
 
-func BenchmarkMemoryCacheParallelGet(b *testing.B) {
-	cache := NewMemoryCache()
+func BenchmarkMockCacheParallelGet(b *testing.B) {
+	ctx := context.Background()
+	cache := newMockCache()
 	value := make([]byte, 1024)
 
 	// Pre-populate cache
 	for i := 0; i < 26; i++ {
 		key := string(rune('a' + i))
-		cache.Set(key, value)
+		_ = cache.Set(ctx, key, value)
 	}
 
 	b.ResetTimer()
@@ -65,89 +71,95 @@ func BenchmarkMemoryCacheParallelGet(b *testing.B) {
 		i := 0
 		for pb.Next() {
 			key := string(rune('a' + i%26))
-			cache.Get(key)
+			_, _, _ = cache.Get(ctx, key)
 			i++
 		}
 	})
 }
 
-func BenchmarkMemoryCacheParallelSet(b *testing.B) {
-	cache := NewMemoryCache()
+func BenchmarkMockCacheParallelSet(b *testing.B) {
+	ctx := context.Background()
+	cache := newMockCache()
 	value := make([]byte, 1024)
 
 	b.RunParallel(func(pb *testing.PB) {
 		i := 0
 		for pb.Next() {
 			key := string(rune('a' + i%26))
-			cache.Set(key, value)
+			_ = cache.Set(ctx, key, value)
 			i++
 		}
 	})
 }
 
 // Benchmark with realistic HTTP response sizes
-func BenchmarkMemoryCacheSetHTTPResponse(b *testing.B) {
-	cache := NewMemoryCache()
+func BenchmarkMockCacheSetHTTPResponse(b *testing.B) {
+	ctx := context.Background()
+	cache := newMockCache()
 	// Typical HTTP response with headers: ~2KB
 	value := make([]byte, 2048)
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		key := string(rune('a' + i%100))
-		cache.Set(key, value)
+		_ = cache.Set(ctx, key, value)
 	}
 }
 
-func BenchmarkMemoryCacheGetHTTPResponse(b *testing.B) {
-	cache := NewMemoryCache()
+func BenchmarkMockCacheGetHTTPResponse(b *testing.B) {
+	ctx := context.Background()
+	cache := newMockCache()
 	value := make([]byte, 2048)
 
 	// Pre-populate with 100 entries
 	for i := 0; i < 100; i++ {
 		key := string(rune('a' + i))
-		cache.Set(key, value)
+		_ = cache.Set(ctx, key, value)
 	}
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		key := string(rune('a' + i%100))
-		cache.Get(key)
+		_, _, _ = cache.Get(ctx, key)
 	}
 }
 
 // Benchmark with large responses
-func BenchmarkMemoryCacheSetLargeResponse(b *testing.B) {
-	cache := NewMemoryCache()
+func BenchmarkMockCacheSetLargeResponse(b *testing.B) {
+	ctx := context.Background()
+	cache := newMockCache()
 	// Large response: 100KB
 	value := make([]byte, 100*1024)
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		key := string(rune('a' + i%50))
-		cache.Set(key, value)
+		_ = cache.Set(ctx, key, value)
 	}
 }
 
-func BenchmarkMemoryCacheGetLargeResponse(b *testing.B) {
-	cache := NewMemoryCache()
+func BenchmarkMockCacheGetLargeResponse(b *testing.B) {
+	ctx := context.Background()
+	cache := newMockCache()
 	value := make([]byte, 100*1024)
 
 	// Pre-populate with 50 entries
 	for i := 0; i < 50; i++ {
 		key := string(rune('a' + i))
-		cache.Set(key, value)
+		_ = cache.Set(ctx, key, value)
 	}
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		key := string(rune('a' + i%50))
-		cache.Get(key)
+		_, _, _ = cache.Get(ctx, key)
 	}
 }
 
 // Benchmark mixed operations
-func BenchmarkMemoryCacheMixedOperations(b *testing.B) {
-	cache := NewMemoryCache()
+func BenchmarkMockCacheMixedOperations(b *testing.B) {
+	ctx := context.Background()
+	cache := newMockCache()
 	value := make([]byte, 1024)
 
 	b.ResetTimer()
@@ -155,18 +167,19 @@ func BenchmarkMemoryCacheMixedOperations(b *testing.B) {
 		key := string(rune('a' + i%100))
 		switch i % 3 {
 		case 0:
-			cache.Set(key, value)
+			_ = cache.Set(ctx, key, value)
 		case 1:
-			cache.Get(key)
+			_, _, _ = cache.Get(ctx, key)
 		case 2:
-			cache.Delete(key)
+			_ = cache.Delete(ctx, key)
 		}
 	}
 }
 
 // Benchmark concurrent mixed operations
-func BenchmarkMemoryCacheParallelMixed(b *testing.B) {
-	cache := NewMemoryCache()
+func BenchmarkMockCacheParallelMixed(b *testing.B) {
+	ctx := context.Background()
+	cache := newMockCache()
 	value := make([]byte, 1024)
 
 	b.RunParallel(func(pb *testing.PB) {
@@ -175,11 +188,11 @@ func BenchmarkMemoryCacheParallelMixed(b *testing.B) {
 			key := string(rune('a' + i%100))
 			switch i % 3 {
 			case 0:
-				cache.Set(key, value)
+				_ = cache.Set(ctx, key, value)
 			case 1:
-				cache.Get(key)
+				_, _, _ = cache.Get(ctx, key)
 			case 2:
-				cache.Delete(key)
+				_ = cache.Delete(ctx, key)
 			}
 			i++
 		}

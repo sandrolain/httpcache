@@ -48,26 +48,38 @@ func cacheKey(key string) string {
 }
 
 // Get returns the response corresponding to key if present.
-func (c cache) Get(key string) (resp []byte, ok bool) {
-	entry, err := c.kv.Get(context.Background(), cacheKey(key))
+// Uses the provided context for cancellation.
+func (c cache) Get(ctx context.Context, key string) (resp []byte, ok bool, err error) {
+	entry, err := c.kv.Get(ctx, cacheKey(key))
 	if err != nil {
-		return nil, false
+		if err == jetstream.ErrKeyNotFound {
+			return nil, false, nil
+		}
+		return nil, false, err
 	}
-	return entry.Value(), true
+	return entry.Value(), true, nil
 }
 
 // Set saves a response to the cache as key.
-func (c cache) Set(key string, resp []byte) {
-	if _, err := c.kv.Put(context.Background(), cacheKey(key), resp); err != nil {
+// Uses the provided context for cancellation.
+func (c cache) Set(ctx context.Context, key string, resp []byte) error {
+	if _, err := c.kv.Put(ctx, cacheKey(key), resp); err != nil {
 		httpcache.GetLogger().Warn("failed to write to NATS K/V cache", "key", key, "error", err)
+		return err
 	}
+	return nil
 }
 
 // Delete removes the response with key from the cache.
-func (c cache) Delete(key string) {
-	if err := c.kv.Delete(context.Background(), cacheKey(key)); err != nil {
-		httpcache.GetLogger().Warn("failed to delete from NATS K/V cache", "key", key, "error", err)
+// Uses the provided context for cancellation.
+func (c cache) Delete(ctx context.Context, key string) error {
+	if err := c.kv.Delete(ctx, cacheKey(key)); err != nil {
+		if err != jetstream.ErrKeyNotFound {
+			httpcache.GetLogger().Warn("failed to delete from NATS K/V cache", "key", key, "error", err)
+			return err
+		}
 	}
+	return nil
 }
 
 // Close closes the underlying NATS connection if it was created by New().

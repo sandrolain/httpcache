@@ -4,6 +4,7 @@
 package compresscache
 
 import (
+	"context"
 	"fmt"
 	"sync/atomic"
 
@@ -76,23 +77,27 @@ func newBaseCompressCache(cache httpcache.Cache, algorithm Algorithm) *baseCompr
 	}
 }
 
-// get retrieves and decompresses a value from the cache
-func (c *baseCompressCache) get(key string, decompressFn decompressFunc) ([]byte, bool) {
-	data, ok := c.cache.Get(key)
+// get retrieves and decompresses a value from the cache.
+// Uses the provided context for cache operations.
+func (c *baseCompressCache) get(ctx context.Context, key string, decompressFn decompressFunc) ([]byte, bool, error) {
+	data, ok, err := c.cache.Get(ctx, key)
+	if err != nil {
+		return nil, false, err
+	}
 	if !ok {
-		return nil, false
+		return nil, false, nil
 	}
 
 	// Check if data is compressed (has our marker)
 	if len(data) < 1 {
-		return data, true
+		return data, true, nil
 	}
 
 	// First byte indicates compression algorithm
 	marker := data[0]
 	if marker == 0 {
 		// Not compressed
-		return data[1:], true
+		return data[1:], true, nil
 	}
 
 	// Get the algorithm from marker
@@ -105,10 +110,10 @@ func (c *baseCompressCache) get(key string, decompressFn decompressFunc) ([]byte
 			"key", key,
 			"algorithm", storedAlgo.String(),
 			"error", err)
-		return nil, false
+		return nil, false, err
 	}
 
-	return decompressed, true
+	return decompressed, true, nil
 }
 
 // decompressWithAlgorithm decompresses data, delegating to the appropriate decompressor
@@ -144,8 +149,9 @@ func (c *baseCompressCache) decompressAny(data []byte, algorithm Algorithm) ([]b
 	}
 }
 
-// set compresses and stores a value in the cache
-func (c *baseCompressCache) set(key string, value []byte, compressFn compressFunc) {
+// set compresses and stores a value in the cache.
+// Uses the provided context for cache operations.
+func (c *baseCompressCache) set(ctx context.Context, key string, value []byte, compressFn compressFunc) error {
 	// Compress the data
 	compressed, err := compressFn(value)
 	if err != nil {
@@ -157,10 +163,12 @@ func (c *baseCompressCache) set(key string, value []byte, compressFn compressFun
 		data := make([]byte, len(value)+1)
 		data[0] = 0
 		copy(data[1:], value)
-		c.cache.Set(key, data)
+		if setErr := c.cache.Set(ctx, key, data); setErr != nil {
+			return setErr
+		}
 		c.uncompressedCount.Add(1)
 		c.uncompressedBytes.Add(int64(len(value)))
-		return
+		return nil
 	}
 
 	// Prefix with marker (algorithm + 1, so 0 means uncompressed)
@@ -168,15 +176,19 @@ func (c *baseCompressCache) set(key string, value []byte, compressFn compressFun
 	data[0] = byte(c.algorithm + 1)
 	copy(data[1:], compressed)
 
-	c.cache.Set(key, data)
+	if setErr := c.cache.Set(ctx, key, data); setErr != nil {
+		return setErr
+	}
 	c.compressedCount.Add(1)
 	c.compressedBytes.Add(int64(len(compressed)))
 	c.uncompressedBytes.Add(int64(len(value)))
+	return nil
 }
 
-// delete removes a value from the cache
-func (c *baseCompressCache) delete(key string) {
-	c.cache.Delete(key)
+// delete removes a value from the cache.
+// Uses the provided context for cache operations.
+func (c *baseCompressCache) delete(ctx context.Context, key string) error {
+	return c.cache.Delete(ctx, key)
 }
 
 // stats returns compression statistics

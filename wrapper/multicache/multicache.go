@@ -5,6 +5,8 @@
 package multicache
 
 import (
+	"context"
+
 	httpcache "github.com/sandrolain/httpcache"
 )
 
@@ -56,41 +58,60 @@ func New(tiers ...httpcache.Cache) *MultiCache {
 // starting with the fastest. When a value is found in a slower tier, it is
 // automatically promoted (written) to all faster tiers for subsequent quick access.
 //
-// Returns the cached value and true if found in any tier, or nil and false if not found.
-func (c *MultiCache) Get(key string) ([]byte, bool) {
+// Returns the cached value, true if found, and nil error on success.
+// Returns nil, false, nil if not found in any tier.
+// Returns nil, false, error if any tier returns an error during lookup.
+func (c *MultiCache) Get(ctx context.Context, key string) ([]byte, bool, error) {
 	// Try each tier in order
 	for i, tier := range c.tiers {
-		value, ok := tier.Get(key)
+		value, ok, err := tier.Get(ctx, key)
+		if err != nil {
+			return nil, false, err
+		}
 		if ok {
 			// Found in this tier - promote to all faster tiers
-			c.promoteToFasterTiers(key, value, i)
-			return value, true
+			if promoteErr := c.promoteToFasterTiers(ctx, key, value, i); promoteErr != nil {
+				// Log promotion error but still return the found value
+				httpcache.GetLogger().Warn("failed to promote to faster tier", "key", key, "error", promoteErr)
+			}
+			return value, true, nil
 		}
 	}
 
-	return nil, false
+	return nil, false, nil
 }
 
 // Set stores the value in all cache tiers. This ensures consistency across
 // all levels and allows each tier to apply its own eviction policies independently.
-func (c *MultiCache) Set(key string, value []byte) {
+// Returns an error if any tier fails to store the value.
+func (c *MultiCache) Set(ctx context.Context, key string, value []byte) error {
 	for _, tier := range c.tiers {
-		tier.Set(key, value)
+		if err := tier.Set(ctx, key, value); err != nil {
+			return err
+		}
 	}
+	return nil
 }
 
 // Delete removes the value from all cache tiers to maintain consistency.
-func (c *MultiCache) Delete(key string) {
+// Returns an error if any tier fails to delete the value.
+func (c *MultiCache) Delete(ctx context.Context, key string) error {
 	for _, tier := range c.tiers {
-		tier.Delete(key)
+		if err := tier.Delete(ctx, key); err != nil {
+			return err
+		}
 	}
+	return nil
 }
 
 // promoteToFasterTiers writes the value to all tiers faster than the one
 // where it was found. This optimizes future reads by moving hot data to
 // faster tiers.
-func (c *MultiCache) promoteToFasterTiers(key string, value []byte, foundAtTier int) {
+func (c *MultiCache) promoteToFasterTiers(ctx context.Context, key string, value []byte, foundAtTier int) error {
 	for i := 0; i < foundAtTier; i++ {
-		c.tiers[i].Set(key, value)
+		if err := c.tiers[i].Set(ctx, key, value); err != nil {
+			return err
+		}
 	}
+	return nil
 }

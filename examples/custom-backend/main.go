@@ -1,15 +1,18 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
+	"os"
 	"sync"
 	"time"
 
 	"github.com/sandrolain/httpcache"
+	"github.com/sandrolain/httpcache/diskcache"
 )
 
 // StatsCache wraps any cache implementation and adds statistics
@@ -29,33 +32,36 @@ func NewStatsCache(underlying httpcache.Cache) *StatsCache {
 	}
 }
 
-func (c *StatsCache) Get(key string) ([]byte, bool) {
+func (c *StatsCache) Get(ctx context.Context, key string) ([]byte, bool, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	value, ok := c.underlying.Get(key)
+	value, ok, err := c.underlying.Get(ctx, key)
+	if err != nil {
+		return nil, false, err
+	}
 	if ok {
 		c.hits++
 	} else {
 		c.misses++
 	}
-	return value, ok
+	return value, ok, nil
 }
 
-func (c *StatsCache) Set(key string, value []byte) {
+func (c *StatsCache) Set(ctx context.Context, key string, value []byte) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	c.sets++
-	c.underlying.Set(key, value)
+	return c.underlying.Set(ctx, key, value)
 }
 
-func (c *StatsCache) Delete(key string) {
+func (c *StatsCache) Delete(ctx context.Context, key string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	c.deletes++
-	c.underlying.Delete(key)
+	return c.underlying.Delete(ctx, key)
 }
 
 // Stats returns current cache statistics
@@ -110,24 +116,24 @@ func NewTTLCache(ttl time.Duration) *TTLCache {
 	return c
 }
 
-func (c *TTLCache) Get(key string) ([]byte, bool) {
+func (c *TTLCache) Get(_ context.Context, key string) ([]byte, bool, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
 	item, exists := c.items[key]
 	if !exists {
-		return nil, false
+		return nil, false, nil
 	}
 
 	// Check if expired
 	if time.Now().After(item.expiration) {
-		return nil, false
+		return nil, false, nil
 	}
 
-	return item.value, true
+	return item.value, true, nil
 }
 
-func (c *TTLCache) Set(key string, value []byte) {
+func (c *TTLCache) Set(_ context.Context, key string, value []byte) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -135,13 +141,15 @@ func (c *TTLCache) Set(key string, value []byte) {
 		value:      value,
 		expiration: time.Now().Add(c.ttl),
 	}
+	return nil
 }
 
-func (c *TTLCache) Delete(key string) {
+func (c *TTLCache) Delete(_ context.Context, key string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	delete(c.items, key)
+	return nil
 }
 
 func (c *TTLCache) cleanupExpired() {
@@ -165,12 +173,21 @@ func main() {
 	fmt.Println("Custom Cache Backends Example")
 	fmt.Println("==============================")
 
+	// Create a temporary directory for disk cache
+	tmpDir, err := os.MkdirTemp("", "httpcache-custom-backend-*")
+	if err != nil {
+		log.Fatalf("Failed to create temp directory: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
 	// Example 1: Cache with statistics
 	fmt.Println("Example 1: Cache with Statistics")
 	fmt.Println("---------------------------------")
 
-	// Wrap the memory cache with stats
-	baseCache := httpcache.NewMemoryCache()
+	// Create disk cache as the underlying cache
+	baseCache := diskcache.New(tmpDir)
+
+	// Wrap with stats
 	statsCache := NewStatsCache(baseCache)
 
 	transport1 := httpcache.NewTransport(statsCache)

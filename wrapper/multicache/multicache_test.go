@@ -1,6 +1,7 @@
 package multicache
 
 import (
+	"context"
 	"sync"
 	"testing"
 
@@ -21,23 +22,25 @@ func newMockCache() *mockCache {
 	}
 }
 
-func (m *mockCache) Get(key string) ([]byte, bool) {
+func (m *mockCache) Get(_ context.Context, key string) ([]byte, bool, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	value, ok := m.data[key]
-	return value, ok
+	return value, ok, nil
 }
 
-func (m *mockCache) Set(key string, value []byte) {
+func (m *mockCache) Set(_ context.Context, key string, value []byte) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.data[key] = value
+	return nil
 }
 
-func (m *mockCache) Delete(key string) {
+func (m *mockCache) Delete(_ context.Context, key string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	delete(m.data, key)
+	return nil
 }
 
 func TestInterface(t *testing.T) {
@@ -100,23 +103,25 @@ func TestNew(t *testing.T) {
 }
 
 func TestGet_SingleTier(t *testing.T) {
+	ctx := context.Background()
 	tier1 := newMockCache()
 	mc := New(tier1)
 	require.NotNil(t, mc)
 
 	// Cache miss
-	value, ok := mc.Get("missing")
+	value, ok, _ := mc.Get(ctx, "missing")
 	assert.False(t, ok)
 	assert.Nil(t, value)
 
 	// Add to tier and retrieve
-	tier1.Set("key1", []byte("value1"))
-	value, ok = mc.Get("key1")
+	_ = tier1.Set(ctx, "key1", []byte("value1"))
+	value, ok, _ = mc.Get(ctx, "key1")
 	assert.True(t, ok)
 	assert.Equal(t, []byte("value1"), value)
 }
 
 func TestGet_MultipleTiers_FoundInFirst(t *testing.T) {
+	ctx := context.Background()
 	tier1 := newMockCache()
 	tier2 := newMockCache()
 	tier3 := newMockCache()
@@ -124,20 +129,21 @@ func TestGet_MultipleTiers_FoundInFirst(t *testing.T) {
 	require.NotNil(t, mc)
 
 	// Add to first tier only
-	tier1.Set("key1", []byte("value1"))
+	_ = tier1.Set(ctx, "key1", []byte("value1"))
 
-	value, ok := mc.Get("key1")
+	value, ok, _ := mc.Get(ctx, "key1")
 	assert.True(t, ok)
 	assert.Equal(t, []byte("value1"), value)
 
 	// Should not be promoted (already in fastest tier)
-	_, ok = tier2.Get("key1")
+	_, ok, _ = tier2.Get(ctx, "key1")
 	assert.False(t, ok)
-	_, ok = tier3.Get("key1")
+	_, ok, _ = tier3.Get(ctx, "key1")
 	assert.False(t, ok)
 }
 
 func TestGet_MultipleTiers_FoundInMiddle(t *testing.T) {
+	ctx := context.Background()
 	tier1 := newMockCache()
 	tier2 := newMockCache()
 	tier3 := newMockCache()
@@ -145,23 +151,24 @@ func TestGet_MultipleTiers_FoundInMiddle(t *testing.T) {
 	require.NotNil(t, mc)
 
 	// Add to second tier only
-	tier2.Set("key1", []byte("value1"))
+	_ = tier2.Set(ctx, "key1", []byte("value1"))
 
-	value, ok := mc.Get("key1")
+	value, ok, _ := mc.Get(ctx, "key1")
 	assert.True(t, ok)
 	assert.Equal(t, []byte("value1"), value)
 
 	// Should be promoted to first tier
-	value, ok = tier1.Get("key1")
+	value, ok, _ = tier1.Get(ctx, "key1")
 	assert.True(t, ok)
 	assert.Equal(t, []byte("value1"), value)
 
 	// Should not be in third tier
-	_, ok = tier3.Get("key1")
+	_, ok, _ = tier3.Get(ctx, "key1")
 	assert.False(t, ok)
 }
 
 func TestGet_MultipleTiers_FoundInLast(t *testing.T) {
+	ctx := context.Background()
 	tier1 := newMockCache()
 	tier2 := newMockCache()
 	tier3 := newMockCache()
@@ -169,101 +176,107 @@ func TestGet_MultipleTiers_FoundInLast(t *testing.T) {
 	require.NotNil(t, mc)
 
 	// Add to last tier only
-	tier3.Set("key1", []byte("value1"))
+	_ = tier3.Set(ctx, "key1", []byte("value1"))
 
-	value, ok := mc.Get("key1")
+	value, ok, _ := mc.Get(ctx, "key1")
 	assert.True(t, ok)
 	assert.Equal(t, []byte("value1"), value)
 
 	// Should be promoted to all faster tiers
-	value, ok = tier1.Get("key1")
+	value, ok, _ = tier1.Get(ctx, "key1")
 	assert.True(t, ok)
 	assert.Equal(t, []byte("value1"), value)
 
-	value, ok = tier2.Get("key1")
+	value, ok, _ = tier2.Get(ctx, "key1")
 	assert.True(t, ok)
 	assert.Equal(t, []byte("value1"), value)
 }
 
 func TestGet_NotFound(t *testing.T) {
+	ctx := context.Background()
 	tier1 := newMockCache()
 	tier2 := newMockCache()
 	tier3 := newMockCache()
 	mc := New(tier1, tier2, tier3)
 	require.NotNil(t, mc)
 
-	value, ok := mc.Get("missing")
+	value, ok, _ := mc.Get(ctx, "missing")
 	assert.False(t, ok)
 	assert.Nil(t, value)
 }
 
 func TestSet_SingleTier(t *testing.T) {
+	ctx := context.Background()
 	tier1 := newMockCache()
 	mc := New(tier1)
 	require.NotNil(t, mc)
 
-	mc.Set("key1", []byte("value1"))
+	_ = mc.Set(ctx, "key1", []byte("value1"))
 
-	value, ok := tier1.Get("key1")
+	value, ok, _ := tier1.Get(ctx, "key1")
 	assert.True(t, ok)
 	assert.Equal(t, []byte("value1"), value)
 }
 
 func TestSet_MultipleTiers(t *testing.T) {
+	ctx := context.Background()
 	tier1 := newMockCache()
 	tier2 := newMockCache()
 	tier3 := newMockCache()
 	mc := New(tier1, tier2, tier3)
 	require.NotNil(t, mc)
 
-	mc.Set("key1", []byte("value1"))
+	_ = mc.Set(ctx, "key1", []byte("value1"))
 
 	// Should be set in all tiers
-	value, ok := tier1.Get("key1")
+	value, ok, _ := tier1.Get(ctx, "key1")
 	assert.True(t, ok)
 	assert.Equal(t, []byte("value1"), value)
 
-	value, ok = tier2.Get("key1")
+	value, ok, _ = tier2.Get(ctx, "key1")
 	assert.True(t, ok)
 	assert.Equal(t, []byte("value1"), value)
 
-	value, ok = tier3.Get("key1")
+	value, ok, _ = tier3.Get(ctx, "key1")
 	assert.True(t, ok)
 	assert.Equal(t, []byte("value1"), value)
 }
 
 func TestSet_Overwrite(t *testing.T) {
+	ctx := context.Background()
 	tier1 := newMockCache()
 	tier2 := newMockCache()
 	mc := New(tier1, tier2)
 	require.NotNil(t, mc)
 
-	mc.Set("key1", []byte("value1"))
-	mc.Set("key1", []byte("value2"))
+	_ = mc.Set(ctx, "key1", []byte("value1"))
+	_ = mc.Set(ctx, "key1", []byte("value2"))
 
 	// Should be overwritten in all tiers
-	value, ok := tier1.Get("key1")
+	value, ok, _ := tier1.Get(ctx, "key1")
 	assert.True(t, ok)
 	assert.Equal(t, []byte("value2"), value)
 
-	value, ok = tier2.Get("key1")
+	value, ok, _ = tier2.Get(ctx, "key1")
 	assert.True(t, ok)
 	assert.Equal(t, []byte("value2"), value)
 }
 
 func TestDelete_SingleTier(t *testing.T) {
+	ctx := context.Background()
 	tier1 := newMockCache()
 	mc := New(tier1)
 	require.NotNil(t, mc)
 
-	tier1.Set("key1", []byte("value1"))
-	mc.Delete("key1")
+	_ = tier1.Set(ctx, "key1", []byte("value1"))
+	_ = mc.Delete(ctx, "key1")
 
-	_, ok := tier1.Get("key1")
+	_, ok, _ := tier1.Get(ctx, "key1")
 	assert.False(t, ok)
 }
 
 func TestDelete_MultipleTiers(t *testing.T) {
+	ctx := context.Background()
 	tier1 := newMockCache()
 	tier2 := newMockCache()
 	tier3 := newMockCache()
@@ -271,34 +284,36 @@ func TestDelete_MultipleTiers(t *testing.T) {
 	require.NotNil(t, mc)
 
 	// Set in all tiers
-	tier1.Set("key1", []byte("value1"))
-	tier2.Set("key1", []byte("value1"))
-	tier3.Set("key1", []byte("value1"))
+	_ = tier1.Set(ctx, "key1", []byte("value1"))
+	_ = tier2.Set(ctx, "key1", []byte("value1"))
+	_ = tier3.Set(ctx, "key1", []byte("value1"))
 
-	mc.Delete("key1")
+	_ = mc.Delete(ctx, "key1")
 
 	// Should be deleted from all tiers
-	_, ok := tier1.Get("key1")
+	_, ok, _ := tier1.Get(ctx, "key1")
 	assert.False(t, ok)
 
-	_, ok = tier2.Get("key1")
+	_, ok, _ = tier2.Get(ctx, "key1")
 	assert.False(t, ok)
 
-	_, ok = tier3.Get("key1")
+	_, ok, _ = tier3.Get(ctx, "key1")
 	assert.False(t, ok)
 }
 
 func TestDelete_NotFound(t *testing.T) {
+	ctx := context.Background()
 	tier1 := newMockCache()
 	tier2 := newMockCache()
 	mc := New(tier1, tier2)
 	require.NotNil(t, mc)
 
 	// Should not panic
-	mc.Delete("missing")
+	_ = mc.Delete(ctx, "missing")
 }
 
 func TestPromotion_Scenario(t *testing.T) {
+	ctx := context.Background()
 	// Simulate a realistic scenario:
 	// - Tier 1: Fast LRU with limited capacity
 	// - Tier 2: Medium speed cache with more capacity
@@ -311,41 +326,42 @@ func TestPromotion_Scenario(t *testing.T) {
 	require.NotNil(t, mc)
 
 	// Initially store in all tiers
-	mc.Set("hot-key", []byte("hot-value"))
+	_ = mc.Set(ctx, "hot-key", []byte("hot-value"))
 
 	// Simulate tier 1 eviction (e.g., LRU evicted the entry)
-	tier1.Delete("hot-key")
+	_ = tier1.Delete(ctx, "hot-key")
 
 	// First access after eviction should find in tier 2 and promote to tier 1
-	value, ok := mc.Get("hot-key")
+	value, ok, _ := mc.Get(ctx, "hot-key")
 	assert.True(t, ok)
 	assert.Equal(t, []byte("hot-value"), value)
 
 	// Now should be back in tier 1
-	value, ok = tier1.Get("hot-key")
+	value, ok, _ = tier1.Get(ctx, "hot-key")
 	assert.True(t, ok)
 	assert.Equal(t, []byte("hot-value"), value)
 
 	// Simulate both tier 1 and tier 2 evictions
-	tier1.Delete("hot-key")
-	tier2.Delete("hot-key")
+	_ = tier1.Delete(ctx, "hot-key")
+	_ = tier2.Delete(ctx, "hot-key")
 
 	// Access should find in tier 3 and promote to all faster tiers
-	value, ok = mc.Get("hot-key")
+	value, ok, _ = mc.Get(ctx, "hot-key")
 	assert.True(t, ok)
 	assert.Equal(t, []byte("hot-value"), value)
 
 	// Now should be in all tiers again
-	value, ok = tier1.Get("hot-key")
+	value, ok, _ = tier1.Get(ctx, "hot-key")
 	assert.True(t, ok)
 	assert.Equal(t, []byte("hot-value"), value)
 
-	value, ok = tier2.Get("hot-key")
+	value, ok, _ = tier2.Get(ctx, "hot-key")
 	assert.True(t, ok)
 	assert.Equal(t, []byte("hot-value"), value)
 }
 
 func TestConcurrentAccess(t *testing.T) {
+	ctx := context.Background()
 	// Basic concurrency test to ensure no races
 	tier1 := newMockCache()
 	tier2 := newMockCache()
@@ -357,7 +373,7 @@ func TestConcurrentAccess(t *testing.T) {
 	// Writer goroutine
 	go func() {
 		for i := 0; i < 100; i++ {
-			mc.Set("key", []byte("value"))
+			_ = mc.Set(ctx, "key", []byte("value"))
 		}
 		done <- true
 	}()
@@ -365,7 +381,7 @@ func TestConcurrentAccess(t *testing.T) {
 	// Reader goroutine
 	go func() {
 		for i := 0; i < 100; i++ {
-			mc.Get("key")
+			_, _, _ = mc.Get(ctx, "key")
 		}
 		done <- true
 	}()
@@ -373,7 +389,7 @@ func TestConcurrentAccess(t *testing.T) {
 	// Deleter goroutine
 	go func() {
 		for i := 0; i < 100; i++ {
-			mc.Delete("key")
+			_ = mc.Delete(ctx, "key")
 		}
 		done <- true
 	}()

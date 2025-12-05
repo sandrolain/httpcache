@@ -3,10 +3,9 @@ package compresscache
 import (
 	"bytes"
 	"compress/gzip"
+	"context"
 	"strings"
 	"testing"
-
-	"github.com/sandrolain/httpcache"
 )
 
 // mockCache is a simple in-memory cache for testing
@@ -20,17 +19,19 @@ func newMockCache() *mockCache {
 	}
 }
 
-func (m *mockCache) Get(key string) ([]byte, bool) {
+func (m *mockCache) Get(_ context.Context, key string) ([]byte, bool, error) {
 	val, ok := m.data[key]
-	return val, ok
+	return val, ok, nil
 }
 
-func (m *mockCache) Set(key string, value []byte) {
+func (m *mockCache) Set(_ context.Context, key string, value []byte) error {
 	m.data[key] = value
+	return nil
 }
 
-func (m *mockCache) Delete(key string) {
+func (m *mockCache) Delete(_ context.Context, key string) error {
 	delete(m.data, key)
+	return nil
 }
 
 func TestNewGzip(t *testing.T) {
@@ -191,6 +192,7 @@ func TestNewSnappy(t *testing.T) {
 }
 
 func TestSetGet_Gzip(t *testing.T) {
+	ctx := context.Background()
 	mock := newMockCache()
 	cache, err := NewGzip(GzipConfig{
 		Cache: mock,
@@ -203,8 +205,13 @@ func TestSetGet_Gzip(t *testing.T) {
 	testData := []byte(strings.Repeat("Gzip compression test. ", 100))
 	key := "gzip-key"
 
-	cache.Set(key, testData)
-	retrieved, ok := cache.Get(key)
+	if err := cache.Set(ctx, key, testData); err != nil {
+		t.Fatalf("Set() failed: %v", err)
+	}
+	retrieved, ok, err := cache.Get(ctx, key)
+	if err != nil {
+		t.Fatalf("Get() failed: %v", err)
+	}
 	if !ok {
 		t.Fatal("Get() returned false")
 	}
@@ -226,6 +233,7 @@ func TestSetGet_Gzip(t *testing.T) {
 }
 
 func TestSetGet_Brotli(t *testing.T) {
+	ctx := context.Background()
 	mock := newMockCache()
 	cache, err := NewBrotli(BrotliConfig{
 		Cache: mock,
@@ -238,8 +246,13 @@ func TestSetGet_Brotli(t *testing.T) {
 	testData := []byte(strings.Repeat("Brotli compression test. ", 50))
 	key := "brotli-key"
 
-	cache.Set(key, testData)
-	retrieved, ok := cache.Get(key)
+	if err := cache.Set(ctx, key, testData); err != nil {
+		t.Fatalf("Set() failed: %v", err)
+	}
+	retrieved, ok, err := cache.Get(ctx, key)
+	if err != nil {
+		t.Fatalf("Get() failed: %v", err)
+	}
 	if !ok {
 		t.Fatal("Get() returned false")
 	}
@@ -255,6 +268,7 @@ func TestSetGet_Brotli(t *testing.T) {
 }
 
 func TestSetGet_Snappy(t *testing.T) {
+	ctx := context.Background()
 	cache, err := NewSnappy(SnappyConfig{
 		Cache: newMockCache(),
 	})
@@ -265,8 +279,13 @@ func TestSetGet_Snappy(t *testing.T) {
 	testData := []byte(strings.Repeat("Snappy fast compression! ", 40))
 	key := "snappy-key"
 
-	cache.Set(key, testData)
-	retrieved, ok := cache.Get(key)
+	if err := cache.Set(ctx, key, testData); err != nil {
+		t.Fatalf("Set() failed: %v", err)
+	}
+	retrieved, ok, err := cache.Get(ctx, key)
+	if err != nil {
+		t.Fatalf("Get() failed: %v", err)
+	}
 	if !ok {
 		t.Fatal("Get() returned false")
 	}
@@ -282,6 +301,7 @@ func TestSetGet_Snappy(t *testing.T) {
 }
 
 func TestSetGet_SmallData(t *testing.T) {
+	ctx := context.Background()
 	cache, err := NewGzip(GzipConfig{
 		Cache: newMockCache(),
 	})
@@ -291,9 +311,14 @@ func TestSetGet_SmallData(t *testing.T) {
 
 	// Small data - compression will still be attempted
 	smallData := []byte("small")
-	cache.Set("small", smallData)
+	if err := cache.Set(ctx, "small", smallData); err != nil {
+		t.Fatalf("Set() failed: %v", err)
+	}
 
-	retrieved, ok := cache.Get("small")
+	retrieved, ok, err := cache.Get(ctx, "small")
+	if err != nil {
+		t.Fatalf("Get() failed: %v", err)
+	}
 	if !ok {
 		t.Fatal("Get() returned false")
 	}
@@ -310,6 +335,7 @@ func TestSetGet_SmallData(t *testing.T) {
 }
 
 func TestDelete(t *testing.T) {
+	ctx := context.Background()
 	cache, err := NewGzip(GzipConfig{
 		Cache: newMockCache(),
 	})
@@ -318,25 +344,36 @@ func TestDelete(t *testing.T) {
 	}
 
 	testData := []byte(strings.Repeat("Delete test ", 10))
-	cache.Set("key", testData)
+	if err := cache.Set(ctx, "key", testData); err != nil {
+		t.Fatalf("Set() failed: %v", err)
+	}
 
 	// Verify it exists
-	_, ok := cache.Get("key")
+	_, ok, err := cache.Get(ctx, "key")
+	if err != nil {
+		t.Fatalf("Get() failed: %v", err)
+	}
 	if !ok {
 		t.Fatal("Data should exist before delete")
 	}
 
 	// Delete
-	cache.Delete("key")
+	if err := cache.Delete(ctx, "key"); err != nil {
+		t.Fatalf("Delete() failed: %v", err)
+	}
 
 	// Verify it's gone
-	_, ok = cache.Get("key")
+	_, ok, err = cache.Get(ctx, "key")
+	if err != nil {
+		t.Fatalf("Get() failed: %v", err)
+	}
 	if ok {
 		t.Error("Data should not exist after delete")
 	}
 }
 
 func TestStats(t *testing.T) {
+	ctx := context.Background()
 	cache, err := NewGzip(GzipConfig{
 		Cache: newMockCache(),
 		Level: gzip.BestCompression,
@@ -348,7 +385,9 @@ func TestStats(t *testing.T) {
 	// Add multiple entries
 	for i := 0; i < 5; i++ {
 		data := []byte(strings.Repeat("Data entry ", 20))
-		cache.Set(string(rune('a'+i)), data)
+		if err := cache.Set(ctx, string(rune('a'+i)), data); err != nil {
+			t.Fatalf("Set() failed: %v", err)
+		}
 	}
 
 	stats := cache.Stats()
@@ -380,6 +419,7 @@ func TestStats(t *testing.T) {
 }
 
 func TestMixedAlgorithms(t *testing.T) {
+	ctx := context.Background()
 	// Test that we can read data compressed with different algorithms
 	mock := newMockCache()
 
@@ -388,51 +428,51 @@ func TestMixedAlgorithms(t *testing.T) {
 		Cache: mock,
 	})
 	gzipData := []byte(strings.Repeat("Gzip data ", 10))
-	gzipCache.Set("gzip-key", gzipData)
+	_ = gzipCache.Set(ctx, "gzip-key", gzipData)
 
 	// Store with brotli
 	brotliCache, _ := NewBrotli(BrotliConfig{
 		Cache: mock,
 	})
 	brotliData := []byte(strings.Repeat("Brotli data ", 10))
-	brotliCache.Set("brotli-key", brotliData)
+	_ = brotliCache.Set(ctx, "brotli-key", brotliData)
 
 	// Store with snappy
 	snappyCache, _ := NewSnappy(SnappyConfig{
 		Cache: mock,
 	})
 	snappyData := []byte(strings.Repeat("Snappy data ", 10))
-	snappyCache.Set("snappy-key", snappyData)
+	_ = snappyCache.Set(ctx, "snappy-key", snappyData)
 
 	// Each cache should be able to read its own data
-	retrieved, ok := gzipCache.Get("gzip-key")
+	retrieved, ok, _ := gzipCache.Get(ctx, "gzip-key")
 	if !ok || !bytes.Equal(retrieved, gzipData) {
 		t.Error("Gzip cache failed to retrieve gzip data")
 	}
 
-	retrieved, ok = brotliCache.Get("brotli-key")
+	retrieved, ok, _ = brotliCache.Get(ctx, "brotli-key")
 	if !ok || !bytes.Equal(retrieved, brotliData) {
 		t.Error("Brotli cache failed to retrieve brotli data")
 	}
 
-	retrieved, ok = snappyCache.Get("snappy-key")
+	retrieved, ok, _ = snappyCache.Get(ctx, "snappy-key")
 	if !ok || !bytes.Equal(retrieved, snappyData) {
 		t.Error("Snappy cache failed to retrieve snappy data")
 	}
 
 	// Each cache can read data compressed with other algorithms
 	// because the marker indicates which algorithm was used
-	retrieved, ok = brotliCache.Get("gzip-key")
+	retrieved, ok, _ = brotliCache.Get(ctx, "gzip-key")
 	if !ok || !bytes.Equal(retrieved, gzipData) {
 		t.Error("Brotli cache failed to retrieve gzip-compressed data")
 	}
 
-	retrieved, ok = snappyCache.Get("brotli-key")
+	retrieved, ok, _ = snappyCache.Get(ctx, "brotli-key")
 	if !ok || !bytes.Equal(retrieved, brotliData) {
 		t.Error("Snappy cache failed to retrieve brotli-compressed data")
 	}
 
-	retrieved, ok = gzipCache.Get("snappy-key")
+	retrieved, ok, _ = gzipCache.Get(ctx, "snappy-key")
 	if !ok || !bytes.Equal(retrieved, snappyData) {
 		t.Error("Gzip cache failed to retrieve snappy-compressed data")
 	}
@@ -459,6 +499,7 @@ func TestAlgorithm_String(t *testing.T) {
 }
 
 func TestGetNonExistent(t *testing.T) {
+	ctx := context.Background()
 	cache, err := NewGzip(GzipConfig{
 		Cache: newMockCache(),
 	})
@@ -466,13 +507,17 @@ func TestGetNonExistent(t *testing.T) {
 		t.Fatalf("NewGzip() failed: %v", err)
 	}
 
-	_, ok := cache.Get("nonexistent")
+	_, ok, err := cache.Get(ctx, "nonexistent")
+	if err != nil {
+		t.Fatalf("Get() failed: %v", err)
+	}
 	if ok {
 		t.Error("Get() should return false for non-existent key")
 	}
 }
 
 func TestGetEmptyData(t *testing.T) {
+	ctx := context.Background()
 	mock := newMockCache()
 	cache, err := NewGzip(GzipConfig{
 		Cache: mock,
@@ -482,9 +527,12 @@ func TestGetEmptyData(t *testing.T) {
 	}
 
 	// Set empty data directly in mock cache
-	mock.Set("empty", []byte{})
+	_ = mock.Set(ctx, "empty", []byte{})
 
-	data, ok := cache.Get("empty")
+	data, ok, err := cache.Get(ctx, "empty")
+	if err != nil {
+		t.Fatalf("Get() failed: %v", err)
+	}
 	if !ok {
 		t.Error("Get() should return true for empty data")
 	}
@@ -494,9 +542,10 @@ func TestGetEmptyData(t *testing.T) {
 }
 
 func TestIntegration(t *testing.T) {
-	// Integration test with real MemoryCache
+	ctx := context.Background()
+	// Integration test with mockCache
 	cache, err := NewGzip(GzipConfig{
-		Cache: httpcache.NewMemoryCache(),
+		Cache: newMockCache(),
 		Level: gzip.DefaultCompression,
 	})
 	if err != nil {
@@ -512,9 +561,14 @@ func TestIntegration(t *testing.T) {
 		]
 	}`)
 
-	cache.Set("https://api.example.com/users", testData)
+	if err := cache.Set(ctx, "https://api.example.com/users", testData); err != nil {
+		t.Fatalf("Set() failed: %v", err)
+	}
 
-	retrieved, ok := cache.Get("https://api.example.com/users")
+	retrieved, ok, err := cache.Get(ctx, "https://api.example.com/users")
+	if err != nil {
+		t.Fatalf("Get() failed: %v", err)
+	}
 	if !ok {
 		t.Fatal("Failed to retrieve cached data")
 	}
@@ -533,6 +587,7 @@ func TestIntegration(t *testing.T) {
 }
 
 func TestCorruptedData(t *testing.T) {
+	ctx := context.Background()
 	mock := newMockCache()
 	cache, err := NewGzip(GzipConfig{
 		Cache: mock,
@@ -542,15 +597,16 @@ func TestCorruptedData(t *testing.T) {
 	}
 
 	// Store corrupted data with gzip marker but invalid compressed data
-	mock.Set("corrupted", []byte{byte(Gzip + 1), 0xFF, 0xFF, 0xFF})
+	_ = mock.Set(ctx, "corrupted", []byte{byte(Gzip + 1), 0xFF, 0xFF, 0xFF})
 
-	_, ok := cache.Get("corrupted")
+	_, ok, _ := cache.Get(ctx, "corrupted")
 	if ok {
 		t.Error("Get() should return false for corrupted data")
 	}
 }
 
 func TestUncompressedData(t *testing.T) {
+	ctx := context.Background()
 	mock := newMockCache()
 	cache, err := NewGzip(GzipConfig{
 		Cache: mock,
@@ -564,9 +620,12 @@ func TestUncompressedData(t *testing.T) {
 	data := make([]byte, len(testData)+1)
 	data[0] = 0
 	copy(data[1:], testData)
-	mock.Set("uncompressed", data)
+	_ = mock.Set(ctx, "uncompressed", data)
 
-	retrieved, ok := cache.Get("uncompressed")
+	retrieved, ok, err := cache.Get(ctx, "uncompressed")
+	if err != nil {
+		t.Fatalf("Get() failed: %v", err)
+	}
 	if !ok {
 		t.Fatal("Get() should return true for uncompressed data")
 	}
@@ -577,6 +636,7 @@ func TestUncompressedData(t *testing.T) {
 }
 
 func TestCompressionLevels(t *testing.T) {
+	ctx := context.Background()
 	levels := []int{
 		gzip.BestSpeed,
 		gzip.DefaultCompression,
@@ -595,8 +655,13 @@ func TestCompressionLevels(t *testing.T) {
 				t.Fatalf("NewGzip() failed for level %d: %v", level, err)
 			}
 
-			cache.Set("key", testData)
-			retrieved, ok := cache.Get("key")
+			if err := cache.Set(ctx, "key", testData); err != nil {
+				t.Fatalf("Set() failed: %v", err)
+			}
+			retrieved, ok, err := cache.Get(ctx, "key")
+			if err != nil {
+				t.Fatalf("Get() failed: %v", err)
+			}
 			if !ok {
 				t.Fatal("Get() returned false")
 			}
@@ -609,6 +674,7 @@ func TestCompressionLevels(t *testing.T) {
 }
 
 func TestBrotliLevels(t *testing.T) {
+	ctx := context.Background()
 	levels := []int{0, 6, 11}
 	testData := []byte(strings.Repeat("brotli level test ", 50))
 
@@ -622,8 +688,13 @@ func TestBrotliLevels(t *testing.T) {
 				t.Fatalf("NewBrotli() failed for level %d: %v", level, err)
 			}
 
-			cache.Set("key", testData)
-			retrieved, ok := cache.Get("key")
+			if err := cache.Set(ctx, "key", testData); err != nil {
+				t.Fatalf("Set() failed: %v", err)
+			}
+			retrieved, ok, err := cache.Get(ctx, "key")
+			if err != nil {
+				t.Fatalf("Get() failed: %v", err)
+			}
 			if !ok {
 				t.Fatal("Get() returned false")
 			}
@@ -636,12 +707,13 @@ func TestBrotliLevels(t *testing.T) {
 }
 
 func TestAllAlgorithmsRoundTrip(t *testing.T) {
+	ctx := context.Background()
 	testData := []byte(strings.Repeat("round trip test ", 100))
 
 	t.Run("Gzip", func(t *testing.T) {
 		cache, _ := NewGzip(GzipConfig{Cache: newMockCache()})
-		cache.Set("key", testData)
-		retrieved, ok := cache.Get("key")
+		_ = cache.Set(ctx, "key", testData)
+		retrieved, ok, _ := cache.Get(ctx, "key")
 		if !ok || !bytes.Equal(retrieved, testData) {
 			t.Error("Gzip round trip failed")
 		}
@@ -649,8 +721,8 @@ func TestAllAlgorithmsRoundTrip(t *testing.T) {
 
 	t.Run("Brotli", func(t *testing.T) {
 		cache, _ := NewBrotli(BrotliConfig{Cache: newMockCache()})
-		cache.Set("key", testData)
-		retrieved, ok := cache.Get("key")
+		_ = cache.Set(ctx, "key", testData)
+		retrieved, ok, _ := cache.Get(ctx, "key")
 		if !ok || !bytes.Equal(retrieved, testData) {
 			t.Error("Brotli round trip failed")
 		}
@@ -658,8 +730,8 @@ func TestAllAlgorithmsRoundTrip(t *testing.T) {
 
 	t.Run("Snappy", func(t *testing.T) {
 		cache, _ := NewSnappy(SnappyConfig{Cache: newMockCache()})
-		cache.Set("key", testData)
-		retrieved, ok := cache.Get("key")
+		_ = cache.Set(ctx, "key", testData)
+		retrieved, ok, _ := cache.Get(ctx, "key")
 		if !ok || !bytes.Equal(retrieved, testData) {
 			t.Error("Snappy round trip failed")
 		}
@@ -667,11 +739,12 @@ func TestAllAlgorithmsRoundTrip(t *testing.T) {
 }
 
 func TestEmptyValue(t *testing.T) {
+	ctx := context.Background()
 	cache, _ := NewGzip(GzipConfig{Cache: newMockCache()})
 
 	// Set and get empty value
-	cache.Set("empty", []byte{})
-	retrieved, ok := cache.Get("empty")
+	_ = cache.Set(ctx, "empty", []byte{})
+	retrieved, ok, _ := cache.Get(ctx, "empty")
 	if !ok {
 		t.Error("Get() should return true for empty value")
 	}
@@ -696,16 +769,17 @@ func TestStatsEmptyCache(t *testing.T) {
 }
 
 func TestMultipleSetSameKey(t *testing.T) {
+	ctx := context.Background()
 	cache, _ := NewGzip(GzipConfig{Cache: newMockCache()})
 
 	// Set value multiple times
 	for i := 0; i < 3; i++ {
 		data := []byte(strings.Repeat("iteration ", i+1))
-		cache.Set("key", data)
+		_ = cache.Set(ctx, "key", data)
 	}
 
 	// Should have the last value
-	retrieved, ok := cache.Get("key")
+	retrieved, ok, _ := cache.Get(ctx, "key")
 	if !ok {
 		t.Fatal("Get() returned false")
 	}
@@ -723,26 +797,28 @@ func TestMultipleSetSameKey(t *testing.T) {
 }
 
 func TestBrotliCorruptedData(t *testing.T) {
+	ctx := context.Background()
 	mock := newMockCache()
 	cache, _ := NewBrotli(BrotliConfig{Cache: mock})
 
 	// Store corrupted brotli data
-	mock.Set("corrupted", []byte{byte(Brotli + 1), 0xFF, 0xFF, 0xFF})
+	_ = mock.Set(ctx, "corrupted", []byte{byte(Brotli + 1), 0xFF, 0xFF, 0xFF})
 
-	_, ok := cache.Get("corrupted")
+	_, ok, _ := cache.Get(ctx, "corrupted")
 	if ok {
 		t.Error("Get() should return false for corrupted brotli data")
 	}
 }
 
 func TestSnappyCorruptedData(t *testing.T) {
+	ctx := context.Background()
 	mock := newMockCache()
 	cache, _ := NewSnappy(SnappyConfig{Cache: mock})
 
 	// Store corrupted snappy data
-	mock.Set("corrupted", []byte{byte(Snappy + 1), 0xFF, 0xFF, 0xFF})
+	_ = mock.Set(ctx, "corrupted", []byte{byte(Snappy + 1), 0xFF, 0xFF, 0xFF})
 
-	_, ok := cache.Get("corrupted")
+	_, ok, _ := cache.Get(ctx, "corrupted")
 	if ok {
 		t.Error("Get() should return false for corrupted snappy data")
 	}

@@ -195,7 +195,7 @@ func TestGetFreshnessEdgeCases(t *testing.T) {
 
 // TestClientFunction tests the Client helper function
 func TestClientFunction(t *testing.T) {
-	cache := NewMemoryCache()
+	cache := newMockCache()
 	transport := NewTransport(cache)
 	transport.MarkCachedResponses = true
 	client := transport.Client()

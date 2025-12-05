@@ -331,7 +331,8 @@ go run main.go
 ### Basic Setup
 
 ```go
-transport := httpcache.NewMemoryCacheTransport()
+cache := diskcache.New("/tmp/cache")
+transport := httpcache.NewTransport(cache)
 client := transport.Client()
 ```
 

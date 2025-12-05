@@ -22,7 +22,7 @@ func TestPragmaNoCacheRequest(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	tp := NewMemoryCacheTransport()
+	tp := newMockCacheTransport()
 
 	// First request - should cache
 	req1, _ := http.NewRequest(methodGET, ts.URL, nil)
@@ -71,7 +71,7 @@ func TestPragmaNoCacheIgnoredWithCacheControl(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	tp := NewMemoryCacheTransport()
+	tp := newMockCacheTransport()
 
 	// First request - should cache
 	req1, _ := http.NewRequest(methodGET, ts.URL, nil)
@@ -125,7 +125,7 @@ func TestPragmaNoCacheOnlyInRequest(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	tp := NewMemoryCacheTransport()
+	tp := newMockCacheTransport()
 
 	// First request - should cache (Pragma in response is ignored)
 	req1, _ := http.NewRequest(methodGET, ts.URL, nil)
@@ -172,7 +172,7 @@ func TestPragmaOtherValuesIgnored(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	tp := NewMemoryCacheTransport()
+	tp := newMockCacheTransport()
 
 	// First request - should cache
 	req1, _ := http.NewRequest(methodGET, ts.URL, nil)
@@ -220,7 +220,7 @@ func TestPragmaNoCacheCaseInsensitive(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	tp := NewMemoryCacheTransport()
+	tp := newMockCacheTransport()
 
 	// First request - should cache
 	req1, _ := http.NewRequest(methodGET, ts.URL, nil)

@@ -65,7 +65,8 @@
 - ✅ **Multiple Backends** - Memory, Disk, Redis, LevelDB, Memcache, PostgreSQL, MongoDB, NATS K/V, Hazelcast, Cloud Storage (S3/GCS/Azure)
 - ✅ **Multi-Tier Caching** - Combine multiple backends with automatic fallback and promotion
 - ✅ **Compression Wrapper** - Automatic Gzip, Brotli, or Snappy compression for cached data
-- ✅ **Security Wrapper** - Optional SHA-256 key hashing and AES-256 encryption
+- ✅ **Built-in Security** - SHA-256 key hashing (always enabled) and optional AES-256-GCM encryption via `WithEncryption`
+- ✅ **Options Pattern** - Clean configuration via `TransportOption` functions (`WithEncryption`, `WithPublicCache`, etc.)
 - ✅ **Thread-Safe** - Safe for concurrent use
 - ✅ **Zero Dependencies** - Core package uses only Go standard library
 - ✅ **Easy Integration** - Drop-in replacement for `http.Client`
@@ -83,13 +84,20 @@ import (
     "fmt"
     "io"
     "net/http"
+    "os"
     
     "github.com/sandrolain/httpcache"
+    "github.com/sandrolain/httpcache/diskcache"
 )
 
 func main() {
-    // Create a cached HTTP client
-    transport := httpcache.NewMemoryCacheTransport()
+    // Create a temporary directory for disk cache
+    tmpDir, _ := os.MkdirTemp("", "httpcache-*")
+    defer os.RemoveAll(tmpDir)
+    
+    // Create a cached HTTP client using disk cache
+    cache := diskcache.New(tmpDir)
+    transport := httpcache.NewTransport(cache)
     client := transport.Client()
     
     // Make requests - second request will be cached!
@@ -102,6 +110,31 @@ func main() {
         fmt.Println("Response was cached!")
     }
 }
+```
+
+### With Encryption (Optional)
+
+```go
+// Enable AES-256-GCM encryption for cached data
+transport := httpcache.NewTransport(cache,
+    httpcache.WithEncryption("my-secret-passphrase"),
+)
+```
+
+### Transport Options
+
+```go
+// Configure transport with multiple options
+transport := httpcache.NewTransport(cache,
+    httpcache.WithEncryption("my-secret-passphrase"),     // Enable encryption
+    httpcache.WithPublicCache(true),                       // Shared cache mode
+    httpcache.WithVarySeparation(true),                    // RFC 9111 Vary handling
+    httpcache.WithCacheKeyHeaders([]string{"Accept-Language"}), // Include headers in key
+)
+```
+
+> **Note**: All cache keys are automatically hashed with SHA-256 before storage, protecting sensitive data in URLs.
+
 ```
 
 ## Installation

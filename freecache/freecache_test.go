@@ -1,6 +1,7 @@
 package freecache
 
 import (
+	"context"
 	"testing"
 
 	"github.com/sandrolain/httpcache"
@@ -22,18 +23,27 @@ func TestNew(t *testing.T) {
 
 func TestGetSet(t *testing.T) {
 	cache := New(1024 * 1024)
+	ctx := context.Background()
 
 	// Test Get on empty cache
-	_, ok := cache.Get("key1")
+	_, ok, err := cache.Get(ctx, "key1")
+	if err != nil {
+		t.Fatalf("Get error: %v", err)
+	}
 	if ok {
 		t.Error("Get should return false for non-existent key")
 	}
 
 	// Test Set and Get
 	testData := []byte("test value")
-	cache.Set("key1", testData)
+	if err := cache.Set(ctx, "key1", testData); err != nil {
+		t.Fatalf("Set error: %v", err)
+	}
 
-	value, ok := cache.Get("key1")
+	value, ok, err := cache.Get(ctx, "key1")
+	if err != nil {
+		t.Fatalf("Get error: %v", err)
+	}
 	if !ok {
 		t.Fatal("Get should return true for existing key")
 	}
@@ -45,21 +55,32 @@ func TestGetSet(t *testing.T) {
 
 func TestDelete(t *testing.T) {
 	cache := New(1024 * 1024)
+	ctx := context.Background()
 
 	// Set a value
-	cache.Set("key1", []byte("value1"))
+	if err := cache.Set(ctx, "key1", []byte("value1")); err != nil {
+		t.Fatalf("Set error: %v", err)
+	}
 
 	// Verify it exists
-	_, ok := cache.Get("key1")
+	_, ok, err := cache.Get(ctx, "key1")
+	if err != nil {
+		t.Fatalf("Get error: %v", err)
+	}
 	if !ok {
 		t.Fatal("Key should exist before Delete")
 	}
 
 	// Delete it
-	cache.Delete("key1")
+	if err := cache.Delete(ctx, "key1"); err != nil {
+		t.Fatalf("Delete error: %v", err)
+	}
 
 	// Verify it's gone
-	_, ok = cache.Get("key1")
+	_, ok, err = cache.Get(ctx, "key1")
+	if err != nil {
+		t.Fatalf("Get error: %v", err)
+	}
 	if ok {
 		t.Error("Key should not exist after Delete")
 	}
@@ -67,11 +88,14 @@ func TestDelete(t *testing.T) {
 
 func TestClear(t *testing.T) {
 	cache := New(1024 * 1024)
+	ctx := context.Background()
 
 	// Add multiple entries
 	for i := 0; i < 10; i++ {
 		key := string(rune('a' + i))
-		cache.Set(key, []byte("value"))
+		if err := cache.Set(ctx, key, []byte("value")); err != nil {
+			t.Fatalf("Set error: %v", err)
+		}
 	}
 
 	// Verify entries exist
@@ -90,20 +114,27 @@ func TestClear(t *testing.T) {
 
 func TestEntryCount(t *testing.T) {
 	cache := New(1024 * 1024)
+	ctx := context.Background()
 
 	if cache.EntryCount() != 0 {
 		t.Errorf("Initial EntryCount should be 0, got %d", cache.EntryCount())
 	}
 
-	cache.Set("key1", []byte("value1"))
-	cache.Set("key2", []byte("value2"))
+	if err := cache.Set(ctx, "key1", []byte("value1")); err != nil {
+		t.Fatalf("Set error: %v", err)
+	}
+	if err := cache.Set(ctx, "key2", []byte("value2")); err != nil {
+		t.Fatalf("Set error: %v", err)
+	}
 
 	count := cache.EntryCount()
 	if count != 2 {
 		t.Errorf("EntryCount should be 2, got %d", count)
 	}
 
-	cache.Delete("key1")
+	if err := cache.Delete(ctx, "key1"); err != nil {
+		t.Fatalf("Delete error: %v", err)
+	}
 	count = cache.EntryCount()
 	if count != 1 {
 		t.Errorf("EntryCount should be 1 after delete, got %d", count)
@@ -112,15 +143,20 @@ func TestEntryCount(t *testing.T) {
 
 func TestStatistics(t *testing.T) {
 	cache := New(1024 * 1024)
+	ctx := context.Background()
 
 	// Add some data
-	cache.Set("key1", []byte("value1"))
-	cache.Set("key2", []byte("value2"))
+	if err := cache.Set(ctx, "key1", []byte("value1")); err != nil {
+		t.Fatalf("Set error: %v", err)
+	}
+	if err := cache.Set(ctx, "key2", []byte("value2")); err != nil {
+		t.Fatalf("Set error: %v", err)
+	}
 
 	// Access data to generate hits
-	cache.Get("key1")
-	cache.Get("key1")
-	cache.Get("nonexistent")
+	_, _, _ = cache.Get(ctx, "key1")
+	_, _, _ = cache.Get(ctx, "key1")
+	_, _, _ = cache.Get(ctx, "nonexistent")
 
 	hitRate := cache.HitRate()
 	if hitRate < 0 || hitRate > 1 {
@@ -140,12 +176,13 @@ func TestStatistics(t *testing.T) {
 func TestEviction(t *testing.T) {
 	// Create a small cache (10KB) to trigger eviction
 	cache := New(10 * 1024)
+	ctx := context.Background()
 
 	// Fill the cache with data larger than cache size
 	for i := 0; i < 100; i++ {
 		key := string(rune('a'+i%26)) + string(rune('0'+i/26))
 		value := make([]byte, 1024) // 1KB per entry
-		cache.Set(key, value)
+		_ = cache.Set(ctx, key, value)
 	}
 
 	// Some entries should have been evicted
@@ -157,8 +194,13 @@ func TestEviction(t *testing.T) {
 	}
 
 	// Cache should still work
-	cache.Set("test", []byte("value"))
-	value, ok := cache.Get("test")
+	if err := cache.Set(ctx, "test", []byte("value")); err != nil {
+		t.Fatalf("Set error: %v", err)
+	}
+	value, ok, err := cache.Get(ctx, "test")
+	if err != nil {
+		t.Fatalf("Get error: %v", err)
+	}
 	if !ok || string(value) != "value" {
 		t.Error("Cache should still work after eviction")
 	}
@@ -166,6 +208,7 @@ func TestEviction(t *testing.T) {
 
 func TestConcurrentAccess(t *testing.T) {
 	cache := New(1024 * 1024)
+	ctx := context.Background()
 
 	// Test concurrent writes and reads
 	done := make(chan bool, 10)
@@ -175,7 +218,7 @@ func TestConcurrentAccess(t *testing.T) {
 		go func(id int) {
 			for j := 0; j < 100; j++ {
 				key := string(rune('a' + id))
-				cache.Set(key, []byte("value"))
+				_ = cache.Set(ctx, key, []byte("value"))
 			}
 			done <- true
 		}(i)
@@ -183,7 +226,7 @@ func TestConcurrentAccess(t *testing.T) {
 		go func(id int) {
 			for j := 0; j < 100; j++ {
 				key := string(rune('a' + id))
-				cache.Get(key)
+				_, _, _ = cache.Get(ctx, key)
 			}
 			done <- true
 		}(i)
@@ -195,8 +238,13 @@ func TestConcurrentAccess(t *testing.T) {
 	}
 
 	// Cache should still be functional
-	cache.Set("final", []byte("test"))
-	value, ok := cache.Get("final")
+	if err := cache.Set(ctx, "final", []byte("test")); err != nil {
+		t.Fatalf("Set error: %v", err)
+	}
+	value, ok, err := cache.Get(ctx, "final")
+	if err != nil {
+		t.Fatalf("Get error: %v", err)
+	}
 	if !ok || string(value) != "test" {
 		t.Error("Cache should work correctly after concurrent access")
 	}

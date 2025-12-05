@@ -5,10 +5,12 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sandrolain/httpcache"
+	"github.com/sandrolain/httpcache/diskcache"
 	prommetrics "github.com/sandrolain/httpcache/wrapper/metrics/prometheus"
 )
 
@@ -16,16 +18,23 @@ func main() {
 	fmt.Println("httpcache Prometheus Metrics Example")
 	fmt.Println("====================================")
 
+	// Create a temporary directory for the disk cache
+	tmpDir, err := os.MkdirTemp("", "httpcache-prometheus")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir) // Clean up when done
+
 	// Create Prometheus collector
 	collector := prommetrics.NewCollector()
 
 	// Create base cache
-	baseCache := httpcache.NewMemoryCache()
+	baseCache := diskcache.New(tmpDir)
 
 	// Wrap cache with instrumentation
 	instrumentedCache := prommetrics.NewInstrumentedCache(
 		baseCache,
-		"memory", // backend name for metrics labels
+		"disk", // backend name for metrics labels
 		collector,
 	)
 

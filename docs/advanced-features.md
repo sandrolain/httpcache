@@ -27,7 +27,8 @@ transport.DisableWarningHeader = true  // Default: false (enabled for backward c
 **RFC 9111** has obsoleted the `Warning` header field that was defined in RFC 7234. To comply with the latest HTTP caching specification, you can disable the automatic addition of Warning headers:
 
 ```go
-transport := httpcache.NewMemoryCacheTransport()
+cache := diskcache.New("/tmp/cache")
+transport := httpcache.NewTransport(cache)
 transport.DisableWarningHeader = true  // Disable Warning headers
 
 client := transport.Client()
@@ -48,7 +49,8 @@ No Warning headers are added to responses, ensuring RFC 9111 compliance.
 
 ```go
 // RFC 9111 compliant configuration
-transport := httpcache.NewMemoryCacheTransport()
+cache := diskcache.New("/tmp/cache")
+transport := httpcache.NewTransport(cache)
 transport.DisableWarningHeader = true
 
 client := transport.Client()
@@ -88,7 +90,8 @@ When `IsPublicCache = true`, httpcache operates as a **shared/public cache** (li
 **Example: Private Cache (default)**
 
 ```go
-transport := httpcache.NewMemoryCacheTransport()
+cache := diskcache.New("/tmp/cache")
+transport := httpcache.NewTransport(cache)
 // transport.IsPublicCache = false  // Default
 
 client := transport.Client()
@@ -105,7 +108,8 @@ resp, _ = client.Get("https://api.example.com/user/profile")
 **Example: Public Cache**
 
 ```go
-transport := httpcache.NewMemoryCacheTransport()
+cache := diskcache.New("/tmp/cache")
+transport := httpcache.NewTransport(cache)
 transport.IsPublicCache = true  // Shared cache mode
 
 client := transport.Client()
@@ -150,7 +154,8 @@ This implements RFC 9111 Section 5.2.2.6 (Cache-Control: private directive).
 **Example: Private Cache with Authorization (default)**
 
 ```go
-transport := httpcache.NewMemoryCacheTransport()
+cache := diskcache.New("/tmp/cache")
+transport := httpcache.NewTransport(cache)
 // transport.IsPublicCache = false  // Default (private cache)
 
 client := transport.Client()
@@ -172,7 +177,8 @@ resp2, _ := client.Do(req2)
 **Example: Shared Cache WITHOUT proper directives**
 
 ```go
-transport := httpcache.NewMemoryCacheTransport()
+cache := diskcache.New("/tmp/cache")
+transport := httpcache.NewTransport(cache)
 transport.IsPublicCache = true  // Shared/public cache mode
 
 client := transport.Client()
@@ -192,7 +198,8 @@ resp2, _ := client.Do(req)
 **Example: Shared Cache WITH public directive**
 
 ```go
-transport := httpcache.NewMemoryCacheTransport()
+cache := diskcache.New("/tmp/cache")
+transport := httpcache.NewTransport(cache)
 transport.IsPublicCache = true  // Shared/public cache mode
 
 client := transport.Client()
@@ -222,7 +229,8 @@ resp2, _ := client.Do(req)
 1. **User-Specific Data**: If using a shared cache for user-specific authenticated endpoints, you MUST also configure `CacheKeyHeaders` to separate cache entries per user:
 
    ```go
-   transport := httpcache.NewMemoryCacheTransport()
+   cache := diskcache.New("/tmp/cache")
+   transport := httpcache.NewTransport(cache)
    transport.IsPublicCache = true
    transport.CacheKeyHeaders = []string{"Authorization"}  // Separate cache per user
    
@@ -257,7 +265,8 @@ See also: [Cache Key Headers](#cache-key-headers) for separating cache entries p
 Example:
 
 ```go
-transport := httpcache.NewMemoryCacheTransport()
+cache := diskcache.New("/tmp/cache")
+transport := httpcache.NewTransport(cache)
 transport.SkipServerErrorsFromCache = true
 
 client := transport.Client()
@@ -286,7 +295,8 @@ logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
 httpcache.SetLogger(logger)
 
 // Now all httpcache operations will use your custom logger
-transport := httpcache.NewMemoryCacheTransport()
+cache := diskcache.New("/tmp/cache")
+transport := httpcache.NewTransport(cache)
 client := transport.Client()
 ```
 
@@ -311,7 +321,8 @@ This implements [RFC 5861](https://tools.ietf.org/html/rfc5861) for better resil
 Improve perceived performance by serving stale content immediately while updating the cache in the background:
 
 ```go
-transport := httpcache.NewMemoryCacheTransport()
+cache := diskcache.New("/tmp/cache")
+transport := httpcache.NewTransport(cache)
 
 // Optional: Set timeout for async revalidation requests
 transport.AsyncRevalidateTimeout = 30 * time.Second  // Default: 0 (no timeout)
@@ -368,7 +379,8 @@ Differentiate cache entries based on request header values. This is useful when 
 **Configuration:**
 
 ```go
-transport := httpcache.NewMemoryCacheTransport()
+cache := diskcache.New("/tmp/cache")
+transport := httpcache.NewTransport(cache)
 
 // Specify headers to include in cache key
 transport.CacheKeyHeaders = []string{"Authorization", "Accept-Language"}
@@ -381,7 +393,8 @@ client := transport.Client()
 **Example Scenario:**
 
 ```go
-transport := httpcache.NewMemoryCacheTransport()
+cache := diskcache.New("/tmp/cache")
+transport := httpcache.NewTransport(cache)
 transport.CacheKeyHeaders = []string{"Authorization"}
 
 client := transport.Client()
@@ -461,7 +474,8 @@ Even when using `CacheKeyHeaders`, the server's `Vary` header is **still validat
 Override default caching behavior for specific HTTP status codes using the `ShouldCache` hook:
 
 ```go
-transport := httpcache.NewMemoryCacheTransport()
+cache := diskcache.New("/tmp/cache")
+transport := httpcache.NewTransport(cache)
 
 // Cache 404 Not Found responses
 transport.ShouldCache = func(resp *http.Response) bool {
@@ -543,9 +557,9 @@ For sophisticated caching strategies with multiple storage backends, use the [`m
 import "github.com/sandrolain/httpcache/wrapper/multicache"
 
 // Create individual cache tiers
-memCache := httpcache.NewMemoryCache()          // Fast, volatile
-diskCache := diskcache.New("/tmp/cache")        // Medium, persistent
-redisCache, _ := redis.New("localhost:6379")    // Distributed, shared
+memCache := freecache.New(10 * 1024 * 1024)      // Fast, in-memory (10 MB)
+diskCache := diskcache.New("/tmp/cache")         // Medium, persistent
+redisCache, _ := redis.New("localhost:6379")     // Distributed, shared
 
 // Combine into multi-tier cache (order matters!)
 mc := multicache.New(memCache, diskCache, redisCache)

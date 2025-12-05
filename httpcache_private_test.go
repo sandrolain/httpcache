@@ -319,7 +319,7 @@ func TestIsPublicCachePrivateDirective(t *testing.T) {
 	resetTest()
 
 	// Configure as public cache
-	transport := NewMemoryCacheTransport()
+	transport := newMockCacheTransport()
 	transport.IsPublicCache = true
 	client := transport.Client()
 
@@ -372,7 +372,7 @@ func TestIsPublicCachePublicDirective(t *testing.T) {
 	resetTest()
 
 	// Configure as public cache
-	transport := NewMemoryCacheTransport()
+	transport := newMockCacheTransport()
 	transport.IsPublicCache = true
 	client := transport.Client()
 
@@ -475,7 +475,7 @@ func TestIsPublicCacheComparison(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Setup transport with specific cache mode
-			transport := NewMemoryCacheTransport()
+			transport := newMockCacheTransport()
 			transport.IsPublicCache = tt.isPublicCache
 			client := transport.Client()
 

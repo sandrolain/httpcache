@@ -104,12 +104,13 @@ import (
     "fmt"
     
     "github.com/sandrolain/httpcache"
+    "github.com/sandrolain/httpcache/diskcache"
     "github.com/sandrolain/httpcache/wrapper/compresscache"
 )
 
 func main() {
     // Create base cache
-    baseCache := httpcache.NewMemoryCache()
+    baseCache := diskcache.New("/tmp/cache")
     
     // Wrap with gzip compression
     cache, err := compresscache.NewGzip(compresscache.GzipConfig{
@@ -305,8 +306,8 @@ import (
     "github.com/sandrolain/httpcache/wrapper/compresscache"
 )
 
-// Fast tier: uncompressed memory
-memCache := httpcache.NewMemoryCache()
+// Fast tier: local disk cache
+localCache := diskcache.New("/tmp/cache/local")
 
 // Slow tier: compressed Redis
 redisCompressed, _ := compresscache.NewGzip(compresscache.GzipConfig{
@@ -314,7 +315,7 @@ redisCompressed, _ := compresscache.NewGzip(compresscache.GzipConfig{
 })
 
 // Combine tiers
-cache := multicache.New(memCache, redisCompressed)
+cache := multicache.New(localCache, redisCompressed)
 ```
 
 **Benefits**:
@@ -481,7 +482,7 @@ go func() {
 // Don't assume - measure with your actual data
 func TestCompressionEffectiveness(t *testing.T) {
     cache, _ := compresscache.NewGzip(compresscache.GzipConfig{
-        Cache: httpcache.NewMemoryCache(),
+        Cache: diskcache.New(t.TempDir()),
     })
     
     // Use real production data samples

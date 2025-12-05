@@ -70,13 +70,14 @@ func setupBenchmarkCache(b *testing.B) (cache, func()) {
 func BenchmarkNATSKVGet(b *testing.B) {
 	c, cleanup := setupBenchmarkCache(b)
 	defer cleanup()
+	ctx := context.Background()
 
 	value := []byte(benchmarkValue)
-	c.Set(benchmarkKey, value)
+	_ = c.Set(ctx, benchmarkKey, value)
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, _ = c.Get(benchmarkKey)
+		_, _, _ = c.Get(ctx, benchmarkKey)
 	}
 }
 
@@ -84,12 +85,13 @@ func BenchmarkNATSKVGet(b *testing.B) {
 func BenchmarkNATSKVSet(b *testing.B) {
 	c, cleanup := setupBenchmarkCache(b)
 	defer cleanup()
+	ctx := context.Background()
 
 	value := []byte(benchmarkValue)
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		c.Set(benchmarkKey, value)
+		_ = c.Set(ctx, benchmarkKey, value)
 	}
 }
 
@@ -97,15 +99,16 @@ func BenchmarkNATSKVSet(b *testing.B) {
 func BenchmarkNATSKVDelete(b *testing.B) {
 	c, cleanup := setupBenchmarkCache(b)
 	defer cleanup()
+	ctx := context.Background()
 
 	value := []byte(benchmarkValue)
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		b.StopTimer()
-		c.Set(benchmarkKey, value)
+		_ = c.Set(ctx, benchmarkKey, value)
 		b.StartTimer()
-		c.Delete(benchmarkKey)
+		_ = c.Delete(ctx, benchmarkKey)
 	}
 }
 
@@ -113,13 +116,14 @@ func BenchmarkNATSKVDelete(b *testing.B) {
 func BenchmarkNATSKVSetGet(b *testing.B) {
 	c, cleanup := setupBenchmarkCache(b)
 	defer cleanup()
+	ctx := context.Background()
 
 	value := []byte(benchmarkValue)
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		c.Set(benchmarkKey, value)
-		_, _ = c.Get(benchmarkKey)
+		_ = c.Set(ctx, benchmarkKey, value)
+		_, _, _ = c.Get(ctx, benchmarkKey)
 	}
 }
 
@@ -127,14 +131,15 @@ func BenchmarkNATSKVSetGet(b *testing.B) {
 func BenchmarkNATSKVParallelGet(b *testing.B) {
 	c, cleanup := setupBenchmarkCache(b)
 	defer cleanup()
+	ctx := context.Background()
 
 	value := []byte(benchmarkValue)
-	c.Set(benchmarkKey, value)
+	_ = c.Set(ctx, benchmarkKey, value)
 
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			_, _ = c.Get(benchmarkKey)
+			_, _, _ = c.Get(ctx, benchmarkKey)
 		}
 	})
 }
@@ -143,15 +148,14 @@ func BenchmarkNATSKVParallelGet(b *testing.B) {
 func BenchmarkNATSKVParallelSet(b *testing.B) {
 	c, cleanup := setupBenchmarkCache(b)
 	defer cleanup()
+	ctx := context.Background()
 
 	value := []byte(benchmarkValue)
 
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
-		i := 0
 		for pb.Next() {
-			c.Set(benchmarkKey, value)
-			i++
+			_ = c.Set(ctx, benchmarkKey, value)
 		}
 	})
 }
@@ -160,6 +164,7 @@ func BenchmarkNATSKVParallelSet(b *testing.B) {
 func BenchmarkNATSKVLargeValue(b *testing.B) {
 	c, cleanup := setupBenchmarkCache(b)
 	defer cleanup()
+	ctx := context.Background()
 
 	// Create a 1MB value
 	value := make([]byte, 1024*1024)
@@ -170,7 +175,7 @@ func BenchmarkNATSKVLargeValue(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		key := "large-key"
-		c.Set(key, value)
-		_, _ = c.Get(key)
+		_ = c.Set(ctx, key, value)
+		_, _, _ = c.Get(ctx, key)
 	}
 }

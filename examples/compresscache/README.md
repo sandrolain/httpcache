@@ -185,8 +185,8 @@ cache, _ := compresscache.NewGzip(compresscache.GzipConfig{
 Combine with multicache for optimal performance:
 
 ```go
-// Fast tier: uncompressed memory
-memCache := httpcache.NewMemoryCache()
+// Fast tier: local disk cache
+localCache := diskcache.New("/tmp/cache")
 
 // Slow tier: compressed Redis
 redisCache, _ := redis.New("localhost:6379")
@@ -196,7 +196,7 @@ compressedRedis, _ := compresscache.NewGzip(compresscache.GzipConfig{
 })
 
 // Combine tiers
-cache := multicache.New(memCache, compressedRedis)
+cache := multicache.New(localCache, compressedRedis)
 ```
 
 ## Related Examples

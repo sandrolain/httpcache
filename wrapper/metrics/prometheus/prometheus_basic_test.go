@@ -84,7 +84,7 @@ func TestPrometheusIntegrationHTTPTransport(t *testing.T) {
 	defer testServer.Close()
 
 	// Create instrumented cache and transport
-	baseCache := httpcache.NewMemoryCache()
+	baseCache := newMockCache()
 	cache := NewInstrumentedCache(baseCache, "memory", collector)
 	transport := httpcache.NewTransport(cache)
 	instrumentedTransport := NewInstrumentedTransport(transport, collector)
@@ -204,7 +204,7 @@ func TestPrometheusIntegrationConcurrentMetrics(t *testing.T) {
 	defer server.Close()
 
 	// Create instrumented cache
-	baseCache := httpcache.NewMemoryCache()
+	baseCache := newMockCache()
 	cache := NewInstrumentedCache(baseCache, "memory", collector)
 
 	// Run concurrent operations

@@ -47,7 +47,7 @@ func TestMustUnderstandKnownStatus(t *testing.T) {
 			}))
 			defer s.Close()
 
-			tp := NewMemoryCacheTransport()
+			tp := newMockCacheTransport()
 			client := &http.Client{Transport: tp}
 
 			// First request - should be cached
@@ -111,7 +111,7 @@ func TestMustUnderstandUnknownStatus(t *testing.T) {
 			}))
 			defer s.Close()
 
-			tp := NewMemoryCacheTransport()
+			tp := newMockCacheTransport()
 			client := &http.Client{Transport: tp}
 
 			// First request
@@ -155,7 +155,7 @@ func TestMustUnderstandOverridesNoStore(t *testing.T) {
 	}))
 	defer s.Close()
 
-	tp := NewMemoryCacheTransport()
+	tp := newMockCacheTransport()
 	client := &http.Client{Transport: tp}
 
 	// First request
@@ -196,7 +196,7 @@ func TestMustUnderstandWithNoStoreUnknownStatus(t *testing.T) {
 	}))
 	defer s.Close()
 
-	tp := NewMemoryCacheTransport()
+	tp := newMockCacheTransport()
 	client := &http.Client{Transport: tp}
 
 	// First request
@@ -229,7 +229,7 @@ func TestMustUnderstandWithPrivate(t *testing.T) {
 	defer s.Close()
 
 	// Test with private cache (default)
-	tp := NewMemoryCacheTransport()
+	tp := newMockCacheTransport()
 	tp.IsPublicCache = false
 	client := &http.Client{Transport: tp}
 
@@ -267,7 +267,7 @@ func TestMustUnderstandWithPrivatePublicCache(t *testing.T) {
 	defer s.Close()
 
 	// Test with public cache
-	tp := NewMemoryCacheTransport()
+	tp := newMockCacheTransport()
 	tp.IsPublicCache = true
 	client := &http.Client{Transport: tp}
 
@@ -300,7 +300,7 @@ func TestNoMustUnderstandWithNoStore(t *testing.T) {
 	}))
 	defer s.Close()
 
-	tp := NewMemoryCacheTransport()
+	tp := newMockCacheTransport()
 	client := &http.Client{Transport: tp}
 
 	// First request
@@ -369,7 +369,7 @@ func TestMustUnderstandCombinations(t *testing.T) {
 			}))
 			defer s.Close()
 
-			tp := NewMemoryCacheTransport()
+			tp := newMockCacheTransport()
 			client := &http.Client{Transport: tp}
 
 			// First request

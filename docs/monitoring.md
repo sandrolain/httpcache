@@ -18,9 +18,9 @@ import (
 // Create metrics collector
 collector := prommetrics.NewCollector()
 
-// Wrap your cache
-cache := httpcache.NewMemoryCache()
-instrumentedCache := prommetrics.NewInstrumentedCache(cache, "memory", collector)
+// Wrap your cache (using disk cache as example)
+cache := diskcache.New("/tmp/cache")
+instrumentedCache := prommetrics.NewInstrumentedCache(cache, "disk", collector)
 
 // Wrap your transport
 transport := httpcache.NewTransport(instrumentedCache)

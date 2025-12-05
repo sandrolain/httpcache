@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"log"
@@ -8,11 +9,49 @@ import (
 	"net/http/httptest"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/sandrolain/httpcache"
+	"github.com/sandrolain/httpcache/diskcache"
 	"github.com/sandrolain/httpcache/wrapper/securecache"
 )
+
+// memoryCache is a simple in-memory cache for demonstration purposes only
+type memoryCache struct {
+	mu    sync.RWMutex
+	items map[string][]byte
+}
+
+func newMemoryCache() *memoryCache {
+	return &memoryCache{
+		items: make(map[string][]byte),
+	}
+}
+
+func (c *memoryCache) Get(_ context.Context, key string) ([]byte, bool, error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	value, ok := c.items[key]
+	if !ok {
+		return nil, false, nil
+	}
+	return value, true, nil
+}
+
+func (c *memoryCache) Set(_ context.Context, key string, value []byte) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.items[key] = value
+	return nil
+}
+
+func (c *memoryCache) Delete(_ context.Context, key string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	delete(c.items, key)
+	return nil
+}
 
 func main() {
 	// Start a test server that returns the current time
@@ -56,8 +95,16 @@ func main() {
 }
 
 func demonstrateKeyHashingOnly(serverURL string) {
+	// Create a temporary directory for disk cache
+	tmpDir, err := os.MkdirTemp("", "httpcache-secure-hashing-*")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
 	// Create a secure cache with key hashing only
-	cache := httpcache.NewMemoryCache()
+	cache := diskcache.New(tmpDir)
+
 	secureCache, err := securecache.New(securecache.Config{
 		Cache: cache,
 		// No passphrase = only key hashing
@@ -107,8 +154,16 @@ func demonstrateWithEncryption(serverURL string) {
 		fmt.Println("   In production, use environment variable: CACHE_PASSPHRASE")
 	}
 
+	// Create a temporary directory for disk cache
+	tmpDir, err := os.MkdirTemp("", "httpcache-secure-encrypt-*")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
 	// Create a secure cache with encryption
-	cache := httpcache.NewMemoryCache()
+	cache := diskcache.New(tmpDir)
+
 	secureCache, err := securecache.New(securecache.Config{
 		Cache:      cache,
 		Passphrase: passphrase,
@@ -152,25 +207,27 @@ func demonstrateWithEncryption(serverURL string) {
 
 func demonstrateSecurityComparison(serverURL string) {
 	// Create three caches: normal, hashing-only, and encrypted
-	normalCache := httpcache.NewMemoryCache()
+	// Using in-memory cache for comparison (no persistence needed)
+	normalCache := newMemoryCache()
 
 	hashingCache, _ := securecache.New(securecache.Config{
-		Cache: httpcache.NewMemoryCache(),
+		Cache: newMemoryCache(),
 	})
 
 	encryptedCache, _ := securecache.New(securecache.Config{
-		Cache:      httpcache.NewMemoryCache(),
+		Cache:      newMemoryCache(),
 		Passphrase: "demo-passphrase",
 	})
 
 	// Make a request with each cache
+	ctx := context.Background()
 	testKey := "http://example.com/api/user/123"
 	testData := []byte("HTTP/1.1 200 OK\r\nContent-Length: 50\r\n\r\n{\"user\":\"john\",\"ssn\":\"123-45-6789\"}")
 
 	// Store in all caches
-	normalCache.Set(testKey, testData)
-	hashingCache.Set(testKey, testData)
-	encryptedCache.Set(testKey, testData)
+	_ = normalCache.Set(ctx, testKey, testData)
+	_ = hashingCache.Set(ctx, testKey, testData)
+	_ = encryptedCache.Set(ctx, testKey, testData)
 
 	fmt.Println("Security Comparison:")
 	fmt.Println("")
@@ -204,8 +261,16 @@ func demonstrateMultiUserScenario() {
 	fmt.Println("Recommended pattern for user-specific data:")
 	fmt.Println("")
 
+	// Create a temporary directory for disk cache
+	tmpDir, err := os.MkdirTemp("", "httpcache-secure-multiuser-*")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
 	// Use CacheKeyHeaders to include user ID in cache key
-	cache := httpcache.NewMemoryCache()
+	cache := diskcache.New(tmpDir)
+
 	secureCache, _ := securecache.New(securecache.Config{
 		Cache:      cache,
 		Passphrase: "production-grade-passphrase-from-env",

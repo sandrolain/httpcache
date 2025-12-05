@@ -5,6 +5,82 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.0] - Unreleased
+
+This is a **major breaking release** that adds `context.Context` support and error returns to the `Cache` interface, enabling modern Go patterns for timeout, cancellation, and error handling.
+
+### Breaking Changes
+
+**Cache Interface Signature Changes**
+
+The `Cache` interface now requires `context.Context` parameter and returns errors:
+
+```go
+type Cache interface {
+    Get(ctx context.Context, key string) (responseBytes []byte, ok bool, err error)
+    Set(ctx context.Context, key string, responseBytes []byte) error
+    Delete(ctx context.Context, key string) error
+}
+```
+
+**Migration Required**: All custom `Cache` implementations must be updated to match the new interface signatures.
+
+**NewTransport Signature Change**
+
+`NewTransport` now accepts optional `TransportOption` functions:
+
+```go
+// Old signature (still compatible, no options passed)
+NewTransport(c Cache) *Transport
+
+// New signature with options pattern
+NewTransport(c Cache, opts ...TransportOption) *Transport
+```
+
+### Changed
+
+- All 11 backend implementations updated with context and error support:
+  - `MemoryCache`, `DiskCache`, `Redis`, `PostgreSQL`, `MongoDB`
+  - `NATS K/V`, `LevelDB`, `Freecache`, `Hazelcast`, `Memcache`, `Blobcache`
+- All 4 wrapper implementations updated:
+  - `MultiCache`, `CompressCache` (gzip/brotli/snappy), `SecureCache`, `Prometheus Metrics`
+- Context propagation via `req.Context()` in HTTP transport operations
+- In-memory caches accept context for interface compliance (ignored internally)
+- External backends use context for timeouts and cancellation
+
+### Added
+
+- **Built-in Security Features**: Cache key hashing and optional encryption moved from `wrapper/securecache` to core
+  - **SHA-256 Key Hashing**: All cache keys are automatically hashed before being passed to the backend, preventing sensitive data in cache keys from being exposed
+  - **AES-256-GCM Encryption**: Optional encryption of cached data via `WithEncryption(passphrase)` option
+  - Uses scrypt for secure key derivation from passphrase
+- **Options Pattern for Transport Configuration**: New `TransportOption` functional options for cleaner configuration:
+  - `WithEncryption(passphrase)` - Enable AES-256-GCM encryption
+  - `WithMarkCachedResponses(bool)` - Control X-From-Cache header
+  - `WithSkipServerErrorsFromCache(bool)` - Skip 5xx responses from cache
+  - `WithAsyncRevalidateTimeout(duration)` - Set timeout for async revalidation
+  - `WithPublicCache(bool)` - Enable public/shared cache mode
+  - `WithVarySeparation(bool)` - Enable RFC 9111 Vary header separation
+  - `WithShouldCache(fn)` - Custom caching logic for non-200 responses
+  - `WithCacheKeyHeaders(headers)` - Include headers in cache key
+  - `WithDisableWarningHeader(bool)` - Disable deprecated Warning header
+  - `WithTransport(rt)` - Set underlying RoundTripper
+- `IsEncryptionEnabled() bool` method on Transport to check encryption status
+- Timeout and cancellation support for all cache operations
+- Error propagation from cache backends (no more silent failures)
+- Context value passing for tracing/logging integration
+
+### Documentation
+
+- Migration guide for v1.x → v2.0 (see TODO.md)
+- Updated examples demonstrating context usage
+
+### Reference
+
+- Inspired by [PR #113](https://github.com/gregjones/httpcache/pull/113) from original repository
+
+---
+
 ## [1.4.0] - 2024-11-24
 
 This release updates all documentation to reference **RFC 9111** (HTTP Caching, June 2022) as the primary standard, which obsoletes RFC 7234 (2014). It also includes several RFC 9111 compliance improvements implemented in previous releases.

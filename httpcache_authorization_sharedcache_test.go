@@ -28,7 +28,7 @@ func TestAuthorizationPrivateCache(t *testing.T) {
 	defer testServer.Close()
 
 	// Create private cache (default)
-	tp := NewMemoryCacheTransport()
+	tp := newMockCacheTransport()
 	tp.MarkCachedResponses = true
 	// IsPublicCache is false by default
 	client := tp.Client()
@@ -102,7 +102,7 @@ func TestAuthorizationSharedCacheNoDirective(t *testing.T) {
 	defer testServer.Close()
 
 	// Create shared/public cache
-	tp := NewMemoryCacheTransport()
+	tp := newMockCacheTransport()
 	tp.MarkCachedResponses = true
 	tp.IsPublicCache = true // Enable shared cache mode
 	client := tp.Client()
@@ -177,7 +177,7 @@ func TestAuthorizationSharedCacheWithPublic(t *testing.T) {
 	defer testServer.Close()
 
 	// Create shared/public cache
-	tp := NewMemoryCacheTransport()
+	tp := newMockCacheTransport()
 	tp.MarkCachedResponses = true
 	tp.IsPublicCache = true // Enable shared cache mode
 	client := tp.Client()
@@ -252,7 +252,7 @@ func TestAuthorizationSharedCacheWithMustRevalidate(t *testing.T) {
 	defer testServer.Close()
 
 	// Create shared/public cache
-	tp := NewMemoryCacheTransport()
+	tp := newMockCacheTransport()
 	tp.MarkCachedResponses = true
 	tp.IsPublicCache = true // Enable shared cache mode
 	client := tp.Client()
@@ -327,7 +327,7 @@ func TestAuthorizationSharedCacheWithSMaxAge(t *testing.T) {
 	defer testServer.Close()
 
 	// Create shared/public cache
-	tp := NewMemoryCacheTransport()
+	tp := newMockCacheTransport()
 	tp.MarkCachedResponses = true
 	tp.IsPublicCache = true // Enable shared cache mode
 	client := tp.Client()
@@ -462,7 +462,7 @@ func TestAuthorizationSharedCacheMultipleDirectives(t *testing.T) {
 			}))
 			defer testServer.Close()
 
-			tp := NewMemoryCacheTransport()
+			tp := newMockCacheTransport()
 			tp.MarkCachedResponses = true
 			tp.IsPublicCache = tt.isPublicCache
 			client := tp.Client()
@@ -530,7 +530,7 @@ func TestAuthorizationWithNoAuthHeader(t *testing.T) {
 			}))
 			defer testServer.Close()
 
-			tp := NewMemoryCacheTransport()
+			tp := newMockCacheTransport()
 			tp.MarkCachedResponses = true
 			tp.IsPublicCache = tt.isPublicCache
 			client := tp.Client()
@@ -574,7 +574,7 @@ func TestAuthorizationSharedCacheWithCacheKeyHeaders(t *testing.T) {
 	defer testServer.Close()
 
 	// Create shared cache with CacheKeyHeaders
-	tp := NewMemoryCacheTransport()
+	tp := newMockCacheTransport()
 	tp.MarkCachedResponses = true
 	tp.IsPublicCache = true // Shared cache
 	tp.CacheKeyHeaders = []string{"Authorization"}

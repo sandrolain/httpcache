@@ -132,19 +132,25 @@ func (c *cache) cacheKey(key string) string {
 }
 
 // Get returns the response corresponding to key if present.
-func (c *cache) Get(key string) ([]byte, bool) {
-	ctx, cancel := context.WithTimeout(context.Background(), c.timeout)
-	defer cancel()
+// Uses the provided context for timeout and cancellation.
+// If the context has a deadline, it will be used; otherwise, the configured timeout is applied.
+func (c *cache) Get(ctx context.Context, key string) ([]byte, bool, error) {
+	// Use provided context with fallback timeout if no deadline is set
+	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, c.timeout)
+		defer cancel()
+	}
 
 	blobKey := c.cacheKey(key)
 
 	reader, err := c.bucket.NewReader(ctx, blobKey, nil)
 	if err != nil {
 		if gcerrors.Code(err) == gcerrors.NotFound {
-			return nil, false
+			return nil, false, nil
 		}
 		httpcache.GetLogger().Error("failed to read from blob cache", "key", key, "error", err)
-		return nil, false
+		return nil, false, err
 	}
 	defer func() {
 		if closeErr := reader.Close(); closeErr != nil {
@@ -155,23 +161,29 @@ func (c *cache) Get(key string) ([]byte, bool) {
 	data, err := io.ReadAll(reader)
 	if err != nil {
 		httpcache.GetLogger().Error("failed to read blob data", "key", key, "error", err)
-		return nil, false
+		return nil, false, err
 	}
 
-	return data, true
+	return data, true, nil
 }
 
 // Set saves a response to the cache as key.
-func (c *cache) Set(key string, data []byte) {
-	ctx, cancel := context.WithTimeout(context.Background(), c.timeout)
-	defer cancel()
+// Uses the provided context for timeout and cancellation.
+// If the context has a deadline, it will be used; otherwise, the configured timeout is applied.
+func (c *cache) Set(ctx context.Context, key string, data []byte) error {
+	// Use provided context with fallback timeout if no deadline is set
+	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, c.timeout)
+		defer cancel()
+	}
 
 	blobKey := c.cacheKey(key)
 
 	writer, err := c.bucket.NewWriter(ctx, blobKey, nil)
 	if err != nil {
 		httpcache.GetLogger().Error("failed to create blob writer", "key", key, "error", err)
-		return
+		return err
 	}
 
 	_, writeErr := writer.Write(data)
@@ -179,24 +191,34 @@ func (c *cache) Set(key string, data []byte) {
 
 	if writeErr != nil {
 		httpcache.GetLogger().Error("failed to write to blob cache", "key", key, "error", writeErr)
-		return
+		return writeErr
 	}
 	if closeErr != nil {
 		httpcache.GetLogger().Error("failed to close blob writer", "key", key, "error", closeErr)
+		return closeErr
 	}
+	return nil
 }
 
 // Delete removes the response with key from the cache.
-func (c *cache) Delete(key string) {
-	ctx, cancel := context.WithTimeout(context.Background(), c.timeout)
-	defer cancel()
+// Uses the provided context for timeout and cancellation.
+// If the context has a deadline, it will be used; otherwise, the configured timeout is applied.
+func (c *cache) Delete(ctx context.Context, key string) error {
+	// Use provided context with fallback timeout if no deadline is set
+	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, c.timeout)
+		defer cancel()
+	}
 
 	blobKey := c.cacheKey(key)
 
 	err := c.bucket.Delete(ctx, blobKey)
 	if err != nil && gcerrors.Code(err) != gcerrors.NotFound {
 		httpcache.GetLogger().Error("failed to delete from blob cache", "key", key, "error", err)
+		return err
 	}
+	return nil
 }
 
 // Close closes the bucket if it was opened by New().

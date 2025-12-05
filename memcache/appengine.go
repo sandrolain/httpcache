@@ -9,6 +9,8 @@
 package memcache
 
 import (
+	"context"
+
 	"appengine"
 	"appengine/memcache"
 )
@@ -26,33 +28,47 @@ func cacheKey(key string) string {
 }
 
 // Get returns the response corresponding to key if present.
-func (c *Cache) Get(key string) (resp []byte, ok bool) {
+// The ctx parameter is accepted for interface compliance but not used;
+// App Engine memcache uses its own context mechanism.
+func (c *Cache) Get(_ context.Context, key string) (resp []byte, ok bool, err error) {
 	item, err := memcache.Get(c.Context, cacheKey(key))
 	if err != nil {
-		if err != memcache.ErrCacheMiss {
-			c.Context.Errorf("error getting cached response: %v", err)
+		if err == memcache.ErrCacheMiss {
+			return nil, false, nil
 		}
-		return nil, false
+		c.Context.Errorf("error getting cached response: %v", err)
+		return nil, false, err
 	}
-	return item.Value, true
+	return item.Value, true, nil
 }
 
 // Set saves a response to the cache as key.
-func (c *Cache) Set(key string, resp []byte) {
+// The ctx parameter is accepted for interface compliance but not used;
+// App Engine memcache uses its own context mechanism.
+func (c *Cache) Set(_ context.Context, key string, resp []byte) error {
 	item := &memcache.Item{
 		Key:   cacheKey(key),
 		Value: resp,
 	}
 	if err := memcache.Set(c.Context, item); err != nil {
 		c.Context.Errorf("error caching response: %v", err)
+		return err
 	}
+	return nil
 }
 
 // Delete removes the response with key from the cache.
-func (c *Cache) Delete(key string) {
+// The ctx parameter is accepted for interface compliance but not used;
+// App Engine memcache uses its own context mechanism.
+func (c *Cache) Delete(_ context.Context, key string) error {
 	if err := memcache.Delete(c.Context, cacheKey(key)); err != nil {
+		if err == memcache.ErrCacheMiss {
+			return nil // Not an error if key doesn't exist
+		}
 		c.Context.Errorf("error deleting cached response: %v", err)
+		return err
 	}
+	return nil
 }
 
 // New returns a new Cache for the given context.

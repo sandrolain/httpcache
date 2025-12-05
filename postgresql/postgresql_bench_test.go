@@ -39,11 +39,13 @@ func BenchmarkPostgreSQLCacheGet(b *testing.B) {
 
 	// Setup test data
 	testData := []byte(benchmarkData)
-	cache.Set(benchmarkKey, testData)
+	if err := cache.Set(ctx, benchmarkKey, testData); err != nil {
+		b.Fatalf("Set failed: %v", err)
+	}
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		cache.Get(benchmarkKey)
+		_, _, _ = cache.Get(ctx, benchmarkKey)
 	}
 
 	// Clean up
@@ -77,7 +79,7 @@ func BenchmarkPostgreSQLCacheSet(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		cache.Set(benchmarkKey, testData)
+		_ = cache.Set(ctx, benchmarkKey, testData)
 	}
 
 	// Clean up
@@ -112,9 +114,9 @@ func BenchmarkPostgreSQLCacheDelete(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		b.StopTimer()
-		cache.Set(benchmarkKey, testData)
+		_ = cache.Set(ctx, benchmarkKey, testData)
 		b.StartTimer()
-		cache.Delete(benchmarkKey)
+		_ = cache.Delete(ctx, benchmarkKey)
 	}
 
 	// Clean up
@@ -148,9 +150,9 @@ func BenchmarkPostgreSQLCacheGetSetDelete(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		cache.Set(benchmarkKey, testData)
-		cache.Get(benchmarkKey)
-		cache.Delete(benchmarkKey)
+		_ = cache.Set(ctx, benchmarkKey, testData)
+		_, _, _ = cache.Get(ctx, benchmarkKey)
+		_ = cache.Delete(ctx, benchmarkKey)
 	}
 
 	// Clean up

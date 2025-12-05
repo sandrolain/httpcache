@@ -27,7 +27,7 @@ func TestInvalidateOnPOST(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	tp := NewMemoryCacheTransport()
+	tp := newMockCacheTransport()
 
 	// First GET - should cache
 	req1, _ := http.NewRequest(methodGET, ts.URL, nil)
@@ -110,7 +110,7 @@ func TestInvalidateOnPUT(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	tp := NewMemoryCacheTransport()
+	tp := newMockCacheTransport()
 
 	// Cache a GET response
 	req1, _ := http.NewRequest(methodGET, ts.URL, nil)
@@ -167,7 +167,7 @@ func TestInvalidateOnDELETE(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	tp := NewMemoryCacheTransport()
+	tp := newMockCacheTransport()
 
 	// Cache a GET response
 	req1, _ := http.NewRequest(methodGET, ts.URL, nil)
@@ -225,7 +225,7 @@ func TestInvalidateOnPATCH(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	tp := NewMemoryCacheTransport()
+	tp := newMockCacheTransport()
 
 	// Cache a GET response
 	req1, _ := http.NewRequest(methodGET, ts.URL, nil)
@@ -285,7 +285,7 @@ func TestInvalidateLocationHeader(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	tp := NewMemoryCacheTransport()
+	tp := newMockCacheTransport()
 
 	// Cache both the base URL and the created resource URL
 	req1, _ := http.NewRequest(methodGET, ts.URL, nil)
@@ -394,7 +394,7 @@ func TestInvalidateContentLocationHeader(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	tp := NewMemoryCacheTransport()
+	tp := newMockCacheTransport()
 
 	// Cache the resource that will be in Content-Location
 	req1, _ := http.NewRequest(methodGET, ts.URL+"/updated-resource", nil)
@@ -474,7 +474,7 @@ func TestNoInvalidateOnErrorResponse(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	tp := NewMemoryCacheTransport()
+	tp := newMockCacheTransport()
 
 	// Cache a GET response
 	req1, _ := http.NewRequest(methodGET, ts.URL, nil)

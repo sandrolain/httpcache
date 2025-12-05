@@ -59,12 +59,17 @@ func (c *Cache) cacheKey(key string) string {
 }
 
 // Get returns the response corresponding to key if present.
-func (c *Cache) Get(key string) (resp []byte, ok bool) {
-	ctx, cancel := context.WithTimeout(context.Background(), c.timeout)
-	defer cancel()
+// Uses the provided context for timeout and cancellation.
+// If the context has a deadline, it will be used; otherwise, the configured timeout is applied.
+func (c *Cache) Get(ctx context.Context, key string) (resp []byte, ok bool, err error) {
+	// Use provided context with fallback timeout if no deadline is set
+	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, c.timeout)
+		defer cancel()
+	}
 
 	var data []byte
-	var err error
 
 	query := `SELECT data FROM ` + c.tableName + ` WHERE key = $1`
 
@@ -75,19 +80,26 @@ func (c *Cache) Get(key string) (resp []byte, ok bool) {
 	}
 
 	if err != nil {
-		if !errors.Is(err, pgx.ErrNoRows) {
-			httpcache.GetLogger().Warn("failed to read from postgresql cache", "key", key, "error", err)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, false, nil
 		}
-		return nil, false
+		httpcache.GetLogger().Warn("failed to read from postgresql cache", "key", key, "error", err)
+		return nil, false, err
 	}
 
-	return data, true
+	return data, true, nil
 }
 
 // Set saves a response to the cache as key.
-func (c *Cache) Set(key string, resp []byte) {
-	ctx, cancel := context.WithTimeout(context.Background(), c.timeout)
-	defer cancel()
+// Uses the provided context for timeout and cancellation.
+// If the context has a deadline, it will be used; otherwise, the configured timeout is applied.
+func (c *Cache) Set(ctx context.Context, key string, resp []byte) error {
+	// Use provided context with fallback timeout if no deadline is set
+	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, c.timeout)
+		defer cancel()
+	}
 
 	query := `
 		INSERT INTO ` + c.tableName + ` (key, data, created_at)
@@ -104,13 +116,21 @@ func (c *Cache) Set(key string, resp []byte) {
 
 	if err != nil {
 		httpcache.GetLogger().Warn("failed to write to postgresql cache", "key", key, "error", err)
+		return err
 	}
+	return nil
 }
 
 // Delete removes the response with key from the cache.
-func (c *Cache) Delete(key string) {
-	ctx, cancel := context.WithTimeout(context.Background(), c.timeout)
-	defer cancel()
+// Uses the provided context for timeout and cancellation.
+// If the context has a deadline, it will be used; otherwise, the configured timeout is applied.
+func (c *Cache) Delete(ctx context.Context, key string) error {
+	// Use provided context with fallback timeout if no deadline is set
+	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, c.timeout)
+		defer cancel()
+	}
 
 	query := `DELETE FROM ` + c.tableName + ` WHERE key = $1`
 
@@ -123,7 +143,9 @@ func (c *Cache) Delete(key string) {
 
 	if err != nil {
 		httpcache.GetLogger().Warn("failed to delete from postgresql cache", "key", key, "error", err)
+		return err
 	}
+	return nil
 }
 
 // CreateTable creates the cache table if it doesn't exist.

@@ -56,10 +56,15 @@ func TestMongoDBCacheWithTTL(t *testing.T) {
 	defer cache.(interface{ Close() error }).Close()
 
 	// Set a value
-	cache.Set("test-key", []byte("test-value"))
+	if err := cache.Set(ctx, "test-key", []byte("test-value")); err != nil {
+		t.Fatalf("Failed to set value: %v", err)
+	}
 
 	// Verify it exists
-	value, ok := cache.Get("test-key")
+	value, ok, err := cache.Get(ctx, "test-key")
+	if err != nil {
+		t.Fatalf("Failed to get value: %v", err)
+	}
 	if !ok {
 		t.Fatal("Expected to find cached value immediately after set")
 	}

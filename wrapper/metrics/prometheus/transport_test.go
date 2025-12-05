@@ -26,7 +26,7 @@ func TestInstrumentedTransport(t *testing.T) {
 	defer testServer.Close()
 
 	// Create instrumented cache and transport
-	baseCache := httpcache.NewMemoryCache()
+	baseCache := newMockCache()
 	cache := NewInstrumentedCache(baseCache, "memory", collector)
 	transport := httpcache.NewTransport(cache)
 	instrumentedTransport := NewInstrumentedTransport(transport, collector)
@@ -112,7 +112,7 @@ func TestInstrumentedTransportWithNilCollector(t *testing.T) {
 	}))
 	defer testServer.Close()
 
-	baseCache := httpcache.NewMemoryCache()
+	baseCache := newMockCache()
 	transport := httpcache.NewTransport(baseCache)
 
 	// Should use NoOpCollector when nil is passed
@@ -131,7 +131,7 @@ func TestInstrumentedTransportCacheStatuses(t *testing.T) {
 	registry := prometheus.NewRegistry()
 	collector := NewCollectorWithRegistry(registry)
 
-	baseCache := httpcache.NewMemoryCache()
+	baseCache := newMockCache()
 	cache := NewInstrumentedCache(baseCache, "memory", collector)
 	transport := httpcache.NewTransport(cache)
 	instrumentedTransport := NewInstrumentedTransport(transport, collector)
@@ -203,7 +203,7 @@ func TestInstrumentedTransportDifferentStatusCodes(t *testing.T) {
 	registry := prometheus.NewRegistry()
 	collector := NewCollectorWithRegistry(registry)
 
-	baseCache := httpcache.NewMemoryCache()
+	baseCache := newMockCache()
 	cache := NewInstrumentedCache(baseCache, "memory", collector)
 	transport := httpcache.NewTransport(cache)
 	instrumentedTransport := NewInstrumentedTransport(transport, collector)

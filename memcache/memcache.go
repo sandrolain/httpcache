@@ -9,6 +9,8 @@
 package memcache
 
 import (
+	"context"
+
 	"github.com/bradfitz/gomemcache/memcache"
 	"github.com/sandrolain/httpcache"
 )
@@ -26,30 +28,46 @@ func cacheKey(key string) string {
 }
 
 // Get returns the response corresponding to key if present.
-func (c *Cache) Get(key string) (resp []byte, ok bool) {
+// The context parameter is accepted for interface compliance but not used
+// for memcache operations due to library limitations.
+func (c *Cache) Get(_ context.Context, key string) (resp []byte, ok bool, err error) {
 	item, err := c.Client.Get(cacheKey(key))
 	if err != nil {
-		return nil, false
+		if err == memcache.ErrCacheMiss {
+			return nil, false, nil
+		}
+		return nil, false, err
 	}
-	return item.Value, true
+	return item.Value, true, nil
 }
 
 // Set saves a response to the cache as key.
-func (c *Cache) Set(key string, resp []byte) {
+// The context parameter is accepted for interface compliance but not used
+// for memcache operations due to library limitations.
+func (c *Cache) Set(_ context.Context, key string, resp []byte) error {
 	item := &memcache.Item{
 		Key:   cacheKey(key),
 		Value: resp,
 	}
 	if err := c.Client.Set(item); err != nil {
 		httpcache.GetLogger().Warn("failed to write to memcache", "key", key, "error", err)
+		return err
 	}
+	return nil
 }
 
 // Delete removes the response with key from the cache.
-func (c *Cache) Delete(key string) {
+// The context parameter is accepted for interface compliance but not used
+// for memcache operations due to library limitations.
+func (c *Cache) Delete(_ context.Context, key string) error {
 	if err := c.Client.Delete(cacheKey(key)); err != nil {
+		if err == memcache.ErrCacheMiss {
+			return nil
+		}
 		httpcache.GetLogger().Warn("failed to delete from memcache", "key", key, "error", err)
+		return err
 	}
+	return nil
 }
 
 // New returns a new Cache using the provided memcache server(s) with equal

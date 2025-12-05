@@ -26,8 +26,8 @@ type InstrumentedTransport struct {
 //
 //	collector := prometheus.NewCollector()
 //	cache := prometheus.NewInstrumentedCache(
-//	    httpcache.NewMemoryCache(),
-//	    "memory",
+//	    diskcache.New("/tmp/cache"),
+//	    "disk",
 //	    collector,
 //	)
 //	transport := httpcache.NewTransport(cache)

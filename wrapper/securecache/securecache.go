@@ -3,6 +3,7 @@
 package securecache
 
 import (
+	"context"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
@@ -149,11 +150,15 @@ func (sc *SecureCache) decrypt(data []byte) ([]byte, error) {
 // Get retrieves a cached response.
 // The key is hashed with SHA-256 before lookup.
 // The data is decrypted if encryption is enabled.
-func (sc *SecureCache) Get(key string) ([]byte, bool) {
+// Uses the provided context for cache operations.
+func (sc *SecureCache) Get(ctx context.Context, key string) ([]byte, bool, error) {
 	hashedKey := sc.hashKey(key)
-	data, ok := sc.cache.Get(hashedKey)
+	data, ok, err := sc.cache.Get(ctx, hashedKey)
+	if err != nil {
+		return nil, false, err
+	}
 	if !ok {
-		return nil, false
+		return nil, false, nil
 	}
 
 	// Decrypt if encryption is enabled
@@ -162,18 +167,19 @@ func (sc *SecureCache) Get(key string) ([]byte, bool) {
 		if err != nil {
 			// Log error but don't expose it to caller
 			httpcache.GetLogger().Warn("failed to decrypt cached data", "key", hashedKey, "error", err)
-			return nil, false
+			return nil, false, err
 		}
-		return plaintext, true
+		return plaintext, true, nil
 	}
 
-	return data, true
+	return data, true, nil
 }
 
 // Set stores a response in the cache.
 // The key is hashed with SHA-256 before storage.
 // The data is encrypted if encryption is enabled.
-func (sc *SecureCache) Set(key string, data []byte) {
+// Uses the provided context for cache operations.
+func (sc *SecureCache) Set(ctx context.Context, key string, data []byte) error {
 	hashedKey := sc.hashKey(key)
 
 	// Encrypt if encryption is enabled
@@ -182,21 +188,22 @@ func (sc *SecureCache) Set(key string, data []byte) {
 		encrypted, err := sc.encrypt(data)
 		if err != nil {
 			httpcache.GetLogger().Warn("failed to encrypt data", "key", hashedKey, "error", err)
-			return
+			return err
 		}
 		toStore = encrypted
 	} else {
 		toStore = data
 	}
 
-	sc.cache.Set(hashedKey, toStore)
+	return sc.cache.Set(ctx, hashedKey, toStore)
 }
 
 // Delete removes a response from the cache.
 // The key is hashed with SHA-256 before deletion.
-func (sc *SecureCache) Delete(key string) {
+// Uses the provided context for cache operations.
+func (sc *SecureCache) Delete(ctx context.Context, key string) error {
 	hashedKey := sc.hashKey(key)
-	sc.cache.Delete(hashedKey)
+	return sc.cache.Delete(ctx, hashedKey)
 }
 
 // IsEncrypted returns true if the cache is configured with encryption.

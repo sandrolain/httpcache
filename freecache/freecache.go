@@ -12,6 +12,8 @@
 package freecache
 
 import (
+	"context"
+
 	"github.com/coocood/freecache"
 	"github.com/sandrolain/httpcache"
 )
@@ -39,29 +41,38 @@ func New(size int) *Cache {
 	}
 }
 
-// Get returns the cached response bytes and true if present, false if not found
-func (c *Cache) Get(key string) ([]byte, bool) {
+// Get returns the cached response bytes and true if present, false if not found.
+// The context parameter is accepted for interface compliance but not used for in-memory operations.
+func (c *Cache) Get(_ context.Context, key string) ([]byte, bool, error) {
 	value, err := c.cache.Get([]byte(key))
 	if err != nil {
-		return nil, false
+		if err == freecache.ErrNotFound {
+			return nil, false, nil
+		}
+		return nil, false, err
 	}
-	return value, true
+	return value, true, nil
 }
 
 // Set stores the response bytes in the cache with the given key.
 // If the cache is full, it will evict the least recently used entry.
 // The entry has no expiration time and will only be evicted when cache is full.
-func (c *Cache) Set(key string, value []byte) {
+// The context parameter is accepted for interface compliance but not used for in-memory operations.
+func (c *Cache) Set(_ context.Context, key string, value []byte) error {
 	if err := c.cache.Set([]byte(key), value, 0); err != nil {
 		// Log error but don't fail - cache operations should be best-effort
 		// Errors can occur if key/value are too large
 		httpcache.GetLogger().Warn("failed to set cache value", "key", key, "error", err)
+		return err
 	}
+	return nil
 }
 
-// Delete removes the entry with the given key from the cache
-func (c *Cache) Delete(key string) {
+// Delete removes the entry with the given key from the cache.
+// The context parameter is accepted for interface compliance but not used for in-memory operations.
+func (c *Cache) Delete(_ context.Context, key string) error {
 	c.cache.Del([]byte(key))
+	return nil
 }
 
 // Clear removes all entries from the cache

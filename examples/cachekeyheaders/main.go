@@ -3,17 +3,28 @@ package main
 import (
 	"fmt"
 	"io"
+	"log"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/sandrolain/httpcache"
+	"github.com/sandrolain/httpcache/diskcache"
 )
 
 func main() {
 	fmt.Println("=== Cache Key Headers Example ===")
 
+	// Create a temporary directory for the disk cache
+	tmpDir, err := os.MkdirTemp("", "httpcache-cachekeyheaders")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir) // Clean up when done
+
 	// Create a transport with cache key headers configured
-	transport := httpcache.NewMemoryCacheTransport()
+	cache := diskcache.New(tmpDir)
+	transport := httpcache.NewTransport(cache)
 	transport.CacheKeyHeaders = []string{"Authorization", "Accept-Language"}
 	transport.MarkCachedResponses = true
 

@@ -2,6 +2,7 @@ package compresscache
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 
@@ -74,19 +75,22 @@ func (c *BrotliCache) decompress(data []byte) ([]byte, error) {
 	return decompressed, nil
 }
 
-// Set compresses and stores a value in the cache
-func (c *BrotliCache) Set(key string, value []byte) {
-	c.set(key, value, c.compress)
+// Set compresses and stores a value in the cache.
+// Uses the provided context for cache operations.
+func (c *BrotliCache) Set(ctx context.Context, key string, value []byte) error {
+	return c.set(ctx, key, value, c.compress)
 }
 
-// Get retrieves and decompresses a value from the cache
-func (c *BrotliCache) Get(key string) ([]byte, bool) {
-	return c.get(key, c.decompress)
+// Get retrieves and decompresses a value from the cache.
+// Uses the provided context for cache operations.
+func (c *BrotliCache) Get(ctx context.Context, key string) ([]byte, bool, error) {
+	return c.get(ctx, key, c.decompress)
 }
 
-// Delete removes a value from the cache
-func (c *BrotliCache) Delete(key string) {
-	c.delete(key)
+// Delete removes a value from the cache.
+// Uses the provided context for cache operations.
+func (c *BrotliCache) Delete(ctx context.Context, key string) error {
+	return c.delete(ctx, key)
 }
 
 // Stats returns compression statistics

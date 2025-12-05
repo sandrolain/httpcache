@@ -91,7 +91,8 @@ In a real application, you might use this for:
 
 ```go
 // API client with per-user caching
-transport := httpcache.NewMemoryCacheTransport()
+cache := diskcache.New("/tmp/cache")
+transport := httpcache.NewTransport(cache)
 transport.CacheKeyHeaders = []string{"Authorization"}
 
 client := transport.Client()

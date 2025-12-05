@@ -3,6 +3,7 @@ package compresscache
 import (
 	"bytes"
 	"compress/gzip"
+	"context"
 	"fmt"
 	"io"
 
@@ -85,19 +86,22 @@ func (c *GzipCache) decompress(data []byte) ([]byte, error) {
 	return decompressed, nil
 }
 
-// Set compresses and stores a value in the cache
-func (c *GzipCache) Set(key string, value []byte) {
-	c.set(key, value, c.compress)
+// Set compresses and stores a value in the cache.
+// Uses the provided context for cache operations.
+func (c *GzipCache) Set(ctx context.Context, key string, value []byte) error {
+	return c.set(ctx, key, value, c.compress)
 }
 
-// Get retrieves and decompresses a value from the cache
-func (c *GzipCache) Get(key string) ([]byte, bool) {
-	return c.get(key, c.decompress)
+// Get retrieves and decompresses a value from the cache.
+// Uses the provided context for cache operations.
+func (c *GzipCache) Get(ctx context.Context, key string) ([]byte, bool, error) {
+	return c.get(ctx, key, c.decompress)
 }
 
-// Delete removes a value from the cache
-func (c *GzipCache) Delete(key string) {
-	c.delete(key)
+// Delete removes a value from the cache.
+// Uses the provided context for cache operations.
+func (c *GzipCache) Delete(ctx context.Context, key string) error {
+	return c.delete(ctx, key)
 }
 
 // Stats returns compression statistics

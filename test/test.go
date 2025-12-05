@@ -2,6 +2,7 @@ package test
 
 import (
 	"bytes"
+	"context"
 	"testing"
 
 	"github.com/sandrolain/httpcache"
@@ -9,16 +10,25 @@ import (
 
 // Cache excercises a httpcache.Cache implementation.
 func Cache(t *testing.T, cache httpcache.Cache) {
+	ctx := context.Background()
 	key := "testKey"
-	_, ok := cache.Get(key)
+	_, ok, err := cache.Get(ctx, key)
+	if err != nil {
+		t.Fatalf("error getting key: %v", err)
+	}
 	if ok {
 		t.Fatal("retrieved key before adding it")
 	}
 
 	val := []byte("some bytes")
-	cache.Set(key, val)
+	if err := cache.Set(ctx, key, val); err != nil {
+		t.Fatalf("error setting key: %v", err)
+	}
 
-	retVal, ok := cache.Get(key)
+	retVal, ok, err := cache.Get(ctx, key)
+	if err != nil {
+		t.Fatalf("error getting key: %v", err)
+	}
 	if !ok {
 		t.Fatal("could not retrieve an element we just added")
 	}
@@ -26,9 +36,14 @@ func Cache(t *testing.T, cache httpcache.Cache) {
 		t.Fatal("retrieved a different value than what we put in")
 	}
 
-	cache.Delete(key)
+	if err := cache.Delete(ctx, key); err != nil {
+		t.Fatalf("error deleting key: %v", err)
+	}
 
-	_, ok = cache.Get(key)
+	_, ok, err = cache.Get(ctx, key)
+	if err != nil {
+		t.Fatalf("error getting key: %v", err)
+	}
 	if ok {
 		t.Fatal("deleted key still present")
 	}

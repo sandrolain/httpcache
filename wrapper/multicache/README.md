@@ -55,19 +55,20 @@ import (
     
     httpcache "github.com/sandrolain/httpcache"
     "github.com/sandrolain/httpcache/diskcache"
+    "github.com/sandrolain/httpcache/freecache"
     "github.com/sandrolain/httpcache/redis"
     "github.com/sandrolain/httpcache/wrapper/multicache"
 )
 
 func main() {
     // Create individual cache tiers
-    memCache := httpcache.NewMemoryCache()
-    diskCache := diskcache.New("/tmp/cache")
+    tier1Cache := freecache.New(10 * 1024 * 1024)  // 10 MB in-memory
+    diskCache := diskcache.New("/tmp/cache/tier2")
     redisCache, _ := redis.New("localhost:6379")
     
     // Combine into multi-tier cache (order matters!)
     mc := multicache.New(
-        memCache,    // Tier 1: fastest, checked first
+        tier1Cache,  // Tier 1: fastest, checked first
         diskCache,   // Tier 2: medium speed
         redisCache,  // Tier 3: slowest, checked last
     )
@@ -106,13 +107,14 @@ import (
     
     httpcache "github.com/sandrolain/httpcache"
     "github.com/sandrolain/httpcache/diskcache"
+    "github.com/sandrolain/httpcache/freecache"
     "github.com/sandrolain/httpcache/postgresql"
     "github.com/sandrolain/httpcache/wrapper/multicache"
 )
 
 func main() {
-    // Tier 1: Memory - Fast, small (10 MB), volatile
-    memCache := httpcache.NewMemoryCache()
+    // Tier 1: FreeCache - Fast, small (10 MB), in-memory
+    tier1Cache := freecache.New(10 * 1024 * 1024)
     
     // Tier 2: Disk - Medium speed, larger (100 MB), survives restarts
     diskCache := diskcache.New("/var/cache/httpcache")
@@ -125,7 +127,7 @@ func main() {
     defer pgCache.Close()
     
     // Create multi-tier cache
-    mc := multicache.New(memCache, diskCache, pgCache)
+    mc := multicache.New(tier1Cache, diskCache, pgCache)
     
     // Example: Store and retrieve
     mc.Set("user:123", []byte(`{"name":"John","email":"john@example.com"}`))
@@ -135,7 +137,7 @@ func main() {
     fmt.Printf("Found in cache: %v\n", ok)
     
     // Simulate memory cache eviction (e.g., LRU evicted it)
-    memCache.Delete("user:123")
+    tier1Cache.Delete("user:123")
     
     // Second Get: Reads from disk, promotes back to memory
     data, ok = mc.Get("user:123")
@@ -172,10 +174,10 @@ mc := multicache.New(
 Size each tier appropriately for its role:
 
 ```go
-// Tier 1: Small, holds only hot data
-memCache := httpcache.NewMemoryCache() // ~10-100 MB
+// Tier 1: Small in-memory, holds only hot data
+tier1Cache := freecache.New(100 * 1024 * 1024)  // ~100 MB in-memory
 
-// Tier 2: Larger, holds warm data
+// Tier 2: Larger disk, holds warm data
 diskCache := diskcache.New("/cache")   // ~1-10 GB
 
 // Tier 3: Large, holds all cacheable data
@@ -209,7 +211,7 @@ Returns `nil` if validation fails.
 
 ```go
 // Create a CDN-like caching hierarchy
-edge := httpcache.NewMemoryCache()        // Edge cache (fast, small)
+edge := diskcache.New("/tmp/cache/edge")  // Edge cache (fast, small)
 regional := redis.New("regional:6379")    // Regional cache (medium)
 origin := postgresql.New("origin-db")     // Origin cache (persistent)
 

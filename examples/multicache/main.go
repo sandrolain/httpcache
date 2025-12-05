@@ -1,14 +1,17 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
+	"os"
 	"time"
 
 	httpcache "github.com/sandrolain/httpcache"
 	"github.com/sandrolain/httpcache/diskcache"
+	"github.com/sandrolain/httpcache/freecache"
 	rediscache "github.com/sandrolain/httpcache/redis"
 	"github.com/sandrolain/httpcache/wrapper/multicache"
 
@@ -24,14 +27,21 @@ func main() {
 	fmt.Println("=================================================")
 	fmt.Println("")
 
-	// Tier 1: In-memory cache (fast, small, volatile)
-	// 10 MB limit, evicts least recently used
-	memoryCache := httpcache.NewMemoryCache()
-	fmt.Println("✓ Tier 1: Memory cache initialized (fast, volatile)")
+	// Create a temporary directory for the disk cache (tier 2)
+	tmpDir, err := os.MkdirTemp("", "httpcache-multicache-tier2")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir) // Clean up when done
+
+	// Tier 1: FreeCache (fast, in-memory, volatile)
+	// 10 MB limit, zero-GC allocation
+	memCache := freecache.New(10 * 1024 * 1024)
+	fmt.Println("✓ Tier 1: FreeCache initialized (fast, in-memory)")
 
 	// Tier 2: Disk cache (medium speed, larger, persistent)
-	// 100 MB limit, survives restarts
-	diskCache := diskcache.New("/tmp/httpcache-multicache-example")
+	// Survives restarts
+	diskCache := diskcache.New(tmpDir)
 	fmt.Println("✓ Tier 2: Disk cache initialized (medium speed, persistent)")
 
 	// Tier 3: Redis cache (network-based, largest, shared)
@@ -40,11 +50,11 @@ func main() {
 	redisConn, err := redis.Dial("tcp", "localhost:6379")
 	if err != nil {
 		fmt.Println("⚠ Tier 3: Redis not available, using only 2 tiers")
-		mc = multicache.New(memoryCache, diskCache)
+		mc = multicache.New(memCache, diskCache)
 	} else {
 		fmt.Println("✓ Tier 3: Redis cache initialized (network-based, shared)")
 		redisCache := rediscache.NewWithClient(redisConn)
-		mc = multicache.New(memoryCache, diskCache, redisCache)
+		mc = multicache.New(memCache, diskCache, redisCache)
 	}
 
 	// Create HTTP client with multi-tier caching
@@ -72,8 +82,8 @@ func main() {
 	// Example 3: Simulate tier 1 eviction/restart
 	fmt.Println("Example 3: Simulating tier 1 cache clear")
 	fmt.Println("-----------------------------------------")
-	fmt.Println("Clearing memory cache...")
-	memoryCache.Delete(cacheKey(jsonURL))
+	fmt.Println("Clearing tier 1 memory cache...")
+	_ = memCache.Delete(context.Background(), cacheKey(jsonURL))
 	fmt.Println("Making request (should hit tier 2 and promote to tier 1)...")
 	makeRequest(client, jsonURL)
 	fmt.Println()

@@ -385,7 +385,7 @@ func TestPrometheusIntegrationRealHTTPWorkflow(t *testing.T) {
 	defer testServer.Close()
 
 	// Create instrumented cache and transport
-	baseCache := httpcache.NewMemoryCache()
+	baseCache := newMockCache()
 	cache := NewInstrumentedCache(baseCache, "memory", collector)
 	transport := httpcache.NewTransport(cache)
 	instrumentedTransport := NewInstrumentedTransport(transport, collector)

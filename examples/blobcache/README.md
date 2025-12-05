@@ -222,12 +222,12 @@ The `Close()` method properly closes the bucket connection, but only if the cach
 ```go
 import "github.com/sandrolain/httpcache/wrapper/multicache"
 
-memCache := httpcache.NewMemoryCache()
+localCache := diskcache.New("/tmp/cache")
 blobCache, _ := blobcache.New(ctx, config)
 
 multiCache := multicache.New(
-    memCache,  // Fast tier (checked first)
-    blobCache, // Persistent tier (fallback)
+    localCache,  // Fast tier (checked first)
+    blobCache,   // Persistent tier (fallback)
 )
 ```
 

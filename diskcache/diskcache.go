@@ -4,6 +4,7 @@ package diskcache
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"io"
@@ -17,30 +18,38 @@ type Cache struct {
 	d *diskv.Diskv
 }
 
-// Get returns the response corresponding to key if present
-func (c *Cache) Get(key string) (resp []byte, ok bool) {
+// Get returns the response corresponding to key if present.
+// The context parameter is accepted for interface compliance but not used for disk operations.
+func (c *Cache) Get(_ context.Context, key string) (resp []byte, ok bool, err error) {
 	key = keyToFilename(key)
-	resp, err := c.d.Read(key)
+	resp, err = c.d.Read(key)
 	if err != nil {
-		return []byte{}, false
+		return nil, false, nil // File not found is not an error, just missing
 	}
-	return resp, true
+	return resp, true, nil
 }
 
-// Set saves a response to the cache as key
-func (c *Cache) Set(key string, resp []byte) {
+// Set saves a response to the cache as key.
+// The context parameter is accepted for interface compliance but not used for disk operations.
+func (c *Cache) Set(_ context.Context, key string, resp []byte) error {
 	key = keyToFilename(key)
 	if err := c.d.WriteStream(key, bytes.NewReader(resp), true); err != nil {
 		httpcache.GetLogger().Warn("failed to write to disk cache", "key", key, "error", err)
+		return err
 	}
+	return nil
 }
 
-// Delete removes the response with key from the cache
-func (c *Cache) Delete(key string) {
+// Delete removes the response with key from the cache.
+// The context parameter is accepted for interface compliance but not used for disk operations.
+func (c *Cache) Delete(_ context.Context, key string) error {
 	key = keyToFilename(key)
 	if err := c.d.Erase(key); err != nil {
 		httpcache.GetLogger().Warn("failed to delete from disk cache", "key", key, "error", err)
+		// Erase errors when file doesn't exist are not real errors
+		return nil
 	}
+	return nil
 }
 
 func keyToFilename(key string) string {

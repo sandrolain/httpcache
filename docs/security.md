@@ -9,8 +9,11 @@
 If you use the same `Transport` instance to make requests on behalf of different users, responses may be incorrectly shared between users unless properly configured:
 
 ```go
+import "github.com/sandrolain/httpcache/diskcache"
+
 // ❌ DANGEROUS: Same transport for different users
-transport := httpcache.NewMemoryCacheTransport()
+cache := diskcache.New("/tmp/cache")
+transport := httpcache.NewTransport(cache)
 client := transport.Client()
 
 // User 1 requests their profile
@@ -32,7 +35,8 @@ Include user-identifying headers in cache keys:
 
 ```go
 // ✅ SAFE: Different cache entries per Authorization token
-transport := httpcache.NewMemoryCacheTransport()
+cache := diskcache.New("/tmp/cache")
+transport := httpcache.NewTransport(cache)
 transport.CacheKeyHeaders = []string{"Authorization"}
 client := transport.Client()
 

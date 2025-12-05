@@ -22,7 +22,7 @@ func TestWarningHeaderStaleWhileRevalidate(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	tp := NewMemoryCacheTransport()
+	tp := newMockCacheTransport()
 	client := &http.Client{Transport: tp}
 
 	// First request
@@ -74,7 +74,7 @@ func TestWarningHeaderRevalidationFailed(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	tp := NewMemoryCacheTransport()
+	tp := newMockCacheTransport()
 	client := &http.Client{Transport: tp}
 
 	// First request
@@ -118,7 +118,7 @@ func TestWarningHeaderMaxStale(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	tp := NewMemoryCacheTransport()
+	tp := newMockCacheTransport()
 	client := &http.Client{Transport: tp}
 
 	// First request
@@ -164,7 +164,7 @@ func TestNoWarningOnFreshResponse(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	tp := NewMemoryCacheTransport()
+	tp := newMockCacheTransport()
 	client := &http.Client{Transport: tp}
 
 	// First request
@@ -202,7 +202,7 @@ func TestNoWarningOnFirstRequest(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	tp := NewMemoryCacheTransport()
+	tp := newMockCacheTransport()
 	client := &http.Client{Transport: tp}
 
 	// First request - not from cache
@@ -239,7 +239,7 @@ func TestMultipleWarningHeaders(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	tp := NewMemoryCacheTransport()
+	tp := newMockCacheTransport()
 	client := &http.Client{Transport: tp}
 
 	// First request
@@ -288,7 +288,7 @@ func TestDisableWarningHeaderStaleWhileRevalidate(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	cache := NewMemoryCache()
+	cache := newMockCache()
 	tp := &Transport{
 		Cache:                cache,
 		MarkCachedResponses:  true,
@@ -342,7 +342,7 @@ func TestDisableWarningHeaderRevalidationFailed(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	cache := NewMemoryCache()
+	cache := newMockCache()
 	tp := &Transport{
 		Cache:                cache,
 		MarkCachedResponses:  true,
@@ -393,7 +393,7 @@ func TestDisableWarningHeaderMaxStale(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	cache := NewMemoryCache()
+	cache := newMockCache()
 	tp := &Transport{
 		Cache:                cache,
 		MarkCachedResponses:  true,
@@ -441,7 +441,7 @@ func TestWarningHeaderEnabledByDefault(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	cache := NewMemoryCache()
+	cache := newMockCache()
 	tp := &Transport{
 		Cache:               cache,
 		MarkCachedResponses: true,

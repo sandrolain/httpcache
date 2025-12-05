@@ -39,7 +39,7 @@ func TestMain(m *testing.M) {
 }
 
 func setup() {
-	tp := NewMemoryCacheTransport()
+	tp := newMockCacheTransport()
 	client := http.Client{Transport: tp}
 	s.transport = tp
 	s.client = client
@@ -217,7 +217,7 @@ func teardown() {
 }
 
 func resetTest() {
-	s.transport.Cache = NewMemoryCache()
+	s.transport.Cache = newMockCache()
 	clock = &realClock{}
 }
 
@@ -709,7 +709,7 @@ func TestSkipServerErrorsFromCache(t *testing.T) {
 	// Dump and store in cache
 	respBytes, _ := httputil.DumpResponse(errorResp, true)
 	cacheKey := req.URL.String()
-	s.transport.Cache.Set(cacheKey, respBytes)
+	_ = s.transport.Cache.Set(req.Context(), cacheKey, respBytes)
 
 	// Retrieve from cache - default behavior should serve the 500 from cache
 	cachedResp, err := CachedResponse(s.transport.Cache, req)
@@ -1375,7 +1375,7 @@ func TestStaleIfErrorRequest(t *testing.T) {
 		},
 		err: nil,
 	}
-	tp := NewMemoryCacheTransport()
+	tp := newMockCacheTransport()
 	tp.Transport = &tmock
 
 	// First time, response is cached on success
@@ -1423,7 +1423,7 @@ func TestStaleIfErrorRequestLifetime(t *testing.T) {
 		},
 		err: nil,
 	}
-	tp := NewMemoryCacheTransport()
+	tp := newMockCacheTransport()
 	tp.Transport = &tmock
 
 	// First time, response is cached on success
@@ -1492,7 +1492,7 @@ func TestStaleIfErrorResponse(t *testing.T) {
 		},
 		err: nil,
 	}
-	tp := NewMemoryCacheTransport()
+	tp := newMockCacheTransport()
 	tp.Transport = &tmock
 
 	// First time, response is cached on success
@@ -1539,7 +1539,7 @@ func TestStaleIfErrorResponseLifetime(t *testing.T) {
 		},
 		err: nil,
 	}
-	tp := NewMemoryCacheTransport()
+	tp := newMockCacheTransport()
 	tp.Transport = &tmock
 
 	// First time, response is cached on success
@@ -1596,7 +1596,7 @@ func TestStaleIfErrorKeepsStatus(t *testing.T) {
 		},
 		err: nil,
 	}
-	tp := NewMemoryCacheTransport()
+	tp := newMockCacheTransport()
 	tp.Transport = &tmock
 
 	// First time, response is cached on success
@@ -1643,7 +1643,7 @@ func TestClientTimeout(t *testing.T) {
 	}
 	resetTest()
 	client := &http.Client{
-		Transport: NewMemoryCacheTransport(),
+		Transport: newMockCacheTransport(),
 		Timeout:   time.Second,
 	}
 	started := time.Now()
@@ -1926,7 +1926,7 @@ func TestShouldCacheNilDoesNotCache(t *testing.T) {
 	}
 
 	// Clear cache to ensure clean state
-	s.transport.Cache = NewMemoryCache()
+	s.transport.Cache = newMockCache()
 
 	// First request
 	resp, err := s.client.Do(req)

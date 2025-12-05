@@ -203,9 +203,14 @@ func TestBlobCacheOperations(t *testing.T) {
 	key := "test-key"
 	value := []byte("test-value")
 
-	cache.Set(key, value)
+	if err := cache.Set(ctx, key, value); err != nil {
+		t.Fatalf("Failed to set value: %v", err)
+	}
 
-	retrieved, ok := cache.Get(key)
+	retrieved, ok, err := cache.Get(ctx, key)
+	if err != nil {
+		t.Fatalf("Failed to get value: %v", err)
+	}
 	if !ok {
 		t.Fatal("Expected to find cached value")
 	}
@@ -214,9 +219,14 @@ func TestBlobCacheOperations(t *testing.T) {
 	}
 
 	// Test Delete
-	cache.Delete(key)
+	if err := cache.Delete(ctx, key); err != nil {
+		t.Fatalf("Failed to delete value: %v", err)
+	}
 
-	_, ok = cache.Get(key)
+	_, ok, err = cache.Get(ctx, key)
+	if err != nil {
+		t.Fatalf("Failed to get value after delete: %v", err)
+	}
 	if ok {
 		t.Error("Expected key to be deleted")
 	}

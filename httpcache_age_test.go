@@ -22,7 +22,7 @@ func TestAgeHeader(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	tp := NewMemoryCacheTransport()
+	tp := newMockCacheTransport()
 	tp.MarkCachedResponses = true
 	client := &http.Client{Transport: tp}
 
@@ -101,7 +101,7 @@ func TestAgeHeaderWithRevalidation(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	tp := NewMemoryCacheTransport()
+	tp := newMockCacheTransport()
 	tp.MarkCachedResponses = true
 	client := &http.Client{Transport: tp}
 
@@ -268,7 +268,7 @@ func TestAgeHeaderNotOnFreshResponse(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	tp := NewMemoryCacheTransport()
+	tp := newMockCacheTransport()
 	client := &http.Client{Transport: tp}
 
 	req, _ := http.NewRequest("GET", ts.URL, nil)

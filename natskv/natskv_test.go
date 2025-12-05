@@ -230,10 +230,15 @@ func TestNewWithNATSOptions(t *testing.T) {
 	testValue := []byte("test-value")
 
 	// Set
-	c.Set(testKey, testValue)
+	if err := c.Set(ctx, testKey, testValue); err != nil {
+		t.Fatalf("Set() error: %v", err)
+	}
 
 	// Get
-	val, ok := c.Get(testKey)
+	val, ok, err := c.Get(ctx, testKey)
+	if err != nil {
+		t.Fatalf("Get() error: %v", err)
+	}
 	if !ok {
 		t.Error("Get() failed to retrieve value")
 	}
@@ -242,10 +247,15 @@ func TestNewWithNATSOptions(t *testing.T) {
 	}
 
 	// Delete
-	c.Delete(testKey)
+	if err := c.Delete(ctx, testKey); err != nil {
+		t.Fatalf("Delete() error: %v", err)
+	}
 
 	// Verify deletion
-	_, ok = c.Get(testKey)
+	_, ok, err = c.Get(ctx, testKey)
+	if err != nil {
+		t.Fatalf("Get() error: %v", err)
+	}
 	if ok {
 		t.Error("Get() should not retrieve deleted value")
 	}

@@ -4,20 +4,31 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"os"
 	"time"
 
 	"github.com/sandrolain/httpcache"
+	"github.com/sandrolain/httpcache/diskcache"
 )
 
 func main() {
-	// Create a new HTTP client with in-memory cache
-	transport := httpcache.NewMemoryCacheTransport()
+	// Create a temporary directory for the disk cache
+	tmpDir, err := os.MkdirTemp("", "httpcache-example")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir) // Clean up when done
+
+	// Create a new HTTP client with disk cache
+	cache := diskcache.New(tmpDir)
+	transport := httpcache.NewTransport(cache)
+	transport.MarkCachedResponses = true
 	client := transport.Client()
 
 	url := "https://httpbin.org/cache/300" // Cacheable for 300 seconds
 
-	fmt.Println("Example 1: Basic in-memory caching")
-	fmt.Println("===================================")
+	fmt.Println("Example 1: Basic disk caching")
+	fmt.Println("==============================")
 
 	// First request - will fetch from server
 	fmt.Println("Making first request...")

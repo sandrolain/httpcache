@@ -3,6 +3,8 @@
 package leveldbcache
 
 import (
+	"context"
+
 	"github.com/sandrolain/httpcache"
 	"github.com/syndtr/goleveldb/leveldb"
 )
@@ -12,28 +14,37 @@ type Cache struct {
 	db *leveldb.DB
 }
 
-// Get returns the response corresponding to key if present
-func (c *Cache) Get(key string) (resp []byte, ok bool) {
-	var err error
+// Get returns the response corresponding to key if present.
+// The context parameter is accepted for interface compliance but not used for LevelDB operations.
+func (c *Cache) Get(_ context.Context, key string) (resp []byte, ok bool, err error) {
 	resp, err = c.db.Get([]byte(key), nil)
 	if err != nil {
-		return []byte{}, false
+		if err == leveldb.ErrNotFound {
+			return nil, false, nil
+		}
+		return nil, false, err
 	}
-	return resp, true
+	return resp, true, nil
 }
 
-// Set saves a response to the cache as key
-func (c *Cache) Set(key string, resp []byte) {
+// Set saves a response to the cache as key.
+// The context parameter is accepted for interface compliance but not used for LevelDB operations.
+func (c *Cache) Set(_ context.Context, key string, resp []byte) error {
 	if err := c.db.Put([]byte(key), resp, nil); err != nil {
 		httpcache.GetLogger().Warn("failed to write to leveldb cache", "key", key, "error", err)
+		return err
 	}
+	return nil
 }
 
-// Delete removes the response with key from the cache
-func (c *Cache) Delete(key string) {
+// Delete removes the response with key from the cache.
+// The context parameter is accepted for interface compliance but not used for LevelDB operations.
+func (c *Cache) Delete(_ context.Context, key string) error {
 	if err := c.db.Delete([]byte(key), nil); err != nil {
 		httpcache.GetLogger().Warn("failed to delete from leveldb cache", "key", key, "error", err)
+		return err
 	}
+	return nil
 }
 
 // New returns a new Cache that will store leveldb in path

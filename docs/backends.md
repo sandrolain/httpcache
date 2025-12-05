@@ -35,7 +35,7 @@ The [`multicache`](../wrapper/multicache/README.md) wrapper allows you to combin
 import "github.com/sandrolain/httpcache/wrapper/multicache"
 
 // Tier 1: Fast in-memory cache
-memCache := httpcache.NewMemoryCache()
+memCache := freecache.New(10 * 1024 * 1024)  // 10 MB
 
 // Tier 2: Medium-speed disk cache
 diskCache := diskcache.New("/tmp/cache")
@@ -83,14 +83,17 @@ See [Security Considerations](./security.md#secure-cache-wrapper) for details.
 
 ## Usage Examples
 
-### Memory Cache (Default)
+### Disk Cache
 
 ```go
-transport := httpcache.NewMemoryCacheTransport()
+import "github.com/sandrolain/httpcache/diskcache"
+
+cache := diskcache.New("/tmp/my-cache")
+transport := httpcache.NewTransport(cache)
 client := transport.Client()
 ```
 
-**Best for**: Testing, development, single-instance applications
+**Best for**: Desktop applications, CLI tools, development
 
 ### Disk Cache
 

@@ -58,7 +58,8 @@ When a stale response is served due to an error (using `stale-if-error`), the `X
 **Configuration:**
 
 ```go
-transport := httpcache.NewMemoryCacheTransport()
+cache := diskcache.New("/tmp/cache")
+transport := httpcache.NewTransport(cache)
 transport.EnableVarySeparation = true  // Enable RFC 9111 compliant vary separation
 ```
 
@@ -85,7 +86,8 @@ transport.EnableVarySeparation = true  // Enable RFC 9111 compliant vary separat
 **Example with EnableVarySeparation = true:**
 
 ```go
-transport := httpcache.NewMemoryCacheTransport()
+cache := diskcache.New("/tmp/cache")
+transport := httpcache.NewTransport(cache)
 transport.EnableVarySeparation = true  // Enable vary separation
 
 // Server responds with: Vary: Accept-Language, Cache-Control: max-age=3600
@@ -107,7 +109,8 @@ resp3, _ := client.Do(req3)  // ✅ Cache hit! Returns English variant
 
 ```go
 // Default behavior - variants overwrite each other
-transport := httpcache.NewMemoryCacheTransport()
+cache := diskcache.New("/tmp/cache")
+transport := httpcache.NewTransport(cache)
 // EnableVarySeparation defaults to false
 
 // Request 1: Accept-Language: en
@@ -148,7 +151,8 @@ client.Do(req3)  // Different cache entry (different Accept)
 You can still use `CacheKeyHeaders` for custom cache separation beyond server-specified Vary headers:
 
 ```go
-transport := httpcache.NewMemoryCacheTransport()
+cache := diskcache.New("/tmp/cache")
+transport := httpcache.NewTransport(cache)
 transport.EnableVarySeparation = true
 // Separate cache entries by user, even if server doesn't specify Vary
 transport.CacheKeyHeaders = []string{"X-User-ID"}
@@ -429,7 +433,8 @@ Content-Type: text/plain
 
 ```go
 // Private cache (default):
-transport := httpcache.NewMemoryCacheTransport()
+cache := diskcache.New("/tmp/cache")
+transport := httpcache.NewTransport(cache)
 transport.IsPublicCache = false  // default
 
 // Server response:

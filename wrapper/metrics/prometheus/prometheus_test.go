@@ -1,14 +1,48 @@
 package prometheus
 
 import (
+	"context"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
-	"github.com/sandrolain/httpcache"
 )
+
+// mockCache is a simple in-memory cache for testing
+type mockCache struct {
+	mu   sync.RWMutex
+	data map[string][]byte
+}
+
+func newMockCache() *mockCache {
+	return &mockCache{
+		data: make(map[string][]byte),
+	}
+}
+
+func (m *mockCache) Get(_ context.Context, key string) ([]byte, bool, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	val, ok := m.data[key]
+	return val, ok, nil
+}
+
+func (m *mockCache) Set(_ context.Context, key string, value []byte) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.data[key] = value
+	return nil
+}
+
+func (m *mockCache) Delete(_ context.Context, key string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.data, key)
+	return nil
+}
 
 func TestPrometheusCollector(t *testing.T) {
 	// Create collector with custom registry for testing
@@ -85,29 +119,40 @@ func TestPrometheusCollectorWithConfig(t *testing.T) {
 }
 
 func TestInstrumentedCache(t *testing.T) {
+	ctx := context.Background()
 	registry := prometheus.NewRegistry()
 	collector := NewCollectorWithRegistry(registry)
 
-	baseCache := httpcache.NewMemoryCache()
+	baseCache := newMockCache()
 	cache := NewInstrumentedCache(baseCache, "memory", collector)
 
 	// Test Set operation
-	cache.Set("key1", []byte("value1"))
+	if err := cache.Set(ctx, "key1", []byte("value1")); err != nil {
+		t.Fatalf("Set failed: %v", err)
+	}
 
 	// Test Get operation (hit)
-	value, ok := cache.Get("key1")
+	value, ok, err := cache.Get(ctx, "key1")
+	if err != nil {
+		t.Fatalf("Get failed: %v", err)
+	}
 	if !ok || string(value) != "value1" {
 		t.Errorf("cache Get failed: ok=%v, value=%s", ok, string(value))
 	}
 
 	// Test Get operation (miss)
-	_, ok = cache.Get("nonexistent")
+	_, ok, err = cache.Get(ctx, "nonexistent")
+	if err != nil {
+		t.Fatalf("Get failed: %v", err)
+	}
 	if ok {
 		t.Error("expected cache miss for nonexistent key")
 	}
 
 	// Test Delete operation
-	cache.Delete("key1")
+	if err := cache.Delete(ctx, "key1"); err != nil {
+		t.Fatalf("Delete failed: %v", err)
+	}
 
 	// Verify metrics were recorded
 	expected := `
@@ -125,18 +170,26 @@ func TestInstrumentedCache(t *testing.T) {
 }
 
 func TestInstrumentedCacheWithNilCollector(t *testing.T) {
-	baseCache := httpcache.NewMemoryCache()
+	ctx := context.Background()
+	baseCache := newMockCache()
 
 	// Should use NoOpCollector when nil is passed
 	cache := NewInstrumentedCache(baseCache, "memory", nil)
 
 	// Should not panic and should work normally
-	cache.Set("key1", []byte("value1"))
-	value, ok := cache.Get("key1")
+	if err := cache.Set(ctx, "key1", []byte("value1")); err != nil {
+		t.Fatalf("Set failed: %v", err)
+	}
+	value, ok, err := cache.Get(ctx, "key1")
+	if err != nil {
+		t.Fatalf("Get failed: %v", err)
+	}
 	if !ok || string(value) != "value1" {
 		t.Errorf("cache operations failed with nil collector")
 	}
-	cache.Delete("key1")
+	if err := cache.Delete(ctx, "key1"); err != nil {
+		t.Fatalf("Delete failed: %v", err)
+	}
 }
 
 func TestRecordCacheSize(t *testing.T) {

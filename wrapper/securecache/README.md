@@ -31,7 +31,7 @@ import (
 )
 
 // Wrap any cache backend with key hashing
-cache := httpcache.NewMemoryCache()
+cache := diskcache.New("/tmp/cache")
 secureCache, err := securecache.New(securecache.Config{
     Cache: cache,
     // No passphrase = only key hashing, no encryption

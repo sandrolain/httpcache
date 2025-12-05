@@ -65,23 +65,38 @@ func (c cache) cacheKey(key string) string {
 }
 
 // Get returns the response corresponding to key if present.
-func (c cache) Get(key string) (resp []byte, ok bool) {
-	ctx, cancel := context.WithTimeout(context.Background(), c.timeout)
-	defer cancel()
-
-	var entry cacheEntry
-	err := c.collection.FindOne(ctx, bson.M{"_id": c.cacheKey(key)}).Decode(&entry)
-	if err != nil {
-		return nil, false
+// Uses the provided context for the database operation. If the context
+// has no deadline, a timeout from the cache configuration is applied.
+func (c cache) Get(ctx context.Context, key string) (resp []byte, ok bool, err error) {
+	// Use provided context deadline or fall back to configured timeout
+	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, c.timeout)
+		defer cancel()
 	}
 
-	return entry.Data, true
+	var entry cacheEntry
+	err = c.collection.FindOne(ctx, bson.M{"_id": c.cacheKey(key)}).Decode(&entry)
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			return nil, false, nil
+		}
+		return nil, false, err
+	}
+
+	return entry.Data, true, nil
 }
 
 // Set saves a response to the cache as key.
-func (c cache) Set(key string, resp []byte) {
-	ctx, cancel := context.WithTimeout(context.Background(), c.timeout)
-	defer cancel()
+// Uses the provided context for the database operation. If the context
+// has no deadline, a timeout from the cache configuration is applied.
+func (c cache) Set(ctx context.Context, key string, resp []byte) error {
+	// Use provided context deadline or fall back to configured timeout
+	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, c.timeout)
+		defer cancel()
+	}
 
 	entry := cacheEntry{
 		Key:       c.cacheKey(key),
@@ -93,18 +108,28 @@ func (c cache) Set(key string, resp []byte) {
 	_, err := c.collection.ReplaceOne(ctx, bson.M{"_id": entry.Key}, entry, opts)
 	if err != nil {
 		httpcache.GetLogger().Warn("failed to write to MongoDB cache", "key", key, "error", err)
+		return err
 	}
+	return nil
 }
 
 // Delete removes the response with key from the cache.
-func (c cache) Delete(key string) {
-	ctx, cancel := context.WithTimeout(context.Background(), c.timeout)
-	defer cancel()
+// Uses the provided context for the database operation. If the context
+// has no deadline, a timeout from the cache configuration is applied.
+func (c cache) Delete(ctx context.Context, key string) error {
+	// Use provided context deadline or fall back to configured timeout
+	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, c.timeout)
+		defer cancel()
+	}
 
 	_, err := c.collection.DeleteOne(ctx, bson.M{"_id": c.cacheKey(key)})
 	if err != nil {
 		httpcache.GetLogger().Warn("failed to delete from MongoDB cache", "key", key, "error", err)
+		return err
 	}
+	return nil
 }
 
 // Close disconnects from MongoDB.

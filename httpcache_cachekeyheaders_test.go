@@ -21,7 +21,7 @@ func TestCacheKeyHeaders(t *testing.T) {
 	}))
 	defer testServer.Close()
 
-	tp := NewMemoryCacheTransport()
+	tp := newMockCacheTransport()
 	tp.CacheKeyHeaders = []string{"Authorization"}
 	client := tp.Client()
 
@@ -110,7 +110,7 @@ func TestCacheKeyHeadersMultipleHeaders(t *testing.T) {
 	}))
 	defer testServer.Close()
 
-	tp := NewMemoryCacheTransport()
+	tp := newMockCacheTransport()
 	tp.CacheKeyHeaders = []string{"Authorization", "Accept-Language"}
 	client := tp.Client()
 
@@ -171,7 +171,7 @@ func TestCacheKeyHeadersCaseInsensitive(t *testing.T) {
 	}))
 	defer testServer.Close()
 
-	tp := NewMemoryCacheTransport()
+	tp := newMockCacheTransport()
 	tp.CacheKeyHeaders = []string{"authorization"} // lowercase
 	client := tp.Client()
 
@@ -215,7 +215,7 @@ func TestCacheKeyHeadersWithoutHeader(t *testing.T) {
 	}))
 	defer testServer.Close()
 
-	tp := NewMemoryCacheTransport()
+	tp := newMockCacheTransport()
 	tp.CacheKeyHeaders = []string{"Authorization"}
 	client := tp.Client()
 
@@ -263,7 +263,7 @@ func TestCacheKeyHeadersWithEmptyList(t *testing.T) {
 	}))
 	defer testServer.Close()
 
-	tp := NewMemoryCacheTransport()
+	tp := newMockCacheTransport()
 	// CacheKeyHeaders not set (nil)
 	client := tp.Client()
 
@@ -308,7 +308,7 @@ func TestCacheKeyHeadersInvalidation(t *testing.T) {
 	}))
 	defer testServer.Close()
 
-	tp := NewMemoryCacheTransport()
+	tp := newMockCacheTransport()
 	tp.CacheKeyHeaders = []string{"Authorization"}
 	client := tp.Client()
 
@@ -453,7 +453,7 @@ func TestCacheKeyHeadersRevalidation(t *testing.T) {
 	}))
 	defer testServer.Close()
 
-	tp := NewMemoryCacheTransport()
+	tp := newMockCacheTransport()
 	tp.CacheKeyHeaders = []string{"Authorization"}
 	client := tp.Client()
 
