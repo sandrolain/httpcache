@@ -3,6 +3,7 @@
 package prometheus
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -214,13 +215,14 @@ func TestPrometheusIntegrationConcurrentMetrics(t *testing.T) {
 
 	for i := 0; i < numGoroutines; i++ {
 		go func(id int) {
+			ctx := context.Background()
 			for j := 0; j < numOperations; j++ {
 				key := fmt.Sprintf("key-%d-%d", id, j)
 				value := []byte(fmt.Sprintf("value-%d-%d", id, j))
 
-				cache.Set(key, value)
-				cache.Get(key)
-				cache.Delete(key)
+				_ = cache.Set(ctx, key, value)
+				_, _, _ = cache.Get(ctx, key)
+				_ = cache.Delete(ctx, key)
 			}
 			done <- true
 		}(i)

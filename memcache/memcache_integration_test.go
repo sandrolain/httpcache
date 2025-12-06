@@ -99,6 +99,7 @@ func TestMemcacheIntegrationMultipleOperations(t *testing.T) {
 	}
 
 	cache := setupMemcacheCache(t)
+	ctx := context.Background()
 
 	// Test multiple keys
 	keys := []string{"key1", "key2", "key3"}
@@ -106,12 +107,17 @@ func TestMemcacheIntegrationMultipleOperations(t *testing.T) {
 
 	// Set multiple keys
 	for i, key := range keys {
-		cache.Set(key, values[i])
+		if err := cache.Set(ctx, key, values[i]); err != nil {
+			t.Fatalf("failed to set key %s: %v", key, err)
+		}
 	}
 
 	// Verify all keys
 	for i, key := range keys {
-		val, ok := cache.Get(key)
+		val, ok, err := cache.Get(ctx, key)
+		if err != nil {
+			t.Errorf("error getting key %s: %v", key, err)
+		}
 		if !ok {
 			t.Errorf("expected key %s to exist", key)
 		}
@@ -121,20 +127,31 @@ func TestMemcacheIntegrationMultipleOperations(t *testing.T) {
 	}
 
 	// Delete one key
-	cache.Delete(keys[1])
+	if err := cache.Delete(ctx, keys[1]); err != nil {
+		t.Fatalf("failed to delete key %s: %v", keys[1], err)
+	}
 
 	// Verify deletion
-	_, ok := cache.Get(keys[1])
+	_, ok, err := cache.Get(ctx, keys[1])
+	if err != nil {
+		t.Errorf("error getting key %s: %v", keys[1], err)
+	}
 	if ok {
 		t.Error("expected key2 to be deleted")
 	}
 
 	// Verify other keys still exist
-	_, ok = cache.Get(keys[0])
+	_, ok, err = cache.Get(ctx, keys[0])
+	if err != nil {
+		t.Errorf("error getting key %s: %v", keys[0], err)
+	}
 	if !ok {
 		t.Error("expected key1 to still exist")
 	}
-	_, ok = cache.Get(keys[2])
+	_, ok, err = cache.Get(ctx, keys[2])
+	if err != nil {
+		t.Errorf("error getting key %s: %v", keys[2], err)
+	}
 	if !ok {
 		t.Error("expected key3 to still exist")
 	}
@@ -147,15 +164,21 @@ func TestMemcacheIntegrationPersistence(t *testing.T) {
 	}
 
 	cache := setupMemcacheCache(t)
+	ctx := context.Background()
 
 	// Set a value
 	key := "persistentKey"
 	value := []byte("persistentValue")
-	cache.Set(key, value)
+	if err := cache.Set(ctx, key, value); err != nil {
+		t.Fatalf("failed to set: %v", err)
+	}
 
 	// Retrieve multiple times
 	for i := 0; i < 5; i++ {
-		val, ok := cache.Get(key)
+		val, ok, err := cache.Get(ctx, key)
+		if err != nil {
+			t.Errorf("iteration %d: error getting key: %v", i, err)
+		}
 		if !ok {
 			t.Errorf("iteration %d: expected key to exist", i)
 		}
@@ -172,6 +195,7 @@ func TestMemcacheIntegrationLargeValue(t *testing.T) {
 	}
 
 	cache := setupMemcacheCache(t)
+	ctx := context.Background()
 
 	// Create a large value (100KB)
 	largeValue := make([]byte, 100*1024)
@@ -180,10 +204,15 @@ func TestMemcacheIntegrationLargeValue(t *testing.T) {
 	}
 
 	key := "largeKey"
-	cache.Set(key, largeValue)
+	if err := cache.Set(ctx, key, largeValue); err != nil {
+		t.Fatalf("failed to set: %v", err)
+	}
 
 	// Retrieve and verify
-	retrievedValue, ok := cache.Get(key)
+	retrievedValue, ok, err := cache.Get(ctx, key)
+	if err != nil {
+		t.Fatalf("error getting key: %v", err)
+	}
 	if !ok {
 		t.Fatal("expected large value to be stored and retrieved")
 	}

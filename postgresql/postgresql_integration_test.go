@@ -219,10 +219,15 @@ func testConcurrentAccess(ctx context.Context, t *testing.T, pool *pgxpool.Pool)
 				data := []byte(fmt.Sprintf("data-%d", n))
 
 				// Set
-				cache.Set(key, data)
+				if err := cache.Set(ctx, key, data); err != nil {
+					t.Errorf("failed to set key %s: %v", key, err)
+				}
 
 				// Get
-				retrieved, ok := cache.Get(key)
+				retrieved, ok, err := cache.Get(ctx, key)
+				if err != nil {
+					t.Errorf("error getting key %s: %v", key, err)
+				}
 				if !ok {
 					t.Errorf("failed to get key %s", key)
 				}
@@ -231,7 +236,9 @@ func testConcurrentAccess(ctx context.Context, t *testing.T, pool *pgxpool.Pool)
 				}
 
 				// Delete
-				cache.Delete(key)
+				if err := cache.Delete(ctx, key); err != nil {
+					t.Errorf("failed to delete key %s: %v", key, err)
+				}
 
 				done <- true
 			}(i)
@@ -286,9 +293,14 @@ func testUpsertBehavior(ctx context.Context, t *testing.T, pool *pgxpool.Pool) {
 		data2 := []byte("updated data")
 
 		// First insert
-		cache.Set(key, data1)
+		if err := cache.Set(ctx, key, data1); err != nil {
+			t.Fatalf("failed to set key: %v", err)
+		}
 
-		retrieved, ok := cache.Get(key)
+		retrieved, ok, err := cache.Get(ctx, key)
+		if err != nil {
+			t.Fatalf("error getting key after first insert: %v", err)
+		}
 		if !ok {
 			t.Fatal("failed to get key after first insert")
 		}
@@ -297,9 +309,14 @@ func testUpsertBehavior(ctx context.Context, t *testing.T, pool *pgxpool.Pool) {
 		}
 
 		// Update (should use UPSERT)
-		cache.Set(key, data2)
+		if err := cache.Set(ctx, key, data2); err != nil {
+			t.Fatalf("failed to update key: %v", err)
+		}
 
-		retrieved, ok = cache.Get(key)
+		retrieved, ok, err = cache.Get(ctx, key)
+		if err != nil {
+			t.Fatalf("error getting key after update: %v", err)
+		}
 		if !ok {
 			t.Fatal("failed to get key after update")
 		}
@@ -309,7 +326,7 @@ func testUpsertBehavior(ctx context.Context, t *testing.T, pool *pgxpool.Pool) {
 
 		// Verify only one row exists
 		var count int
-		err := pool.QueryRow(ctx, "SELECT COUNT(*) FROM httpcache_upsert_test WHERE key = $1", "cache:"+key).Scan(&count)
+		err = pool.QueryRow(ctx, "SELECT COUNT(*) FROM httpcache_upsert_test WHERE key = $1", "cache:"+key).Scan(&count)
 		if err != nil {
 			t.Fatalf("failed to count rows: %v", err)
 		}
@@ -340,13 +357,15 @@ func testDistributedTransactions(ctx context.Context, t *testing.T, pool *pgxpoo
 
 				// Multiple updates to the same key
 				for j := 0; j < 10; j++ {
-					cache.Set(key, append(data, byte(j)))
+					_ = cache.Set(ctx, key, append(data, byte(j)))
 					time.Sleep(10 * time.Millisecond)
 				}
 
 				// Verify we can read the data
-				_, ok := cache.Get(key)
-				if !ok {
+				_, ok, err := cache.Get(ctx, key)
+				if err != nil {
+					errors <- fmt.Errorf("error getting key %s: %w", key, err)
+				} else if !ok {
 					errors <- fmt.Errorf("failed to get key %s", key)
 				}
 
@@ -398,7 +417,9 @@ func TestIntegrationCacheKeyPrefix(t *testing.T) {
 	testKey := "mykey"
 	testData := []byte("test data")
 
-	cache.Set(testKey, testData)
+	if err := cache.Set(ctx, testKey, testData); err != nil {
+		t.Fatalf("failed to set key: %v", err)
+	}
 
 	// Verify the key in database has the prefix
 	var key string

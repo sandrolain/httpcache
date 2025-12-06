@@ -167,9 +167,14 @@ func TestBlobCacheMinIOIntegration(t *testing.T) {
 			value[i] = byte(i % 256)
 		}
 
-		cache.Set(key, value)
+		if err := cache.Set(ctx, key, value); err != nil {
+			t.Fatalf("failed to set: %v", err)
+		}
 
-		retrieved, ok := cache.Get(key)
+		retrieved, ok, err := cache.Get(ctx, key)
+		if err != nil {
+			t.Fatalf("failed to get: %v", err)
+		}
 		if !ok {
 			t.Fatal("Expected to find large key in cache")
 		}
@@ -199,12 +204,18 @@ func TestBlobCacheMinIOIntegration(t *testing.T) {
 
 		// Set all keys
 		for i, key := range keys {
-			cache.Set(key, values[i])
+			if err := cache.Set(ctx, key, values[i]); err != nil {
+				t.Fatalf("failed to set key %s: %v", key, err)
+			}
 		}
 
 		// Get all keys
 		for i, key := range keys {
-			retrieved, ok := cache.Get(key)
+			retrieved, ok, err := cache.Get(ctx, key)
+			if err != nil {
+				t.Errorf("failed to get key %s: %v", key, err)
+				continue
+			}
 			if !ok {
 				t.Errorf("Expected to find key %s", key)
 				continue
@@ -215,22 +226,36 @@ func TestBlobCacheMinIOIntegration(t *testing.T) {
 		}
 
 		// Delete some keys
-		cache.Delete(keys[1])
-		cache.Delete(keys[3])
+		if err := cache.Delete(ctx, keys[1]); err != nil {
+			t.Fatalf("failed to delete key2: %v", err)
+		}
+		if err := cache.Delete(ctx, keys[3]); err != nil {
+			t.Fatalf("failed to delete key4: %v", err)
+		}
 
 		// Verify deletions
-		_, ok := cache.Get(keys[1])
+		_, ok, err := cache.Get(ctx, keys[1])
+		if err != nil {
+			t.Fatalf("failed to get key2: %v", err)
+		}
 		if ok {
 			t.Error("Expected key2 to be deleted")
 		}
-		_, ok = cache.Get(keys[3])
+		_, ok, err = cache.Get(ctx, keys[3])
+		if err != nil {
+			t.Fatalf("failed to get key4: %v", err)
+		}
 		if ok {
 			t.Error("Expected key4 to be deleted")
 		}
 
 		// Verify others still exist
 		for _, i := range []int{0, 2, 4} {
-			_, ok := cache.Get(keys[i])
+			_, ok, err := cache.Get(ctx, keys[i])
+			if err != nil {
+				t.Errorf("failed to get key %s: %v", keys[i], err)
+				continue
+			}
 			if !ok {
 				t.Errorf("Expected key %s to still exist", keys[i])
 			}
@@ -295,11 +320,18 @@ func TestBlobCacheMinIOKeyPrefix(t *testing.T) {
 	value1 := []byte("value-from-cache1")
 	value2 := []byte("value-from-cache2")
 
-	cache1.Set(key, value1)
-	cache2.Set(key, value2)
+	if err := cache1.Set(ctx, key, value1); err != nil {
+		t.Fatalf("failed to set in cache1: %v", err)
+	}
+	if err := cache2.Set(ctx, key, value2); err != nil {
+		t.Fatalf("failed to set in cache2: %v", err)
+	}
 
 	// Get from cache1
-	retrieved1, ok := cache1.Get(key)
+	retrieved1, ok, err := cache1.Get(ctx, key)
+	if err != nil {
+		t.Fatalf("failed to get from cache1: %v", err)
+	}
 	if !ok {
 		t.Fatal("Expected to find key in cache1")
 	}
@@ -308,7 +340,10 @@ func TestBlobCacheMinIOKeyPrefix(t *testing.T) {
 	}
 
 	// Get from cache2
-	retrieved2, ok := cache2.Get(key)
+	retrieved2, ok, err := cache2.Get(ctx, key)
+	if err != nil {
+		t.Fatalf("failed to get from cache2: %v", err)
+	}
 	if !ok {
 		t.Fatal("Expected to find key in cache2")
 	}
@@ -317,14 +352,22 @@ func TestBlobCacheMinIOKeyPrefix(t *testing.T) {
 	}
 
 	// Delete from cache1 shouldn't affect cache2
-	cache1.Delete(key)
+	if err := cache1.Delete(ctx, key); err != nil {
+		t.Fatalf("failed to delete from cache1: %v", err)
+	}
 
-	_, ok = cache1.Get(key)
+	_, ok, err = cache1.Get(ctx, key)
+	if err != nil {
+		t.Fatalf("failed to get from cache1 after delete: %v", err)
+	}
 	if ok {
 		t.Error("Expected key to be deleted from cache1")
 	}
 
-	retrieved2, ok = cache2.Get(key)
+	retrieved2, ok, err = cache2.Get(ctx, key)
+	if err != nil {
+		t.Fatalf("failed to get from cache2 after cache1 delete: %v", err)
+	}
 	if !ok {
 		t.Error("Expected key to still exist in cache2")
 	}

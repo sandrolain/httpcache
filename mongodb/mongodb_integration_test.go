@@ -84,9 +84,14 @@ func TestMongoDBCacheIntegrationMultipleOperations(t *testing.T) {
 		key := fmt.Sprintf("key-%d", i)
 		value := []byte(fmt.Sprintf("value-%d", i))
 
-		cache.Set(key, value)
+		if err := cache.Set(ctx, key, value); err != nil {
+			t.Fatalf("Failed to set key %q: %v", key, err)
+		}
 
-		retrieved, ok := cache.Get(key)
+		retrieved, ok, err := cache.Get(ctx, key)
+		if err != nil {
+			t.Errorf("Error retrieving key %q: %v", key, err)
+		}
 		if !ok {
 			t.Errorf("Failed to retrieve key %q", key)
 		}
@@ -96,8 +101,13 @@ func TestMongoDBCacheIntegrationMultipleOperations(t *testing.T) {
 	}
 
 	// Test deletion
-	cache.Delete("key-5")
-	_, ok := cache.Get("key-5")
+	if err := cache.Delete(ctx, "key-5"); err != nil {
+		t.Fatalf("Failed to delete key-5: %v", err)
+	}
+	_, ok, err := cache.Get(ctx, "key-5")
+	if err != nil {
+		t.Errorf("Error retrieving key-5: %v", err)
+	}
 	if ok {
 		t.Error("Expected key-5 to be deleted")
 	}
@@ -123,9 +133,14 @@ func TestMongoDBCacheIntegrationWithTTL(t *testing.T) {
 	defer cache.(interface{ Close() error }).Close()
 
 	// Set and retrieve a value
-	cache.Set("ttl-key", []byte("ttl-value"))
+	if err := cache.Set(ctx, "ttl-key", []byte("ttl-value")); err != nil {
+		t.Fatalf("Failed to set ttl-key: %v", err)
+	}
 
-	value, ok := cache.Get("ttl-key")
+	value, ok, err := cache.Get(ctx, "ttl-key")
+	if err != nil {
+		t.Fatalf("Error getting ttl-key: %v", err)
+	}
 	if !ok {
 		t.Fatal("Expected to find cached value")
 	}
@@ -160,7 +175,7 @@ func TestMongoDBCacheIntegrationConcurrent(t *testing.T) {
 	// Writer 1
 	go func() {
 		for i := 0; i < 50; i++ {
-			cache.Set(fmt.Sprintf("key-%d", i), []byte(fmt.Sprintf("value-%d", i)))
+			_ = cache.Set(ctx, fmt.Sprintf("key-%d", i), []byte(fmt.Sprintf("value-%d", i)))
 		}
 		done <- true
 	}()
@@ -168,7 +183,7 @@ func TestMongoDBCacheIntegrationConcurrent(t *testing.T) {
 	// Writer 2
 	go func() {
 		for i := 50; i < 100; i++ {
-			cache.Set(fmt.Sprintf("key-%d", i), []byte(fmt.Sprintf("value-%d", i)))
+			_ = cache.Set(ctx, fmt.Sprintf("key-%d", i), []byte(fmt.Sprintf("value-%d", i)))
 		}
 		done <- true
 	}()
@@ -176,7 +191,7 @@ func TestMongoDBCacheIntegrationConcurrent(t *testing.T) {
 	// Reader
 	go func() {
 		for i := 0; i < 100; i++ {
-			cache.Get(fmt.Sprintf("key-%d", i))
+			_, _, _ = cache.Get(ctx, fmt.Sprintf("key-%d", i))
 		}
 		done <- true
 	}()

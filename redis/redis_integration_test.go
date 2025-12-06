@@ -89,8 +89,13 @@ func setupRedisCache(t *testing.T) (cache, func()) {
 // verifyMultipleKeys verifies that all keys have the expected values.
 func verifyMultipleKeys(t *testing.T, c cache, keys []string, values [][]byte) {
 	t.Helper()
+	ctx := context.Background()
 	for i, key := range keys {
-		val, ok := c.Get(key)
+		val, ok, err := c.Get(ctx, key)
+		if err != nil {
+			t.Errorf("error getting key %s: %v", key, err)
+			continue
+		}
 		if !ok {
 			t.Errorf("expected key %s to exist", key)
 		}
@@ -103,7 +108,12 @@ func verifyMultipleKeys(t *testing.T, c cache, keys []string, values [][]byte) {
 // verifyKeyExists verifies that a key exists.
 func verifyKeyExists(t *testing.T, c cache, key string, shouldExist bool) {
 	t.Helper()
-	_, ok := c.Get(key)
+	ctx := context.Background()
+	_, ok, err := c.Get(ctx, key)
+	if err != nil {
+		t.Errorf("error getting key %s: %v", key, err)
+		return
+	}
 	if ok != shouldExist {
 		if shouldExist {
 			t.Errorf("expected key %s to exist", key)
@@ -135,20 +145,26 @@ func TestRedisCacheIntegrationMultipleOperations(t *testing.T) {
 	c, cleanup := setupRedisCache(t)
 	defer cleanup()
 
+	ctx := context.Background()
+
 	// Test multiple keys
 	keys := []string{"key1", "key2", "key3"}
 	values := [][]byte{[]byte("value1"), []byte("value2"), []byte("value3")}
 
 	// Set multiple keys
 	for i, key := range keys {
-		c.Set(key, values[i])
+		if err := c.Set(ctx, key, values[i]); err != nil {
+			t.Fatalf("failed to set key %s: %v", key, err)
+		}
 	}
 
 	// Verify all keys
 	verifyMultipleKeys(t, c, keys, values)
 
 	// Delete one key
-	c.Delete(keys[1])
+	if err := c.Delete(ctx, keys[1]); err != nil {
+		t.Fatalf("failed to delete key %s: %v", keys[1], err)
+	}
 
 	// Verify deletion
 	verifyKeyExists(t, c, keys[1], false)
@@ -167,14 +183,22 @@ func TestRedisCacheIntegrationPersistence(t *testing.T) {
 	c, cleanup := setupRedisCache(t)
 	defer cleanup()
 
+	ctx := context.Background()
+
 	// Set a value
 	key := "persistentKey"
 	value := []byte("persistentValue")
-	c.Set(key, value)
+	if err := c.Set(ctx, key, value); err != nil {
+		t.Fatalf("failed to set key: %v", err)
+	}
 
 	// Retrieve multiple times
 	for i := 0; i < 5; i++ {
-		val, ok := c.Get(key)
+		val, ok, err := c.Get(ctx, key)
+		if err != nil {
+			t.Errorf("iteration %d: error getting key: %v", i, err)
+			continue
+		}
 		if !ok {
 			t.Errorf("iteration %d: expected key to exist", i)
 		}

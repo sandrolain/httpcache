@@ -8,3 +8,4 @@ coverage.html
 licenses.csv
 trivy-results.json
 /tmp
+/*.test

@@ -106,8 +106,13 @@ func setupNATSKVCache(t *testing.T) (cache, func()) {
 // verifyMultipleKeys verifies that all keys have the expected values.
 func verifyMultipleKeys(t *testing.T, c cache, keys []string, values [][]byte) {
 	t.Helper()
+	ctx := context.Background()
 	for i, key := range keys {
-		val, ok := c.Get(key)
+		val, ok, err := c.Get(ctx, key)
+		if err != nil {
+			t.Errorf("error getting key %s: %v", key, err)
+			continue
+		}
 		if !ok {
 			t.Errorf("expected key %s to exist", key)
 		}
@@ -120,7 +125,12 @@ func verifyMultipleKeys(t *testing.T, c cache, keys []string, values [][]byte) {
 // verifyKeyExists verifies that a key exists.
 func verifyKeyExists(t *testing.T, c cache, key string, shouldExist bool) {
 	t.Helper()
-	_, ok := c.Get(key)
+	ctx := context.Background()
+	_, ok, err := c.Get(ctx, key)
+	if err != nil {
+		t.Errorf("error getting key %s: %v", key, err)
+		return
+	}
 	if ok != shouldExist {
 		if shouldExist {
 			t.Errorf("expected key %s to exist", key)
@@ -152,20 +162,26 @@ func TestNATSKVCacheIntegrationMultipleOperations(t *testing.T) {
 	c, cleanup := setupNATSKVCache(t)
 	defer cleanup()
 
+	ctx := context.Background()
+
 	// Test multiple keys
 	keys := []string{"key1", "key2", "key3"}
 	values := [][]byte{[]byte("value1"), []byte("value2"), []byte("value3")}
 
 	// Set multiple keys
 	for i, key := range keys {
-		c.Set(key, values[i])
+		if err := c.Set(ctx, key, values[i]); err != nil {
+			t.Fatalf("failed to set key %s: %v", key, err)
+		}
 	}
 
 	// Verify all keys
 	verifyMultipleKeys(t, c, keys, values)
 
 	// Delete one key
-	c.Delete(keys[1])
+	if err := c.Delete(ctx, keys[1]); err != nil {
+		t.Fatalf("failed to delete key %s: %v", keys[1], err)
+	}
 
 	// Verify deletion
 	verifyKeyExists(t, c, keys[1], false)
@@ -184,14 +200,22 @@ func TestNATSKVCacheIntegrationPersistence(t *testing.T) {
 	c, cleanup := setupNATSKVCache(t)
 	defer cleanup()
 
+	ctx := context.Background()
+
 	// Set a value
 	key := "persistentKey"
 	value := []byte("persistentValue")
-	c.Set(key, value)
+	if err := c.Set(ctx, key, value); err != nil {
+		t.Fatalf("failed to set key: %v", err)
+	}
 
 	// Retrieve multiple times
 	for i := 0; i < 5; i++ {
-		val, ok := c.Get(key)
+		val, ok, err := c.Get(ctx, key)
+		if err != nil {
+			t.Errorf("iteration %d: error getting key: %v", i, err)
+			continue
+		}
 		if !ok {
 			t.Errorf("iteration %d: expected key to exist", i)
 		}
@@ -231,9 +255,14 @@ func TestNewConstructorIntegration(t *testing.T) {
 	key := "test-key"
 	value := []byte("test-value")
 
-	cache.Set(key, value)
+	if err := cache.Set(ctx, key, value); err != nil {
+		t.Fatalf("failed to set key: %v", err)
+	}
 
-	val, ok := cache.Get(key)
+	val, ok, err := cache.Get(ctx, key)
+	if err != nil {
+		t.Fatalf("error getting key: %v", err)
+	}
 	if !ok {
 		t.Error("expected key to exist")
 	}
@@ -241,9 +270,14 @@ func TestNewConstructorIntegration(t *testing.T) {
 		t.Errorf("expected value %s, got %s", value, val)
 	}
 
-	cache.Delete(key)
+	if err := cache.Delete(ctx, key); err != nil {
+		t.Fatalf("failed to delete key: %v", err)
+	}
 
-	_, ok = cache.Get(key)
+	_, ok, err = cache.Get(ctx, key)
+	if err != nil {
+		t.Fatalf("error getting key after deletion: %v", err)
+	}
 	if ok {
 		t.Error("expected key to not exist after deletion")
 	}
@@ -323,11 +357,18 @@ func TestNewConstructorMultipleInstancesIntegration(t *testing.T) {
 	value2 := []byte("value-2")
 
 	// Set different values in each cache
-	cache1.Set(key, value1)
-	cache2.Set(key, value2)
+	if err := cache1.Set(ctx, key, value1); err != nil {
+		t.Fatalf("cache1: failed to set key: %v", err)
+	}
+	if err := cache2.Set(ctx, key, value2); err != nil {
+		t.Fatalf("cache2: failed to set key: %v", err)
+	}
 
 	// Verify each cache has its own value
-	val1, ok1 := cache1.Get(key)
+	val1, ok1, err := cache1.Get(ctx, key)
+	if err != nil {
+		t.Fatalf("cache1: error getting key: %v", err)
+	}
 	if !ok1 {
 		t.Error("cache1: expected key to exist")
 	}
@@ -335,7 +376,10 @@ func TestNewConstructorMultipleInstancesIntegration(t *testing.T) {
 		t.Errorf("cache1: expected value %s, got %s", value1, val1)
 	}
 
-	val2, ok2 := cache2.Get(key)
+	val2, ok2, err := cache2.Get(ctx, key)
+	if err != nil {
+		t.Fatalf("cache2: error getting key: %v", err)
+	}
 	if !ok2 {
 		t.Error("cache2: expected key to exist")
 	}
@@ -367,7 +411,9 @@ func TestNewConstructorCreateOrUpdateIntegration(t *testing.T) {
 	closer1, _ := cache1.(interface{ Close() error })
 
 	// Set a value
-	cache1.Set("key1", []byte("value1"))
+	if err := cache1.Set(ctx, "key1", []byte("value1")); err != nil {
+		t.Fatalf("failed to set key1: %v", err)
+	}
 	closer1.Close()
 
 	// Create second cache with same bucket - should update/reuse bucket
@@ -385,7 +431,10 @@ func TestNewConstructorCreateOrUpdateIntegration(t *testing.T) {
 	defer closer2.Close()
 
 	// Verify previous data still exists (bucket was updated, not recreated)
-	val, ok := cache2.Get("key1")
+	val, ok, err := cache2.Get(ctx, "key1")
+	if err != nil {
+		t.Fatalf("error getting key1: %v", err)
+	}
 	if !ok {
 		t.Error("expected key1 to exist after bucket update")
 	}
