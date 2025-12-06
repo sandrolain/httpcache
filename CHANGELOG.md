@@ -42,15 +42,15 @@ NewTransport(c Cache, opts ...TransportOption) *Transport
 - All 11 backend implementations updated with context and error support:
   - `MemoryCache`, `DiskCache`, `Redis`, `PostgreSQL`, `MongoDB`
   - `NATS K/V`, `LevelDB`, `Freecache`, `Hazelcast`, `Memcache`, `Blobcache`
-- All 4 wrapper implementations updated:
-  - `MultiCache`, `CompressCache` (gzip/brotli/snappy), `SecureCache`, `Prometheus Metrics`
+- All 3 wrapper implementations updated:
+  - `MultiCache`, `CompressCache` (gzip/brotli/snappy), `Prometheus Metrics`
 - Context propagation via `req.Context()` in HTTP transport operations
 - In-memory caches accept context for interface compliance (ignored internally)
 - External backends use context for timeouts and cancellation
 
 ### Added
 
-- **Built-in Security Features**: Cache key hashing and optional encryption moved from `wrapper/securecache` to core
+- **Built-in Security Features**: Cache key hashing and optional encryption integrated into core httpcache
   - **SHA-256 Key Hashing**: All cache keys are automatically hashed before being passed to the backend, preventing sensitive data in cache keys from being exposed
   - **AES-256-GCM Encryption**: Optional encryption of cached data via `WithEncryption(passphrase)` option
   - Uses scrypt for secure key derivation from passphrase

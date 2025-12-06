@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"io"
 	"log"
@@ -9,49 +8,11 @@ import (
 	"net/http/httptest"
 	"os"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/sandrolain/httpcache"
 	"github.com/sandrolain/httpcache/diskcache"
-	"github.com/sandrolain/httpcache/wrapper/securecache"
 )
-
-// memoryCache is a simple in-memory cache for demonstration purposes only
-type memoryCache struct {
-	mu    sync.RWMutex
-	items map[string][]byte
-}
-
-func newMemoryCache() *memoryCache {
-	return &memoryCache{
-		items: make(map[string][]byte),
-	}
-}
-
-func (c *memoryCache) Get(_ context.Context, key string) ([]byte, bool, error) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	value, ok := c.items[key]
-	if !ok {
-		return nil, false, nil
-	}
-	return value, true, nil
-}
-
-func (c *memoryCache) Set(_ context.Context, key string, value []byte) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.items[key] = value
-	return nil
-}
-
-func (c *memoryCache) Delete(_ context.Context, key string) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	delete(c.items, key)
-	return nil
-}
 
 func main() {
 	// Start a test server that returns the current time
@@ -62,10 +23,12 @@ func main() {
 	}))
 	defer server.Close()
 
-	fmt.Println("=== SecureCache Example ===")
+	fmt.Println("=== httpcache Security Features Example ===")
+	fmt.Println("(Using built-in key hashing and optional encryption)")
+	fmt.Println("")
 
-	// Example 1: Basic usage with key hashing only
-	fmt.Println("1. Key Hashing Only (No Encryption)")
+	// Example 1: Basic usage - key hashing is always enabled
+	fmt.Println("1. Basic Usage (Key Hashing Always Enabled)")
 	fmt.Println(strings.Repeat("-", 50))
 	demonstrateKeyHashingOnly(server.URL)
 
@@ -81,9 +44,9 @@ func main() {
 	fmt.Println("")
 
 	// Example 3: Security comparison
-	fmt.Println("3. Security Comparison")
+	fmt.Println("3. Security Features Summary")
 	fmt.Println(strings.Repeat("-", 50))
-	demonstrateSecurityComparison(server.URL)
+	demonstrateSecuritySummary()
 
 	fmt.Println("")
 	fmt.Println("")
@@ -102,21 +65,14 @@ func demonstrateKeyHashingOnly(serverURL string) {
 	}
 	defer os.RemoveAll(tmpDir)
 
-	// Create a secure cache with key hashing only
+	// Create cache and transport - key hashing is always enabled
 	cache := diskcache.New(tmpDir)
+	transport := httpcache.NewTransport(cache)
 
-	secureCache, err := securecache.New(securecache.Config{
-		Cache: cache,
-		// No passphrase = only key hashing
-	})
-	if err != nil {
-		log.Fatal(err)
-	}
+	fmt.Printf("Encryption enabled: %v\n", transport.IsEncryptionEnabled())
+	fmt.Println("Key hashing: always enabled (SHA-256)")
 
-	fmt.Printf("Encryption enabled: %v\n", secureCache.IsEncrypted())
-
-	// Create HTTP client with secure cache
-	transport := httpcache.NewTransport(secureCache)
+	// Create HTTP client
 	client := transport.Client()
 
 	// First request - will hit the server
@@ -141,7 +97,7 @@ func demonstrateKeyHashingOnly(serverURL string) {
 	fmt.Printf("Response: %s", body2)
 	fmt.Printf("From cache: %v\n", resp2.Header.Get("X-From-Cache") == "1")
 
-	fmt.Println("\n✓ Keys are hashed with SHA-256 before storage")
+	fmt.Println("\n✓ Keys are automatically hashed with SHA-256 before storage")
 	fmt.Println("✓ Original URLs are not exposed in cache backend")
 }
 
@@ -161,21 +117,16 @@ func demonstrateWithEncryption(serverURL string) {
 	}
 	defer os.RemoveAll(tmpDir)
 
-	// Create a secure cache with encryption
+	// Create cache and transport with encryption enabled
 	cache := diskcache.New(tmpDir)
+	transport := httpcache.NewTransport(cache,
+		httpcache.WithEncryption(passphrase),
+	)
 
-	secureCache, err := securecache.New(securecache.Config{
-		Cache:      cache,
-		Passphrase: passphrase,
-	})
-	if err != nil {
-		log.Fatal(err)
-	}
+	fmt.Printf("\nEncryption enabled: %v\n", transport.IsEncryptionEnabled())
+	fmt.Println("Key hashing: always enabled (SHA-256)")
 
-	fmt.Printf("\nEncryption enabled: %v\n", secureCache.IsEncrypted())
-
-	// Create HTTP client with secure cache
-	transport := httpcache.NewTransport(secureCache)
+	// Create HTTP client
 	client := transport.Client()
 
 	// First request
@@ -205,56 +156,33 @@ func demonstrateWithEncryption(serverURL string) {
 	fmt.Println("✓ Authentication tag prevents tampering")
 }
 
-func demonstrateSecurityComparison(serverURL string) {
-	// Create three caches: normal, hashing-only, and encrypted
-	// Using in-memory cache for comparison (no persistence needed)
-	normalCache := newMemoryCache()
-
-	hashingCache, _ := securecache.New(securecache.Config{
-		Cache: newMemoryCache(),
-	})
-
-	encryptedCache, _ := securecache.New(securecache.Config{
-		Cache:      newMemoryCache(),
-		Passphrase: "demo-passphrase",
-	})
-
-	// Make a request with each cache
-	ctx := context.Background()
-	testKey := "http://example.com/api/user/123"
-	testData := []byte("HTTP/1.1 200 OK\r\nContent-Length: 50\r\n\r\n{\"user\":\"john\",\"ssn\":\"123-45-6789\"}")
-
-	// Store in all caches
-	_ = normalCache.Set(ctx, testKey, testData)
-	_ = hashingCache.Set(ctx, testKey, testData)
-	_ = encryptedCache.Set(ctx, testKey, testData)
-
-	fmt.Println("Security Comparison:")
+func demonstrateSecuritySummary() {
+	fmt.Println("httpcache v2.0 Built-in Security Features:")
 	fmt.Println("")
 
-	// Normal cache - keys and data exposed
-	fmt.Println("1. Normal Cache (No Security):")
-	fmt.Printf("   Key stored as: %s\n", testKey)
-	fmt.Println("   ❌ Original URL visible in cache")
-	fmt.Println("   ❌ Response data readable")
-	fmt.Println("   ❌ Sensitive data (SSN) exposed")
+	fmt.Println("1. SHA-256 Key Hashing (Always Enabled):")
+	fmt.Println("   ✓ All cache keys are automatically hashed")
+	fmt.Println("   ✓ Original URLs/keys are not exposed in cache backend")
+	fmt.Println("   ✓ Prevents key enumeration attacks")
+	fmt.Println("   ✓ No configuration required - enabled by default")
 	fmt.Println("")
 
-	// Hashing cache - keys hashed, data exposed
-	fmt.Println("2. SecureCache (Key Hashing Only):")
-	fmt.Println("   Key stored as: SHA-256 hash (64 hex characters)")
-	fmt.Println("   ✓ Original URL hidden")
-	fmt.Println("   ❌ Response data readable")
-	fmt.Println("   ⚠️  Sensitive data (SSN) exposed")
+	fmt.Println("2. AES-256-GCM Encryption (Optional):")
+	fmt.Println("   ✓ Enable with: httpcache.WithEncryption(passphrase)")
+	fmt.Println("   ✓ Uses scrypt for secure key derivation")
+	fmt.Println("   ✓ Authenticated encryption prevents tampering")
+	fmt.Println("   ✓ Each value has unique nonce for IV safety")
 	fmt.Println("")
 
-	// Encrypted cache - keys hashed, data encrypted
-	fmt.Println("3. SecureCache (Hashing + Encryption):")
-	fmt.Println("   Key stored as: SHA-256 hash (64 hex characters)")
-	fmt.Println("   ✓ Original URL hidden")
-	fmt.Println("   ✓ Response data encrypted")
-	fmt.Println("   ✓ Sensitive data (SSN) protected")
-	fmt.Println("   ✓ Authentication tag prevents tampering")
+	fmt.Println("Usage Examples:")
+	fmt.Println("")
+	fmt.Println("   // Basic (key hashing always enabled)")
+	fmt.Println("   transport := httpcache.NewTransport(cache)")
+	fmt.Println("")
+	fmt.Println("   // With encryption")
+	fmt.Println("   transport := httpcache.NewTransport(cache,")
+	fmt.Println("       httpcache.WithEncryption(os.Getenv(\"CACHE_PASSPHRASE\")),")
+	fmt.Println("   )")
 }
 
 func demonstrateMultiUserScenario() {
@@ -268,17 +196,18 @@ func demonstrateMultiUserScenario() {
 	}
 	defer os.RemoveAll(tmpDir)
 
-	// Use CacheKeyHeaders to include user ID in cache key
+	// Get passphrase from environment or use default
+	passphrase := os.Getenv("CACHE_PASSPHRASE")
+	if passphrase == "" {
+		passphrase = "production-grade-passphrase-from-env"
+	}
+
+	// Create transport with encryption and user-specific caching
 	cache := diskcache.New(tmpDir)
-
-	secureCache, _ := securecache.New(securecache.Config{
-		Cache:      cache,
-		Passphrase: "production-grade-passphrase-from-env",
-	})
-
-	// Create transport with user-specific caching
-	transport := httpcache.NewTransport(secureCache)
-	transport.CacheKeyHeaders = []string{"X-User-ID"} // Include user ID in cache key
+	transport := httpcache.NewTransport(cache,
+		httpcache.WithEncryption(passphrase),
+		httpcache.WithCacheKeyHeaders([]string{"X-User-ID"}), // Include user ID in cache key
+	)
 
 	client := transport.Client()
 

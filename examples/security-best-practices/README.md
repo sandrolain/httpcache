@@ -1,12 +1,12 @@
 # Security Best Practices Example
 
-This example demonstrates the `securecache` wrapper for adding security to any cache backend.
+This example demonstrates the built-in security features of httpcache v2.0.
 
 ## Features Demonstrated
 
-1. **Key Hashing Only** - Basic privacy protection
-2. **Key Hashing + Encryption** - Full data protection
-3. **Security Comparison** - Visual comparison of different approaches
+1. **Key Hashing (Always Enabled)** - All cache keys are automatically hashed with SHA-256
+2. **Optional Encryption** - Enable AES-256-GCM encryption with `WithEncryption(passphrase)`
+3. **Security Features Summary** - Overview of security capabilities
 4. **Multi-User Scenario** - Recommended pattern for user-specific data
 
 ## Running the Example
@@ -22,11 +22,13 @@ CACHE_PASSPHRASE="your-secret-passphrase" go run main.go
 ## Expected Output
 
 ```
-=== SecureCache Example ===
+=== httpcache Security Features Example ===
+(Using built-in key hashing and optional encryption)
 
-1. Key Hashing Only (No Encryption)
+1. Basic Usage (Key Hashing Always Enabled)
 --------------------------------------------------
 Encryption enabled: false
+Key hashing: always enabled (SHA-256)
 
 First request (should miss cache):
 Response: Server time: 2024-01-15T10:30:45Z
@@ -36,7 +38,7 @@ Second request (should hit cache):
 Response: Server time: 2024-01-15T10:30:45Z
 From cache: true
 
-✓ Keys are hashed with SHA-256 before storage
+✓ Keys are automatically hashed with SHA-256 before storage
 ✓ Original URLs are not exposed in cache backend
 
 
@@ -46,6 +48,7 @@ From cache: true
    In production, use environment variable: CACHE_PASSPHRASE
 
 Encryption enabled: true
+Key hashing: always enabled (SHA-256)
 
 First request (should miss cache):
 Response: Server time: 2024-01-15T10:30:45Z
@@ -60,28 +63,21 @@ From cache: true
 ✓ Authentication tag prevents tampering
 
 
-3. Security Comparison
+3. Security Features Summary
 --------------------------------------------------
-Security Comparison:
+httpcache v2.0 Built-in Security Features:
 
-1. Normal Cache (No Security):
-   Key stored as: http://example.com/api/user/123
-   ❌ Original URL visible in cache
-   ❌ Response data readable
-   ❌ Sensitive data (SSN) exposed
+1. SHA-256 Key Hashing (Always Enabled):
+   ✓ All cache keys are automatically hashed
+   ✓ Original URLs/keys are not exposed in cache backend
+   ✓ Prevents key enumeration attacks
+   ✓ No configuration required - enabled by default
 
-2. SecureCache (Key Hashing Only):
-   Key stored as: SHA-256 hash (64 hex characters)
-   ✓ Original URL hidden
-   ❌ Response data readable
-   ⚠️  Sensitive data (SSN) exposed
-
-3. SecureCache (Hashing + Encryption):
-   Key stored as: SHA-256 hash (64 hex characters)
-   ✓ Original URL hidden
-   ✓ Response data encrypted
-   ✓ Sensitive data (SSN) protected
-   ✓ Authentication tag prevents tampering
+2. AES-256-GCM Encryption (Optional):
+   ✓ Enable with: httpcache.WithEncryption(passphrase)
+   ✓ Uses scrypt for secure key derivation
+   ✓ Authenticated encryption prevents tampering
+   ✓ Each value has unique nonce for IV safety
 
 
 4. Multi-User Scenario (Recommended Pattern)
@@ -109,7 +105,7 @@ Security Benefits:
 
 ## When to Use Each Approach
 
-### Key Hashing Only
+### Key Hashing Only (Default)
 
 Use when:
 
@@ -172,7 +168,6 @@ import (
     
     "github.com/sandrolain/httpcache"
     "github.com/sandrolain/httpcache/redis"
-    "github.com/sandrolain/httpcache/wrapper/securecache"
 )
 
 func main() {
@@ -186,23 +181,16 @@ func main() {
     redisClient := redis.MustNewClient("localhost:6379", "", 0)
     redisCache := redis.NewWithClient(redisClient)
     
-    // Wrap with security
-    cache, err := securecache.New(securecache.Config{
-        Cache:      redisCache,
-        Passphrase: passphrase,
-    })
-    if err != nil {
-        log.Fatal(err)
-    }
-    
-    // Use with transport
-    transport := httpcache.NewTransport(cache)
-    transport.CacheKeyHeaders = []string{"Authorization", "X-User-ID"}
+    // Create transport with security features
+    transport := httpcache.NewTransport(redisCache,
+        httpcache.WithEncryption(passphrase),
+        httpcache.WithCacheKeyHeaders([]string{"Authorization", "X-User-ID"}),
+    )
     
     client := transport.Client()
     
     // Client now has:
-    // ✓ SHA-256 hashed cache keys
+    // ✓ SHA-256 hashed cache keys (always enabled)
     // ✓ AES-256-GCM encrypted data
     // ✓ User-specific caching
     // ✓ Authentication tag verification
@@ -243,5 +231,5 @@ This implementation helps meet requirements for:
 
 ## See Also
 
-- [securecache package documentation](../../wrapper/securecache/README.md)
 - [Main README](../../README.md)
+- [Security Documentation](../../docs/security.md)

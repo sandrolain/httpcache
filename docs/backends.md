@@ -68,14 +68,24 @@ client := &http.Client{Transport: transport}
 
 See the [MultiCache documentation](../wrapper/multicache/README.md) for details.
 
-### SecureCache - Encryption Wrapper
+### Built-in Security Features
 
-The [`securecache`](../wrapper/securecache/README.md) wrapper adds security features:
+httpcache v2.0 includes built-in security features in the core package:
 
 - **Key hashing**: SHA-256 hashing of cache keys (always enabled)
-- **Data encryption**: Optional AES-256-GCM encryption with passphrase
+- **Data encryption**: Optional AES-256-GCM encryption via `WithEncryption(passphrase)`
 
-See [Security Considerations](./security.md#secure-cache-wrapper) for details.
+```go
+// Basic usage - key hashing always enabled
+transport := httpcache.NewTransport(cache)
+
+// With encryption enabled
+transport := httpcache.NewTransport(cache,
+    httpcache.WithEncryption("your-secret-passphrase"),
+)
+```
+
+See [Security Considerations](./security.md) for details.
 
 ## Related Projects
 
@@ -290,26 +300,24 @@ export AZURE_STORAGE_KEY=your-key
 
 See [BlobCache Integration Tests](../blobcache/INTEGRATION_TESTS.md) for more examples.
 
-### Secure Cache Wrapper
+### Built-in Security Features
 
-Add security to any cache backend with SHA-256 key hashing and optional AES-256-GCM encryption:
+Add security to any cache with built-in SHA-256 key hashing (always enabled) and optional AES-256-GCM encryption:
 
 ```go
 import (
     "github.com/sandrolain/httpcache"
-    "github.com/sandrolain/httpcache/wrapper/securecache"
     "github.com/sandrolain/httpcache/redis"
 )
 
-// Wrap any backend with security layer
+// Connect to Redis
 redisCache := redis.NewWithClient(redisConn)
-secureCache, _ := securecache.New(securecache.Config{
-    Cache:      redisCache,
-    Passphrase: "your-secret-passphrase-from-env",
-})
 
-transport := httpcache.NewTransport(secureCache)
-client := &http.Client{Transport: transport}
+// Create transport with encryption enabled
+transport := httpcache.NewTransport(redisCache,
+    httpcache.WithEncryption("your-secret-passphrase-from-env"),
+)
+client := transport.Client()
 ```
 
 **Security Features**:
@@ -321,7 +329,7 @@ client := &http.Client{Transport: transport}
 
 **Best for**: User-specific data, PII, authentication tokens, GDPR/CCPA compliance, HIPAA-regulated data, PCI DSS requirements
 
-See [`securecache/README.md`](../wrapper/securecache/README.md) for details.
+See [Security Considerations](./security.md) for details.
 
 ### Custom Transport Configuration
 

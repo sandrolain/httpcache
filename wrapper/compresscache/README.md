@@ -592,5 +592,5 @@ See the main [LICENSE.txt](../../LICENSE.txt) file in the repository root.
 
 - [Main httpcache documentation](../../README.md)
 - [MultiCache wrapper](../multicache/) - Multi-tier caching
-- [SecureCache wrapper](../securecache/) - Encryption and security
+- [Security Considerations](../../docs/security.md) - Built-in encryption and security features
 - [Cache backends](../../docs/backends.md) - Available cache backends
