@@ -37,6 +37,22 @@ NewTransport(c Cache) *Transport
 NewTransport(c Cache, opts ...TransportOption) *Transport
 ```
 
+**Redis Backend Migration**
+
+The Redis backend now uses the official `github.com/redis/go-redis/v9` client instead of `github.com/gomodule/redigo`:
+
+```go
+// Old (redigo)
+import "github.com/gomodule/redigo/redis"
+conn, _ := redis.Dial("tcp", "localhost:6379")
+cache := rediscache.NewWithClient(conn)
+
+// New (go-redis/v9)
+import "github.com/redis/go-redis/v9"
+client := redis.NewClient(&redis.Options{Addr: "localhost:6379"})
+cache := rediscache.NewWithClient(client)
+```
+
 ### Changed
 
 - All 11 backend implementations updated with context and error support:
@@ -47,9 +63,19 @@ NewTransport(c Cache, opts ...TransportOption) *Transport
 - Context propagation via `req.Context()` in HTTP transport operations
 - In-memory caches accept context for interface compliance (ignored internally)
 - External backends use context for timeouts and cancellation
+- **Redis backend migrated** from `gomodule/redigo` to official `github.com/redis/go-redis/v9`:
+  - Full context support for proper cancellation and timeouts
+  - Built-in connection pooling with better configuration
+  - Support for Redis 6.0+ ACL authentication (Username field)
 
 ### Added
 
+- **Cache Prewarmer**: New `wrapper/prewarmer` package for prefetching and caching resources
+  - Sequential and concurrent prewarming with configurable workers
+  - XML sitemap support (including sitemap indexes)
+  - Progress callbacks for monitoring
+  - Force refresh option to bypass existing cache entries
+  - Full context cancellation and timeout support
 - **Built-in Security Features**: Cache key hashing and optional encryption integrated into core httpcache
   - **SHA-256 Key Hashing**: All cache keys are automatically hashed before being passed to the backend, preventing sensitive data in cache keys from being exposed
   - **AES-256-GCM Encryption**: Optional encryption of cached data via `WithEncryption(passphrase)` option
@@ -74,6 +100,7 @@ NewTransport(c Cache, opts ...TransportOption) *Transport
 
 - Migration guide for v1.x → v2.0 (see TODO.md)
 - Updated examples demonstrating context usage
+- New prewarmer documentation and examples
 
 ### Reference
 
