@@ -4,8 +4,8 @@ package leveldbcache
 
 import (
 	"context"
+	"fmt"
 
-	"github.com/sandrolain/httpcache"
 	"github.com/syndtr/goleveldb/leveldb"
 )
 
@@ -31,8 +31,7 @@ func (c *Cache) Get(_ context.Context, key string) (resp []byte, ok bool, err er
 // The context parameter is accepted for interface compliance but not used for LevelDB operations.
 func (c *Cache) Set(_ context.Context, key string, resp []byte) error {
 	if err := c.db.Put([]byte(key), resp, nil); err != nil {
-		httpcache.GetLogger().Warn("failed to write to leveldb cache", "key", key, "error", err)
-		return err
+		return fmt.Errorf("leveldb cache set failed for key %q: %w", key, err)
 	}
 	return nil
 }
@@ -41,8 +40,7 @@ func (c *Cache) Set(_ context.Context, key string, resp []byte) error {
 // The context parameter is accepted for interface compliance but not used for LevelDB operations.
 func (c *Cache) Delete(_ context.Context, key string) error {
 	if err := c.db.Delete([]byte(key), nil); err != nil {
-		httpcache.GetLogger().Warn("failed to delete from leveldb cache", "key", key, "error", err)
-		return err
+		return fmt.Errorf("leveldb cache delete failed for key %q: %w", key, err)
 	}
 	return nil
 }

@@ -3,6 +3,7 @@
 package httpcache
 
 import (
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -16,7 +17,7 @@ type cacheControl map[string]string
 // - Duplicate directives: uses the first occurrence, logs warning
 // - Conflicting directives: applies the most restrictive, logs warning
 // - Invalid values: logs warning but continues processing
-func parseCacheControl(headers http.Header) cacheControl {
+func parseCacheControl(headers http.Header, log *slog.Logger) cacheControl {
 	cc := cacheControl{}
 	seen := make(map[string]bool)
 	ccHeader := headers.Get("Cache-Control")
@@ -39,7 +40,7 @@ func parseCacheControl(headers http.Header) cacheControl {
 
 		// RFC 9111: Duplicate directives - use first occurrence
 		if seen[directive] {
-			GetLogger().Warn("duplicate Cache-Control directive detected, using first value",
+			log.Warn("duplicate Cache-Control directive detected, using first value",
 				"directive", directive,
 				"ignored_value", value)
 			continue
@@ -50,19 +51,19 @@ func parseCacheControl(headers http.Header) cacheControl {
 	}
 
 	// RFC 9111: Detect conflicting directives and apply most restrictive
-	detectConflictingDirectives(cc)
+	detectConflictingDirectives(cc, log)
 
 	return cc
 }
 
 // detectConflictingDirectives checks for conflicting Cache-Control directives
 // and applies the most restrictive according to RFC 9111 Section 4.2.1
-func detectConflictingDirectives(cc cacheControl) {
+func detectConflictingDirectives(cc cacheControl, log *slog.Logger) {
 	// Conflict: no-cache + max-age
 	// no-cache is more restrictive (requires revalidation)
 	if _, hasNoCache := cc[cacheControlNoCache]; hasNoCache {
 		if maxAge, hasMaxAge := cc[cacheControlMaxAge]; hasMaxAge && maxAge != "" {
-			GetLogger().Warn(logConflictingDirectives,
+			log.Warn(logConflictingDirectives,
 				"conflict", "no-cache + max-age",
 				"resolution", "no-cache takes precedence (requires revalidation)")
 			// Keep no-cache, but also keep max-age for freshness calculation
@@ -74,7 +75,7 @@ func detectConflictingDirectives(cc cacheControl) {
 	// private is more restrictive (prevents shared cache storage)
 	if _, hasPrivate := cc[cacheControlPrivate]; hasPrivate {
 		if _, hasPublic := cc[cacheControlPublic]; hasPublic {
-			GetLogger().Warn(logConflictingDirectives,
+			log.Warn(logConflictingDirectives,
 				"conflict", "public + private",
 				"resolution", "private takes precedence (more restrictive)")
 			// Remove public directive as private is more restrictive
@@ -86,7 +87,7 @@ func detectConflictingDirectives(cc cacheControl) {
 	// no-store is more restrictive (prevents storage completely)
 	if _, hasNoStore := cc[cacheControlNoStore]; hasNoStore {
 		if maxAge, hasMaxAge := cc[cacheControlMaxAge]; hasMaxAge && maxAge != "" {
-			GetLogger().Warn(logConflictingDirectives,
+			log.Warn(logConflictingDirectives,
 				"conflict", "no-store + max-age",
 				"resolution", "no-store takes precedence (prevents caching)")
 			// Keep both, but no-store will prevent caching in canStore()
@@ -97,7 +98,7 @@ func detectConflictingDirectives(cc cacheControl) {
 	// no-store is more restrictive (no caching vs stale serving)
 	if _, hasNoStore := cc[cacheControlNoStore]; hasNoStore {
 		if _, hasMustRevalidate := cc[cacheControlMustRevalidate]; hasMustRevalidate {
-			GetLogger().Warn(logConflictingDirectives,
+			log.Warn(logConflictingDirectives,
 				"conflict", "no-store + must-revalidate",
 				"resolution", "no-store takes precedence (prevents caching)")
 			// must-revalidate is irrelevant if we're not caching
@@ -105,16 +106,16 @@ func detectConflictingDirectives(cc cacheControl) {
 	}
 
 	// Validate max-age and s-maxage values
-	validateMaxAgeDirective(cc, cacheControlMaxAge, "max-age")
-	validateMaxAgeDirective(cc, cacheControlSMaxAge, "s-maxage")
+	validateMaxAgeDirective(cc, cacheControlMaxAge, "max-age", log)
+	validateMaxAgeDirective(cc, cacheControlSMaxAge, "s-maxage", log)
 }
 
 // validateMaxAgeDirective validates max-age or s-maxage directive values
-func validateMaxAgeDirective(cc cacheControl, directiveKey, directiveName string) {
+func validateMaxAgeDirective(cc cacheControl, directiveKey, directiveName string, log *slog.Logger) {
 	if value, hasDirective := cc[directiveKey]; hasDirective && value != "" {
 		// Check if value contains decimal point (float)
 		if strings.Contains(value, ".") {
-			GetLogger().Warn("invalid Cache-Control value (float not allowed)",
+			log.Warn("invalid Cache-Control value (float not allowed)",
 				"directive", directiveName,
 				"value", value,
 				"resolution", "ignoring directive")
@@ -124,14 +125,14 @@ func validateMaxAgeDirective(cc cacheControl, directiveKey, directiveName string
 
 		if duration, err := time.ParseDuration(value + "s"); err == nil {
 			if duration < 0 {
-				GetLogger().Warn("invalid Cache-Control value (negative)",
+				log.Warn("invalid Cache-Control value (negative)",
 					"directive", directiveName,
 					"value", value,
 					"resolution", "treating as 0")
 				cc[directiveKey] = "0"
 			}
 		} else {
-			GetLogger().Warn("invalid Cache-Control value (non-numeric)",
+			log.Warn("invalid Cache-Control value (non-numeric)",
 				"directive", directiveName,
 				"value", value,
 				"resolution", "ignoring directive")
@@ -146,7 +147,7 @@ func validateMaxAgeDirective(cc cacheControl, directiveKey, directiveName string
 // RFC 9111 Section 3: Storing Responses in Caches
 // RFC 9111 Section 5.2.2.3: must-understand directive
 // RFC 9111 Section 3.5: Storing Responses to Authenticated Requests
-func canStore(req *http.Request, reqCacheControl, respCacheControl cacheControl, isPublicCache bool, statusCode int) (canStore bool) {
+func canStore(req *http.Request, reqCacheControl, respCacheControl cacheControl, isPublicCache bool, statusCode int, log *slog.Logger) (canStore bool) {
 	// RFC 9111 Section 5.2.2.3: must-understand directive
 	// When must-understand is present, the cache can only store the response if:
 	// 1. The status code is understood by the cache, AND
@@ -184,7 +185,7 @@ func canStore(req *http.Request, reqCacheControl, respCacheControl cacheControl,
 		_, hasSMaxAge := respCacheControl[cacheControlSMaxAge]
 
 		if !hasPublic && !hasMustRevalidate && !hasSMaxAge {
-			GetLogger().Debug("refusing to cache Authorization request in shared cache",
+			log.Debug("refusing to cache Authorization request in shared cache",
 				"url", req.URL.String(),
 				"reason", "no public/must-revalidate/s-maxage directive")
 			return false

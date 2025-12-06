@@ -1,6 +1,7 @@
 package httpcache
 
 import (
+	"log/slog"
 	"net/http"
 	"testing"
 	"time"
@@ -100,7 +101,7 @@ func TestCanStaleOnError(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := canStaleOnError(tt.respHeaders, tt.reqHeaders)
+			got := canStaleOnError(tt.respHeaders, tt.reqHeaders, slog.Default())
 			if got != tt.want {
 				t.Errorf("canStaleOnError() = %v, want %v", got, tt.want)
 			}
@@ -119,7 +120,7 @@ func TestGetFreshnessEdgeCases(t *testing.T) {
 		reqHeaders := http.Header{
 			"Cache-Control": []string{"only-if-cached"},
 		}
-		if got := getFreshness(respHeaders, reqHeaders); got != fresh {
+		if got := getFreshness(respHeaders, reqHeaders, slog.Default()); got != fresh {
 			t.Errorf("getFreshness() = %v, want %v", got, fresh)
 		}
 	})
@@ -130,7 +131,7 @@ func TestGetFreshnessEdgeCases(t *testing.T) {
 			"Date":          []string{time.Now().Format(time.RFC1123)},
 		}
 		reqHeaders := http.Header{}
-		if got := getFreshness(respHeaders, reqHeaders); got != stale {
+		if got := getFreshness(respHeaders, reqHeaders, slog.Default()); got != stale {
 			t.Errorf("getFreshness() = %v, want %v", got, stale)
 		}
 	})
@@ -141,7 +142,7 @@ func TestGetFreshnessEdgeCases(t *testing.T) {
 			"Date":    []string{time.Now().Format(time.RFC1123)},
 		}
 		reqHeaders := http.Header{}
-		if got := getFreshness(respHeaders, reqHeaders); got != stale {
+		if got := getFreshness(respHeaders, reqHeaders, slog.Default()); got != stale {
 			t.Errorf("getFreshness() = %v, want %v", got, stale)
 		}
 	})
@@ -156,7 +157,7 @@ func TestGetFreshnessEdgeCases(t *testing.T) {
 		}
 		// RFC 9111: Invalid directive should be ignored, response should be fresh
 		// because response has valid max-age=3600
-		if got := getFreshness(respHeaders, reqHeaders); got != fresh {
+		if got := getFreshness(respHeaders, reqHeaders, slog.Default()); got != fresh {
 			t.Errorf("getFreshness() = %v, want %v (invalid request max-age ignored)", got, fresh)
 		}
 	})
@@ -170,7 +171,7 @@ func TestGetFreshnessEdgeCases(t *testing.T) {
 			"Cache-Control": []string{"min-fresh=invalid"},
 		}
 		// Should still be fresh because invalid min-fresh is ignored
-		if got := getFreshness(respHeaders, reqHeaders); got != fresh {
+		if got := getFreshness(respHeaders, reqHeaders, slog.Default()); got != fresh {
 			t.Errorf("getFreshness() = %v, want %v", got, fresh)
 		}
 	})
@@ -187,7 +188,7 @@ func TestGetFreshnessEdgeCases(t *testing.T) {
 			"Cache-Control": []string{"max-stale=invalid"},
 		}
 		// Should be stale because invalid max-stale is ignored
-		if got := getFreshness(respHeaders, reqHeaders); got != stale {
+		if got := getFreshness(respHeaders, reqHeaders, slog.Default()); got != stale {
 			t.Errorf("getFreshness() = %v, want %v", got, stale)
 		}
 	})

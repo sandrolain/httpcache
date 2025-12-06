@@ -67,18 +67,14 @@ func cacheKey(key string) string {
 // the redigo library's limitations.
 func (c cache) Get(_ context.Context, key string) (resp []byte, ok bool, err error) {
 	conn := c.pool.Get()
-	defer func() {
-		if closeErr := conn.Close(); closeErr != nil {
-			httpcache.GetLogger().Error("failed to close redis connection", "error", closeErr)
-		}
-	}()
+	defer conn.Close() //nolint:errcheck // best effort cleanup
 
 	item, err := redis.Bytes(conn.Do("GET", cacheKey(key)))
 	if err != nil {
 		if err == redis.ErrNil {
 			return nil, false, nil
 		}
-		return nil, false, err
+		return nil, false, fmt.Errorf("redis cache get failed for key %q: %w", key, err)
 	}
 	return item, true, nil
 }
@@ -89,15 +85,10 @@ func (c cache) Get(_ context.Context, key string) (resp []byte, ok bool, err err
 // the redigo library's limitations.
 func (c cache) Set(_ context.Context, key string, resp []byte) error {
 	conn := c.pool.Get()
-	defer func() {
-		if closeErr := conn.Close(); closeErr != nil {
-			httpcache.GetLogger().Error("failed to close redis connection", "error", closeErr)
-		}
-	}()
+	defer conn.Close() //nolint:errcheck // best effort cleanup
 
 	if _, err := conn.Do("SET", cacheKey(key), resp); err != nil {
-		httpcache.GetLogger().Warn("failed to write to redis cache", "key", key, "error", err)
-		return err
+		return fmt.Errorf("redis cache set failed for key %q: %w", key, err)
 	}
 	return nil
 }
@@ -108,15 +99,10 @@ func (c cache) Set(_ context.Context, key string, resp []byte) error {
 // the redigo library's limitations.
 func (c cache) Delete(_ context.Context, key string) error {
 	conn := c.pool.Get()
-	defer func() {
-		if closeErr := conn.Close(); closeErr != nil {
-			httpcache.GetLogger().Error("failed to close redis connection", "error", closeErr)
-		}
-	}()
+	defer conn.Close() //nolint:errcheck // best effort cleanup
 
 	if _, err := conn.Do("DEL", cacheKey(key)); err != nil {
-		httpcache.GetLogger().Warn("failed to delete from redis cache", "key", key, "error", err)
-		return err
+		return fmt.Errorf("redis cache delete failed for key %q: %w", key, err)
 	}
 	return nil
 }
@@ -197,16 +183,10 @@ func New(config Config) (httpcache.Cache, error) {
 
 	// Test connection
 	conn := pool.Get()
-	defer func() {
-		if err := conn.Close(); err != nil {
-			httpcache.GetLogger().Error("failed to close redis test connection", "error", err)
-		}
-	}()
+	defer conn.Close() //nolint:errcheck // best effort cleanup
 
 	if _, err := conn.Do("PING"); err != nil {
-		if closeErr := pool.Close(); closeErr != nil {
-			httpcache.GetLogger().Error("failed to close redis pool after ping error", "error", closeErr)
-		}
+		pool.Close() //nolint:errcheck // best effort cleanup after ping failure
 		return nil, fmt.Errorf("failed to connect to Redis: %w", err)
 	}
 

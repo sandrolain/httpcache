@@ -13,9 +13,9 @@ package freecache
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/coocood/freecache"
-	"github.com/sandrolain/httpcache"
 )
 
 // Cache is an implementation of httpcache.Cache that uses freecache for storage.
@@ -60,10 +60,7 @@ func (c *Cache) Get(_ context.Context, key string) ([]byte, bool, error) {
 // The context parameter is accepted for interface compliance but not used for in-memory operations.
 func (c *Cache) Set(_ context.Context, key string, value []byte) error {
 	if err := c.cache.Set([]byte(key), value, 0); err != nil {
-		// Log error but don't fail - cache operations should be best-effort
-		// Errors can occur if key/value are too large
-		httpcache.GetLogger().Warn("failed to set cache value", "key", key, "error", err)
-		return err
+		return fmt.Errorf("freecache set failed for key %q: %w", key, err)
 	}
 	return nil
 }

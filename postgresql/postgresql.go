@@ -4,11 +4,11 @@ package postgresql
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/sandrolain/httpcache"
 )
 
 var (
@@ -83,8 +83,7 @@ func (c *Cache) Get(ctx context.Context, key string) (resp []byte, ok bool, err 
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, false, nil
 		}
-		httpcache.GetLogger().Warn("failed to read from postgresql cache", "key", key, "error", err)
-		return nil, false, err
+		return nil, false, fmt.Errorf("postgresql cache get failed for key %q: %w", key, err)
 	}
 
 	return data, true, nil
@@ -115,8 +114,7 @@ func (c *Cache) Set(ctx context.Context, key string, resp []byte) error {
 	}
 
 	if err != nil {
-		httpcache.GetLogger().Warn("failed to write to postgresql cache", "key", key, "error", err)
-		return err
+		return fmt.Errorf("postgresql cache set failed for key %q: %w", key, err)
 	}
 	return nil
 }
@@ -142,8 +140,7 @@ func (c *Cache) Delete(ctx context.Context, key string) error {
 	}
 
 	if err != nil {
-		httpcache.GetLogger().Warn("failed to delete from postgresql cache", "key", key, "error", err)
-		return err
+		return fmt.Errorf("postgresql cache delete failed for key %q: %w", key, err)
 	}
 	return nil
 }
@@ -173,9 +170,7 @@ func (c *Cache) Close() {
 	if c.pool != nil {
 		c.pool.Close()
 	} else if c.conn != nil {
-		if err := c.conn.Close(context.Background()); err != nil {
-			httpcache.GetLogger().Warn("failed to close postgresql connection", "error", err)
-		}
+		c.conn.Close(context.Background()) //nolint:errcheck // best effort cleanup
 	}
 }
 

@@ -25,11 +25,9 @@ func (t *Transport) invalidateCache(req *http.Request, resp *http.Response) {
 
 	// RFC 9111 Section 4.4: Only invalidate on non-error responses
 	if resp.StatusCode >= 400 {
-		if logger := GetLogger(); logger != nil {
-			logger.Debug("skipping cache invalidation for error response",
-				"status", resp.StatusCode,
-				"url", req.URL.String())
-		}
+		t.log().Debug("skipping cache invalidation for error response",
+			"status", resp.StatusCode,
+			"url", req.URL.String())
 		return
 	}
 
@@ -39,22 +37,18 @@ func (t *Transport) invalidateCache(req *http.Request, resp *http.Response) {
 	// Invalidate Location header URI (RFC 9111 Section 4.4)
 	if location := resp.Header.Get(headerLocation); location != "" {
 		if err := t.invalidateHeaderURI(ctx, req.URL, location, "Location"); err != nil {
-			if logger := GetLogger(); logger != nil {
-				logger.Debug("failed to invalidate Location URI",
-					"location", location,
-					"error", err.Error())
-			}
+			t.log().Debug("failed to invalidate Location URI",
+				"location", location,
+				"error", err.Error())
 		}
 	}
 
 	// Invalidate Content-Location header URI (RFC 9111 Section 4.4)
 	if contentLocation := resp.Header.Get(headerContentLocation); contentLocation != "" {
 		if err := t.invalidateHeaderURI(ctx, req.URL, contentLocation, "Content-Location"); err != nil {
-			if logger := GetLogger(); logger != nil {
-				logger.Debug("failed to invalidate Content-Location URI",
-					"content-location", contentLocation,
-					"error", err.Error())
-			}
+			t.log().Debug("failed to invalidate Content-Location URI",
+				"content-location", contentLocation,
+				"error", err.Error())
 		}
 	}
 }
@@ -72,12 +66,10 @@ func (t *Transport) invalidateHeaderURI(ctx context.Context, requestURL *url.URL
 	// RFC 9111 Section 4.4: Only invalidate same-origin URIs
 	// Origin = scheme + host (host includes port if present)
 	if !isSameOrigin(requestURL, targetURL) {
-		if logger := GetLogger(); logger != nil {
-			logger.Debug("skipping cross-origin invalidation",
-				"header", headerName,
-				"request-origin", getOrigin(requestURL),
-				"target-origin", getOrigin(targetURL))
-		}
+		t.log().Debug("skipping cross-origin invalidation",
+			"header", headerName,
+			"request-origin", getOrigin(requestURL),
+			"target-origin", getOrigin(targetURL))
 		return nil
 	}
 
@@ -95,11 +87,9 @@ func (t *Transport) invalidateURI(ctx context.Context, targetURL *url.URL, sourc
 	}
 	getKey := cacheKey(getReq)
 	if err := t.cacheDelete(ctx, getKey); err != nil {
-		GetLogger().Warn("failed to invalidate cache entry", "key", getKey, "error", err)
-	}
-
-	if logger := GetLogger(); logger != nil {
-		logger.Debug("invalidated cache entry",
+		t.log().Warn("failed to invalidate cache entry", "key", getKey, "error", err)
+	} else {
+		t.log().Debug("invalidated cache entry",
 			"key", getKey,
 			"source", source,
 			"url", targetURL.String())
@@ -113,10 +103,9 @@ func (t *Transport) invalidateURI(ctx context.Context, targetURL *url.URL, sourc
 	headKey := cacheKey(headReq)
 	if headKey != getKey {
 		if err := t.cacheDelete(ctx, headKey); err != nil {
-			GetLogger().Warn("failed to invalidate HEAD cache entry", "key", headKey, "error", err)
-		}
-		if logger := GetLogger(); logger != nil {
-			logger.Debug("invalidated HEAD cache entry",
+			t.log().Warn("failed to invalidate HEAD cache entry", "key", headKey, "error", err)
+		} else {
+			t.log().Debug("invalidated HEAD cache entry",
 				"key", headKey,
 				"source", source)
 		}

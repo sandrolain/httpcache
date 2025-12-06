@@ -2,6 +2,7 @@ package httpcache
 
 import (
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -215,7 +216,7 @@ func TestCalculateAge(t *testing.T) {
 				headers.Set(headerAge, tt.ageHeader)
 			}
 
-			age, err := calculateAge(headers)
+			age, err := calculateAge(headers, slog.Default())
 
 			if tt.shouldError {
 				if err == nil {
@@ -319,7 +320,7 @@ func TestParseAgeHeaderValid(t *testing.T) {
 			headers := http.Header{}
 			headers.Set(headerAge, tt.ageValue)
 
-			got, valid := parseAgeHeader(headers)
+			got, valid := parseAgeHeader(headers, slog.Default())
 			if !valid {
 				t.Errorf("parseAgeHeader() valid = %v, want true", valid)
 				return
@@ -366,7 +367,7 @@ func TestParseAgeHeaderInvalid(t *testing.T) {
 				headers.Set(headerAge, tt.ageValue)
 			}
 
-			got, valid := parseAgeHeader(headers)
+			got, valid := parseAgeHeader(headers, slog.Default())
 			if valid {
 				t.Errorf("parseAgeHeader() valid = true, want false for value %q", tt.ageValue)
 			}
@@ -384,7 +385,7 @@ func TestParseAgeHeaderMultipleValues(t *testing.T) {
 	headers.Add(headerAge, "600")
 	headers.Add(headerAge, "900")
 
-	got, valid := parseAgeHeader(headers)
+	got, valid := parseAgeHeader(headers, slog.Default())
 	if !valid {
 		t.Errorf("parseAgeHeader() valid = false, want true")
 		return
@@ -401,7 +402,7 @@ func TestParseAgeHeaderMultipleValues(t *testing.T) {
 func TestParseAgeHeaderNoAgeHeader(t *testing.T) {
 	headers := http.Header{}
 
-	got, valid := parseAgeHeader(headers)
+	got, valid := parseAgeHeader(headers, slog.Default())
 	if valid {
 		t.Errorf("parseAgeHeader() valid = true, want false for missing header")
 	}
@@ -423,7 +424,7 @@ func TestCalculateAgeWithRequestAndResponseTime(t *testing.T) {
 	headers.Set(XResponseTime, responseTime.Format(time.RFC3339))
 	headers.Set(headerAge, "5") // Age from origin server
 
-	age, err := calculateAge(headers)
+	age, err := calculateAge(headers, slog.Default())
 	if err != nil {
 		t.Fatalf("calculateAge() error = %v", err)
 	}
@@ -454,7 +455,7 @@ func TestCalculateAgeWithoutRequestTime(t *testing.T) {
 	headers.Set(XResponseTime, responseTime.Format(time.RFC3339))
 	headers.Set(headerAge, "3")
 
-	age, err := calculateAge(headers)
+	age, err := calculateAge(headers, slog.Default())
 	if err != nil {
 		t.Fatalf("calculateAge() error = %v", err)
 	}
@@ -483,7 +484,7 @@ func TestCalculateAgeBackwardCompatibility(t *testing.T) {
 	headers.Set(XCachedTime, cachedTime.Format(time.RFC3339))
 	headers.Set(headerAge, "8")
 
-	age, err := calculateAge(headers)
+	age, err := calculateAge(headers, slog.Default())
 	if err != nil {
 		t.Fatalf("calculateAge() error = %v", err)
 	}
@@ -507,7 +508,7 @@ func TestCalculateAgeClockSkew(t *testing.T) {
 	headers.Set(XResponseTime, responseTime.Format(time.RFC3339))
 	headers.Set(headerAge, "0")
 
-	age, err := calculateAge(headers)
+	age, err := calculateAge(headers, slog.Default())
 	if err != nil {
 		t.Fatalf("calculateAge() error = %v", err)
 	}
@@ -532,7 +533,7 @@ func TestCalculateAgeResponseDelayCalculation(t *testing.T) {
 	headers.Set(XResponseTime, responseTime.Format(time.RFC3339))
 	headers.Set(headerAge, "0") // No age from origin
 
-	age, err := calculateAge(headers)
+	age, err := calculateAge(headers, slog.Default())
 	if err != nil {
 		t.Fatalf("calculateAge() error = %v", err)
 	}

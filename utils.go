@@ -5,6 +5,7 @@ package httpcache
 import (
 	"bufio"
 	"bytes"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -116,6 +117,7 @@ const bodyDrainSize = 1 << 15 // 32KB, arbitrary limit for draining
 
 // drainDiscardedBody reads and discards up to drainSize bytes from the body to allow connection reuse.
 // It's used when we're discarding a response (e.g., returning stale cache instead of a 500 error).
+// Returns an error if draining or closing fails.
 func drainDiscardedBody(body io.ReadCloser) error {
 	if body == nil {
 		return nil
@@ -123,13 +125,14 @@ func drainDiscardedBody(body io.ReadCloser) error {
 
 	// Drain the body to allow connection reuse
 	if _, err := io.Copy(io.Discard, io.LimitReader(body, bodyDrainSize)); err != nil {
-		GetLogger().Warn("failed to drain response body", "error", err)
+		// Still try to close even if drain failed
+		body.Close() //nolint:errcheck // best effort cleanup
+		return fmt.Errorf("failed to drain response body: %w", err)
 	}
 
 	// Close the body
 	if err := body.Close(); err != nil {
-		GetLogger().Warn("failed to close response body", "error", err)
-		return err
+		return fmt.Errorf("failed to close response body: %w", err)
 	}
 
 	return nil

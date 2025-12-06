@@ -3,6 +3,7 @@
 package httpcache
 
 import (
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -32,9 +33,9 @@ var clock timer = &realClock{}
 // - Cache-Control: private - Allowed (private caches CAN store these responses)
 // - Cache-Control: public - Ignored (has no additional effect in private caches)
 // - s-maxage - Ignored (only applies to shared caches)
-func getFreshness(respHeaders, reqHeaders http.Header) (freshness int) {
-	respCacheControl := parseCacheControl(respHeaders)
-	reqCacheControl := parseCacheControl(reqHeaders)
+func getFreshness(respHeaders, reqHeaders http.Header, log *slog.Logger) (freshness int) {
+	respCacheControl := parseCacheControl(respHeaders, log)
+	reqCacheControl := parseCacheControl(reqHeaders, log)
 
 	// Check cache control directives and Pragma
 	if result, done := checkCacheControl(respCacheControl, reqCacheControl, reqHeaders); done {
@@ -173,8 +174,8 @@ func adjustAgeForRequestControls(respCacheControl, reqCacheControl cacheControl,
 }
 
 // isActuallyStale checks if a response is actually stale (ignoring client's max-stale tolerance)
-func isActuallyStale(respHeaders http.Header) bool {
-	respCacheControl := parseCacheControl(respHeaders)
+func isActuallyStale(respHeaders http.Header, log *slog.Logger) bool {
+	respCacheControl := parseCacheControl(respHeaders, log)
 
 	date, err := Date(respHeaders)
 	if err != nil {
@@ -244,9 +245,9 @@ func checkStaleIfErrorLifetime(respHeaders http.Header, lifetime time.Duration) 
 
 // canStaleOnError determines if a stale response can be returned on error
 // cache control extension: https://tools.ietf.org/html/rfc5861
-func canStaleOnError(respHeaders, reqHeaders http.Header) bool {
-	respCacheControl := parseCacheControl(respHeaders)
-	reqCacheControl := parseCacheControl(reqHeaders)
+func canStaleOnError(respHeaders, reqHeaders http.Header, log *slog.Logger) bool {
+	respCacheControl := parseCacheControl(respHeaders, log)
+	reqCacheControl := parseCacheControl(reqHeaders, log)
 
 	lifetime := time.Duration(-1)
 

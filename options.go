@@ -4,6 +4,7 @@ package httpcache
 
 import (
 	"fmt"
+	"log/slog"
 	"net/http"
 	"time"
 )
@@ -11,6 +12,16 @@ import (
 // TransportOption is a function that configures a Transport.
 // Use the With* functions to create TransportOptions.
 type TransportOption func(*Transport) error
+
+// WithLogger sets a custom slog.Logger instance to be used by the Transport.
+// If not set, slog.Default() will be used.
+// This is the recommended way to configure logging for the Transport.
+func WithLogger(l *slog.Logger) TransportOption {
+	return func(t *Transport) error {
+		t.logger = l
+		return nil
+	}
+}
 
 // WithMarkCachedResponses configures whether responses returned from cache
 // should include the X-From-Cache header.

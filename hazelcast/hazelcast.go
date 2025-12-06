@@ -3,6 +3,7 @@ package hazelcast
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/hazelcast/hazelcast-go-client"
 	"github.com/sandrolain/httpcache"
@@ -52,8 +53,7 @@ func (c cache) Set(ctx context.Context, key string, resp []byte) error {
 		ctx = c.ctx
 	}
 	if err := c.m.Set(ctx, cacheKey(key), resp); err != nil {
-		httpcache.GetLogger().Warn("failed to write to Hazelcast cache", "key", key, "error", err)
-		return err
+		return fmt.Errorf("hazelcast cache set failed for key %q: %w", key, err)
 	}
 	return nil
 }
@@ -66,8 +66,7 @@ func (c cache) Delete(ctx context.Context, key string) error {
 		ctx = c.ctx
 	}
 	if _, err := c.m.Remove(ctx, cacheKey(key)); err != nil {
-		httpcache.GetLogger().Warn("failed to delete from Hazelcast cache", "key", key, "error", err)
-		return err
+		return fmt.Errorf("hazelcast cache delete failed for key %q: %w", key, err)
 	}
 	return nil
 }

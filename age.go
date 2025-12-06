@@ -4,6 +4,7 @@ package httpcache
 
 import (
 	"errors"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -31,7 +32,7 @@ func Date(respHeaders http.Header) (date time.Time, err error) {
 // - If multiple Age headers exist, use the first value and discard others
 // - If the value is invalid (negative, non-numeric), ignore it completely
 // - Age header value must be a non-negative integer representing seconds
-func parseAgeHeader(headers http.Header) (age time.Duration, valid bool) {
+func parseAgeHeader(headers http.Header, log *slog.Logger) (age time.Duration, valid bool) {
 	ageValues := headers.Values(headerAge)
 
 	if len(ageValues) == 0 {
@@ -42,7 +43,7 @@ func parseAgeHeader(headers http.Header) (age time.Duration, valid bool) {
 	ageStr := strings.TrimSpace(ageValues[0])
 
 	if len(ageValues) > 1 {
-		GetLogger().Warn("multiple Age headers detected, using first value",
+		log.Warn("multiple Age headers detected, using first value",
 			"count", len(ageValues),
 			"first", ageStr,
 			"all", ageValues)
@@ -51,14 +52,14 @@ func parseAgeHeader(headers http.Header) (age time.Duration, valid bool) {
 	// Validate that it's a non-negative integer
 	ageInt, err := strconv.ParseInt(ageStr, 10, 64)
 	if err != nil {
-		GetLogger().Warn("invalid Age header value, ignoring",
+		log.Warn("invalid Age header value, ignoring",
 			"value", ageStr,
 			"error", err)
 		return 0, false
 	}
 
 	if ageInt < 0 {
-		GetLogger().Warn("negative Age header value, ignoring",
+		log.Warn("negative Age header value, ignoring",
 			"value", ageInt)
 		return 0, false
 	}
@@ -82,7 +83,7 @@ func parseAgeHeader(headers http.Header) (age time.Duration, valid bool) {
 //   - response_time is stored in X-Response-Time header (falls back to X-Cached-Time for compatibility)
 //   - date_value comes from Date header
 //   - age_value comes from Age header (if present)
-func calculateAge(respHeaders http.Header) (age time.Duration, err error) {
+func calculateAge(respHeaders http.Header, log *slog.Logger) (age time.Duration, err error) {
 	// Get the Date header (required)
 	dateValue, err := Date(respHeaders)
 	if err != nil {
@@ -101,7 +102,7 @@ func calculateAge(respHeaders http.Header) (age time.Duration, err error) {
 		age = clock.since(dateValue)
 
 		// Add any existing Age header
-		if ageValue, valid := parseAgeHeader(respHeaders); valid {
+		if ageValue, valid := parseAgeHeader(respHeaders, log); valid {
 			age += ageValue
 		}
 
@@ -111,13 +112,13 @@ func calculateAge(respHeaders http.Header) (age time.Duration, err error) {
 	// Parse response_time
 	responseTime, parseErr := time.Parse(time.RFC3339, responseTimeStr)
 	if parseErr != nil {
-		GetLogger().Warn("failed to parse response time header",
+		log.Warn("failed to parse response time header",
 			"header", responseTimeStr,
 			"error", parseErr)
 
 		// Fallback to simplified calculation
 		age = clock.since(dateValue)
-		if ageValue, valid := parseAgeHeader(respHeaders); valid {
+		if ageValue, valid := parseAgeHeader(respHeaders, log); valid {
 			age += ageValue
 		}
 		return age, nil
@@ -130,7 +131,7 @@ func calculateAge(respHeaders http.Header) (age time.Duration, err error) {
 	}
 
 	// Parse age_value from Age header (if present)
-	ageValue, _ := parseAgeHeader(respHeaders)
+	ageValue, _ := parseAgeHeader(respHeaders, log)
 
 	// Get request_time (when we started the request)
 	requestTimeStr := respHeaders.Get(XRequestTime)
@@ -142,7 +143,7 @@ func calculateAge(respHeaders http.Header) (age time.Duration, err error) {
 			// RFC 9111: response_delay = response_time - request_time
 			responseDelay = responseTime.Sub(requestTime)
 		} else if parseErr != nil {
-			GetLogger().Warn("failed to parse request time header",
+			log.Warn("failed to parse request time header",
 				"header", requestTimeStr,
 				"error", parseErr)
 		}

@@ -64,8 +64,7 @@ func (c cache) Get(ctx context.Context, key string) (resp []byte, ok bool, err e
 // Uses the provided context for cancellation.
 func (c cache) Set(ctx context.Context, key string, resp []byte) error {
 	if _, err := c.kv.Put(ctx, cacheKey(key), resp); err != nil {
-		httpcache.GetLogger().Warn("failed to write to NATS K/V cache", "key", key, "error", err)
-		return err
+		return fmt.Errorf("natskv cache set failed for key %q: %w", key, err)
 	}
 	return nil
 }
@@ -75,8 +74,7 @@ func (c cache) Set(ctx context.Context, key string, resp []byte) error {
 func (c cache) Delete(ctx context.Context, key string) error {
 	if err := c.kv.Delete(ctx, cacheKey(key)); err != nil {
 		if err != jetstream.ErrKeyNotFound {
-			httpcache.GetLogger().Warn("failed to delete from NATS K/V cache", "key", key, "error", err)
-			return err
+			return fmt.Errorf("natskv cache delete failed for key %q: %w", key, err)
 		}
 	}
 	return nil

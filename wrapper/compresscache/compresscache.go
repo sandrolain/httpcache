@@ -106,10 +106,6 @@ func (c *baseCompressCache) get(ctx context.Context, key string, decompressFn de
 	// Decompress using the appropriate algorithm
 	decompressed, err := c.decompressWithAlgorithm(data[1:], storedAlgo, decompressFn)
 	if err != nil {
-		httpcache.GetLogger().Warn("decompression failed",
-			"key", key,
-			"algorithm", storedAlgo.String(),
-			"error", err)
 		return nil, false, err
 	}
 
@@ -155,11 +151,7 @@ func (c *baseCompressCache) set(ctx context.Context, key string, value []byte, c
 	// Compress the data
 	compressed, err := compressFn(value)
 	if err != nil {
-		httpcache.GetLogger().Warn("compression failed, storing uncompressed",
-			"key", key,
-			"algorithm", c.algorithm.String(),
-			"error", err)
-		// Fallback to uncompressed
+		// Fallback to uncompressed storage
 		data := make([]byte, len(value)+1)
 		data[0] = 0
 		copy(data[1:], value)

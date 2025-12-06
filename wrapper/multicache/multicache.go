@@ -70,10 +70,8 @@ func (c *MultiCache) Get(ctx context.Context, key string) ([]byte, bool, error) 
 		}
 		if ok {
 			// Found in this tier - promote to all faster tiers
-			if promoteErr := c.promoteToFasterTiers(ctx, key, value, i); promoteErr != nil {
-				// Log promotion error but still return the found value
-				httpcache.GetLogger().Warn("failed to promote to faster tier", "key", key, "error", promoteErr)
-			}
+			// Promotion errors are silently ignored as the value was found successfully
+			_ = c.promoteToFasterTiers(ctx, key, value, i) //nolint:errcheck // promotion is best-effort
 			return value, true, nil
 		}
 	}

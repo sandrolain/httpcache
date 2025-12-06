@@ -10,9 +10,9 @@ package memcache
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/bradfitz/gomemcache/memcache"
-	"github.com/sandrolain/httpcache"
 )
 
 // Cache is an implementation of httpcache.Cache that caches responses in a
@@ -50,8 +50,7 @@ func (c *Cache) Set(_ context.Context, key string, resp []byte) error {
 		Value: resp,
 	}
 	if err := c.Client.Set(item); err != nil {
-		httpcache.GetLogger().Warn("failed to write to memcache", "key", key, "error", err)
-		return err
+		return fmt.Errorf("memcache set failed for key %q: %w", key, err)
 	}
 	return nil
 }
@@ -64,8 +63,7 @@ func (c *Cache) Delete(_ context.Context, key string) error {
 		if err == memcache.ErrCacheMiss {
 			return nil
 		}
-		httpcache.GetLogger().Warn("failed to delete from memcache", "key", key, "error", err)
-		return err
+		return fmt.Errorf("memcache delete failed for key %q: %w", key, err)
 	}
 	return nil
 }

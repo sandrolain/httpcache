@@ -31,10 +31,9 @@ import (
 	"io"
 	"time"
 
+	"github.com/sandrolain/httpcache"
 	"gocloud.dev/blob"
 	"gocloud.dev/gcerrors"
-
-	"github.com/sandrolain/httpcache"
 )
 
 // Config holds the configuration for the blob cache.
@@ -149,19 +148,13 @@ func (c *cache) Get(ctx context.Context, key string) ([]byte, bool, error) {
 		if gcerrors.Code(err) == gcerrors.NotFound {
 			return nil, false, nil
 		}
-		httpcache.GetLogger().Error("failed to read from blob cache", "key", key, "error", err)
-		return nil, false, err
+		return nil, false, fmt.Errorf("blobcache get failed for key %q: %w", key, err)
 	}
-	defer func() {
-		if closeErr := reader.Close(); closeErr != nil {
-			httpcache.GetLogger().Error("failed to close blob reader", "key", key, "error", closeErr)
-		}
-	}()
+	defer reader.Close() //nolint:errcheck // best effort cleanup, error already handled
 
 	data, err := io.ReadAll(reader)
 	if err != nil {
-		httpcache.GetLogger().Error("failed to read blob data", "key", key, "error", err)
-		return nil, false, err
+		return nil, false, fmt.Errorf("blobcache read failed for key %q: %w", key, err)
 	}
 
 	return data, true, nil
@@ -182,20 +175,17 @@ func (c *cache) Set(ctx context.Context, key string, data []byte) error {
 
 	writer, err := c.bucket.NewWriter(ctx, blobKey, nil)
 	if err != nil {
-		httpcache.GetLogger().Error("failed to create blob writer", "key", key, "error", err)
-		return err
+		return fmt.Errorf("blobcache set failed to create writer for key %q: %w", key, err)
 	}
 
 	_, writeErr := writer.Write(data)
 	closeErr := writer.Close()
 
 	if writeErr != nil {
-		httpcache.GetLogger().Error("failed to write to blob cache", "key", key, "error", writeErr)
-		return writeErr
+		return fmt.Errorf("blobcache set failed to write for key %q: %w", key, writeErr)
 	}
 	if closeErr != nil {
-		httpcache.GetLogger().Error("failed to close blob writer", "key", key, "error", closeErr)
-		return closeErr
+		return fmt.Errorf("blobcache set failed to close writer for key %q: %w", key, closeErr)
 	}
 	return nil
 }
@@ -215,8 +205,7 @@ func (c *cache) Delete(ctx context.Context, key string) error {
 
 	err := c.bucket.Delete(ctx, blobKey)
 	if err != nil && gcerrors.Code(err) != gcerrors.NotFound {
-		httpcache.GetLogger().Error("failed to delete from blob cache", "key", key, "error", err)
-		return err
+		return fmt.Errorf("blobcache delete failed for key %q: %w", key, err)
 	}
 	return nil
 }

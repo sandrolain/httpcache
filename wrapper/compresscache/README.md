@@ -528,14 +528,12 @@ cache, _ := compresscache.NewGzip(compresscache.GzipConfig{
 // If compression fails, data is stored uncompressed
 cache.Set("key", data)
 
-// If decompression fails, Get returns false
-data, ok := cache.Get("corrupted-key")
-if !ok {
-    log.Println("Failed to decompress data")
+// If decompression fails, Get returns an error
+data, ok, err := cache.Get(ctx, "corrupted-key")
+if err != nil {
+    log.Printf("Failed to decompress data: %v", err)
 }
 ```
-
-Errors are logged using `httpcache.GetLogger()`.
 
 ## Limitations
 

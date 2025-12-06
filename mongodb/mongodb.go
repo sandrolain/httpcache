@@ -6,11 +6,10 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/sandrolain/httpcache"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
-
-	"github.com/sandrolain/httpcache"
 )
 
 // Config holds the configuration for creating a MongoDB cache.
@@ -107,8 +106,7 @@ func (c cache) Set(ctx context.Context, key string, resp []byte) error {
 	opts := options.Replace().SetUpsert(true)
 	_, err := c.collection.ReplaceOne(ctx, bson.M{"_id": entry.Key}, entry, opts)
 	if err != nil {
-		httpcache.GetLogger().Warn("failed to write to MongoDB cache", "key", key, "error", err)
-		return err
+		return fmt.Errorf("mongodb cache set failed for key %q: %w", key, err)
 	}
 	return nil
 }
@@ -126,8 +124,7 @@ func (c cache) Delete(ctx context.Context, key string) error {
 
 	_, err := c.collection.DeleteOne(ctx, bson.M{"_id": c.cacheKey(key)})
 	if err != nil {
-		httpcache.GetLogger().Warn("failed to delete from MongoDB cache", "key", key, "error", err)
-		return err
+		return fmt.Errorf("mongodb cache delete failed for key %q: %w", key, err)
 	}
 	return nil
 }
@@ -191,9 +188,7 @@ func New(ctx context.Context, config Config) (httpcache.Cache, error) {
 	defer pingCancel()
 
 	if err := client.Ping(pingCtx, nil); err != nil {
-		if disconnectErr := client.Disconnect(ctx); disconnectErr != nil {
-			httpcache.GetLogger().Warn("failed to disconnect client after ping error", "error", disconnectErr)
-		}
+		client.Disconnect(ctx) //nolint:errcheck // best effort cleanup
 		return nil, fmt.Errorf("failed to ping MongoDB: %w", err)
 	}
 
@@ -209,9 +204,7 @@ func New(ctx context.Context, config Config) (httpcache.Cache, error) {
 	// Create TTL index if TTL is configured
 	if config.TTL > 0 {
 		if err := c.createTTLIndex(ctx, config.TTL); err != nil {
-			if disconnectErr := client.Disconnect(ctx); disconnectErr != nil {
-				httpcache.GetLogger().Warn("failed to disconnect client after TTL index error", "error", disconnectErr)
-			}
+			client.Disconnect(ctx) //nolint:errcheck // best effort cleanup
 			return nil, fmt.Errorf("failed to create TTL index: %w", err)
 		}
 	}

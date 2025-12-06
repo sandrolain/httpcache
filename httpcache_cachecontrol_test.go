@@ -1,6 +1,7 @@
 package httpcache
 
 import (
+	"log/slog"
 	"net/http"
 	"testing"
 )
@@ -49,7 +50,7 @@ func TestParseCacheControlDuplicates(t *testing.T) {
 			headers := http.Header{}
 			headers.Set("Cache-Control", tt.cacheControl)
 
-			cc := parseCacheControl(headers)
+			cc := parseCacheControl(headers, slog.Default())
 
 			if tt.shouldHaveKey {
 				value, exists := cc[tt.expectedKey]
@@ -116,7 +117,7 @@ func TestParseCacheControlConflicts(t *testing.T) {
 			headers := http.Header{}
 			headers.Set("Cache-Control", tt.cacheControl)
 
-			cc := parseCacheControl(headers)
+			cc := parseCacheControl(headers, slog.Default())
 
 			_, exists := cc[tt.checkKey]
 			if exists != tt.shouldExist {
@@ -181,7 +182,7 @@ func TestParseCacheControlInvalidValues(t *testing.T) {
 			headers := http.Header{}
 			headers.Set("Cache-Control", tt.cacheControl)
 
-			cc := parseCacheControl(headers)
+			cc := parseCacheControl(headers, slog.Default())
 
 			if tt.expectedValue == "" {
 				// Directive should be removed
@@ -259,7 +260,7 @@ func TestParseCacheControlComplexScenarios(t *testing.T) {
 			headers := http.Header{}
 			headers.Set("Cache-Control", tt.cacheControl)
 
-			cc := parseCacheControl(headers)
+			cc := parseCacheControl(headers, slog.Default())
 
 			// Check expected keys
 			for key, expectedValue := range tt.checks {
@@ -317,7 +318,7 @@ func TestParseCacheControlEmptyAndWhitespace(t *testing.T) {
 			headers := http.Header{}
 			headers.Set("Cache-Control", tt.cacheControl)
 
-			cc := parseCacheControl(headers)
+			cc := parseCacheControl(headers, slog.Default())
 
 			if len(cc) != len(tt.expectedKeys) {
 				t.Errorf("Expected %d keys, got %d", len(tt.expectedKeys), len(cc))
@@ -338,7 +339,7 @@ func TestParseCacheControlPreservesValidDirectives(t *testing.T) {
 	headers := http.Header{}
 	headers.Set("Cache-Control", cacheControl)
 
-	cc := parseCacheControl(headers)
+	cc := parseCacheControl(headers, slog.Default())
 
 	expected := map[string]string{
 		"public":          "",

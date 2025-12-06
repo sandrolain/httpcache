@@ -7,10 +7,10 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"io"
 
 	"github.com/peterbourgon/diskv"
-	"github.com/sandrolain/httpcache"
 )
 
 // Cache is an implementation of httpcache.Cache that supplements the in-memory map with persistent storage
@@ -34,8 +34,7 @@ func (c *Cache) Get(_ context.Context, key string) (resp []byte, ok bool, err er
 func (c *Cache) Set(_ context.Context, key string, resp []byte) error {
 	key = keyToFilename(key)
 	if err := c.d.WriteStream(key, bytes.NewReader(resp), true); err != nil {
-		httpcache.GetLogger().Warn("failed to write to disk cache", "key", key, "error", err)
-		return err
+		return fmt.Errorf("diskcache set failed for key: %w", err)
 	}
 	return nil
 }
@@ -44,11 +43,8 @@ func (c *Cache) Set(_ context.Context, key string, resp []byte) error {
 // The context parameter is accepted for interface compliance but not used for disk operations.
 func (c *Cache) Delete(_ context.Context, key string) error {
 	key = keyToFilename(key)
-	if err := c.d.Erase(key); err != nil {
-		httpcache.GetLogger().Warn("failed to delete from disk cache", "key", key, "error", err)
-		// Erase errors when file doesn't exist are not real errors
-		return nil
-	}
+	// Erase errors when file doesn't exist are not real errors, so we ignore them
+	_ = c.d.Erase(key) //nolint:errcheck // file not found is acceptable
 	return nil
 }
 
