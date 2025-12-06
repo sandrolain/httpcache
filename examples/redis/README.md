@@ -32,9 +32,9 @@ go run main.go
 
 ## Features Demonstrated
 
-- Connecting to Redis
+- Connecting to Redis using the official go-redis client
 - Using Redis as a cache backend
-- Connection pooling for production use
+- Connection pooling with automatic management
 - Performance comparison (cache hit vs miss)
 - Multiple clients sharing the same cache
 
@@ -51,35 +51,44 @@ Redis cache is ideal for:
 ## Production Configuration
 
 ```go
-pool := &redis.Pool{
-    MaxIdle:     10,
-    MaxActive:   100,
-    IdleTimeout: 240 * time.Second,
-    Wait:        true,
-    Dial: func() (redis.Conn, error) {
-        c, err := redis.Dial("tcp", "redis:6379")
-        if err != nil {
-            return nil, err
-        }
-        // Optional: Authentication
-        // _, err = c.Do("AUTH", "password")
-        return c, err
-    },
-    TestOnBorrow: func(c redis.Conn, t time.Time) error {
-        if time.Since(t) < time.Minute {
-            return nil
-        }
-        _, err := c.Do("PING")
-        return err
-    },
+import (
+    "github.com/redis/go-redis/v9"
+    rediscache "github.com/sandrolain/httpcache/redis"
+)
+
+// Using the Config-based constructor (recommended)
+cache, err := rediscache.New(rediscache.Config{
+    Address:      "redis:6379",
+    Password:     "password",     // Optional: Redis password
+    Username:     "user",         // Optional: Redis 6.0+ ACL username
+    DB:           0,              // Database number
+    PoolSize:     10,             // Connection pool size
+    MinIdleConns: 2,              // Minimum idle connections
+    MaxRetries:   3,              // Retry attempts
+    DialTimeout:  5 * time.Second,
+    ReadTimeout:  3 * time.Second,
+    WriteTimeout: 3 * time.Second,
+})
+if err != nil {
+    log.Fatal(err)
 }
+defer cache.(interface{ Close() error }).Close()
+
+// Or using a custom client
+client := redis.NewClient(&redis.Options{
+    Addr:     "redis:6379",
+    Password: "password",
+    DB:       0,
+    PoolSize: 100,
+})
+cache := rediscache.NewWithClient(client)
 ```
 
 ## Important Notes
 
-- Always use a connection pool in production
+- The go-redis client includes automatic connection pooling
 - Configure appropriate pool size based on your workload
 - Enable Redis persistence (RDB/AOF) if you need durability
-- Consider Redis Cluster for high availability
+- Consider Redis Cluster for high availability (use `redis.NewClusterClient`)
 - Monitor Redis memory usage and eviction policy
 - Cache keys are prefixed with `rediscache:` to avoid collisions

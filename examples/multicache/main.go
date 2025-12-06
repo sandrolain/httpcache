@@ -15,7 +15,7 @@ import (
 	rediscache "github.com/sandrolain/httpcache/redis"
 	"github.com/sandrolain/httpcache/wrapper/multicache"
 
-	"github.com/gomodule/redigo/redis"
+	"github.com/redis/go-redis/v9"
 )
 
 const (
@@ -47,13 +47,16 @@ func main() {
 	// Tier 3: Redis cache (network-based, largest, shared)
 	// Optional - only if Redis is available
 	var mc *multicache.MultiCache
-	redisConn, err := redis.Dial("tcp", "localhost:6379")
-	if err != nil {
+	ctx := context.Background()
+	redisClient := redis.NewClient(&redis.Options{
+		Addr: "localhost:6379",
+	})
+	if err := redisClient.Ping(ctx).Err(); err != nil {
 		fmt.Println("⚠ Tier 3: Redis not available, using only 2 tiers")
 		mc = multicache.New(memCache, diskCache)
 	} else {
 		fmt.Println("✓ Tier 3: Redis cache initialized (network-based, shared)")
-		redisCache := rediscache.NewWithClient(redisConn)
+		redisCache := rediscache.NewWithClient(redisClient)
 		mc = multicache.New(memCache, diskCache, redisCache)
 	}
 

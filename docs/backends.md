@@ -123,14 +123,16 @@ client := &http.Client{Transport: transport}
 
 ```go
 import (
-    "github.com/gomodule/redigo/redis"
+    "github.com/redis/go-redis/v9"
     rediscache "github.com/sandrolain/httpcache/redis"
 )
 
-conn, _ := redis.Dial("tcp", "localhost:6379")
-cache := rediscache.NewWithClient(conn)
+client := redis.NewClient(&redis.Options{
+    Addr: "localhost:6379",
+})
+cache := rediscache.NewWithClient(client)
 transport := httpcache.NewTransport(cache)
-client := &http.Client{Transport: transport}
+httpClient := &http.Client{Transport: transport}
 ```
 
 **Best for**: Microservices, distributed systems, high availability

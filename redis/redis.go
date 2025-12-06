@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/gomodule/redigo/redis"
+	"github.com/redis/go-redis/v9"
 	"github.com/sandrolain/httpcache"
 )
 
@@ -20,25 +20,29 @@ type Config struct {
 	// Optional - leave empty if no authentication is required.
 	Password string
 
+	// Username is the Redis username for authentication (Redis 6.0+).
+	// Optional - leave empty if no authentication is required.
+	Username string
+
 	// DB is the Redis database number to use.
 	// Optional - defaults to 0.
 	DB int
 
-	// MaxIdle is the maximum number of idle connections in the pool.
+	// MaxRetries is the maximum number of retries before giving up.
+	// Optional - defaults to 3.
+	MaxRetries int
+
+	// PoolSize is the maximum number of socket connections in the pool.
 	// Optional - defaults to 10.
-	MaxIdle int
+	PoolSize int
 
-	// MaxActive is the maximum number of active connections in the pool.
-	// Optional - defaults to 100. Set to 0 for unlimited.
-	MaxActive int
+	// MinIdleConns is the minimum number of idle connections.
+	// Optional - defaults to 0.
+	MinIdleConns int
 
-	// IdleTimeout is the duration after which idle connections are closed.
-	// Optional - defaults to 5 minutes.
-	IdleTimeout time.Duration
-
-	// ConnectTimeout is the timeout for connecting to Redis.
+	// DialTimeout is the timeout for connecting to Redis.
 	// Optional - defaults to 5 seconds.
-	ConnectTimeout time.Duration
+	DialTimeout time.Duration
 
 	// ReadTimeout is the timeout for reading from Redis.
 	// Optional - defaults to 5 seconds.
@@ -47,12 +51,16 @@ type Config struct {
 	// WriteTimeout is the timeout for writing to Redis.
 	// Optional - defaults to 5 seconds.
 	WriteTimeout time.Duration
+
+	// PoolTimeout is the timeout for getting a connection from the pool.
+	// Optional - defaults to ReadTimeout + 1 second.
+	PoolTimeout time.Duration
 }
 
 // cache is an implementation of httpcache.Cache that caches responses in a
 // redis server.
 type cache struct {
-	pool *redis.Pool
+	client redis.UniversalClient
 }
 
 // cacheKey modifies an httpcache key for use in redis. Specifically, it
@@ -62,16 +70,10 @@ func cacheKey(key string) string {
 }
 
 // Get returns the response corresponding to key if present.
-// The context parameter is accepted for interface compliance. Currently, context
-// cancellation is not propagated to the underlying Redis operations due to
-// the redigo library's limitations.
-func (c cache) Get(_ context.Context, key string) (resp []byte, ok bool, err error) {
-	conn := c.pool.Get()
-	defer conn.Close() //nolint:errcheck // best effort cleanup
-
-	item, err := redis.Bytes(conn.Do("GET", cacheKey(key)))
+func (c cache) Get(ctx context.Context, key string) (resp []byte, ok bool, err error) {
+	item, err := c.client.Get(ctx, cacheKey(key)).Bytes()
 	if err != nil {
-		if err == redis.ErrNil {
+		if err == redis.Nil {
 			return nil, false, nil
 		}
 		return nil, false, fmt.Errorf("redis cache get failed for key %q: %w", key, err)
@@ -80,54 +82,42 @@ func (c cache) Get(_ context.Context, key string) (resp []byte, ok bool, err err
 }
 
 // Set saves a response to the cache as key.
-// The context parameter is accepted for interface compliance. Currently, context
-// cancellation is not propagated to the underlying Redis operations due to
-// the redigo library's limitations.
-func (c cache) Set(_ context.Context, key string, resp []byte) error {
-	conn := c.pool.Get()
-	defer conn.Close() //nolint:errcheck // best effort cleanup
-
-	if _, err := conn.Do("SET", cacheKey(key), resp); err != nil {
+func (c cache) Set(ctx context.Context, key string, resp []byte) error {
+	if err := c.client.Set(ctx, cacheKey(key), resp, 0).Err(); err != nil {
 		return fmt.Errorf("redis cache set failed for key %q: %w", key, err)
 	}
 	return nil
 }
 
 // Delete removes the response with key from the cache.
-// The context parameter is accepted for interface compliance. Currently, context
-// cancellation is not propagated to the underlying Redis operations due to
-// the redigo library's limitations.
-func (c cache) Delete(_ context.Context, key string) error {
-	conn := c.pool.Get()
-	defer conn.Close() //nolint:errcheck // best effort cleanup
-
-	if _, err := conn.Do("DEL", cacheKey(key)); err != nil {
+func (c cache) Delete(ctx context.Context, key string) error {
+	if err := c.client.Del(ctx, cacheKey(key)).Err(); err != nil {
 		return fmt.Errorf("redis cache delete failed for key %q: %w", key, err)
 	}
 	return nil
 }
 
-// Close closes the connection pool.
+// Close closes the connection to Redis.
 // This method should be called when done to properly clean up resources.
 func (c cache) Close() error {
-	return c.pool.Close()
+	return c.client.Close()
 }
 
 // DefaultConfig returns a Config with sensible defaults.
 func DefaultConfig() Config {
 	return Config{
-		MaxIdle:        10,
-		MaxActive:      100,
-		IdleTimeout:    5 * time.Minute,
-		ConnectTimeout: 5 * time.Second,
-		ReadTimeout:    5 * time.Second,
-		WriteTimeout:   5 * time.Second,
-		DB:             0,
+		MaxRetries:   3,
+		PoolSize:     10,
+		MinIdleConns: 0,
+		DialTimeout:  5 * time.Second,
+		ReadTimeout:  5 * time.Second,
+		WriteTimeout: 5 * time.Second,
+		DB:           0,
 	}
 }
 
 // New creates a new Cache with the given configuration.
-// It establishes a connection pool to Redis.
+// It establishes a connection to Redis.
 // The caller should call Close() on the returned cache when done to clean up resources.
 func New(config Config) (httpcache.Cache, error) {
 	if config.Address == "" {
@@ -135,17 +125,14 @@ func New(config Config) (httpcache.Cache, error) {
 	}
 
 	// Apply defaults for zero values
-	if config.MaxIdle == 0 {
-		config.MaxIdle = DefaultConfig().MaxIdle
+	if config.MaxRetries == 0 {
+		config.MaxRetries = DefaultConfig().MaxRetries
 	}
-	if config.MaxActive == 0 {
-		config.MaxActive = DefaultConfig().MaxActive
+	if config.PoolSize == 0 {
+		config.PoolSize = DefaultConfig().PoolSize
 	}
-	if config.IdleTimeout == 0 {
-		config.IdleTimeout = DefaultConfig().IdleTimeout
-	}
-	if config.ConnectTimeout == 0 {
-		config.ConnectTimeout = DefaultConfig().ConnectTimeout
+	if config.DialTimeout == 0 {
+		config.DialTimeout = DefaultConfig().DialTimeout
 	}
 	if config.ReadTimeout == 0 {
 		config.ReadTimeout = DefaultConfig().ReadTimeout
@@ -153,58 +140,43 @@ func New(config Config) (httpcache.Cache, error) {
 	if config.WriteTimeout == 0 {
 		config.WriteTimeout = DefaultConfig().WriteTimeout
 	}
-
-	pool := &redis.Pool{
-		MaxIdle:     config.MaxIdle,
-		MaxActive:   config.MaxActive,
-		IdleTimeout: config.IdleTimeout,
-		Dial: func() (redis.Conn, error) {
-			opts := []redis.DialOption{
-				redis.DialConnectTimeout(config.ConnectTimeout),
-				redis.DialReadTimeout(config.ReadTimeout),
-				redis.DialWriteTimeout(config.WriteTimeout),
-				redis.DialDatabase(config.DB),
-			}
-
-			if config.Password != "" {
-				opts = append(opts, redis.DialPassword(config.Password))
-			}
-
-			return redis.Dial("tcp", config.Address, opts...)
-		},
-		TestOnBorrow: func(c redis.Conn, t time.Time) error {
-			if time.Since(t) < time.Minute {
-				return nil
-			}
-			_, err := c.Do("PING")
-			return err
-		},
+	if config.PoolTimeout == 0 {
+		config.PoolTimeout = config.ReadTimeout + time.Second
 	}
 
-	// Test connection
-	conn := pool.Get()
-	defer conn.Close() //nolint:errcheck // best effort cleanup
+	opts := &redis.Options{
+		Addr:         config.Address,
+		Password:     config.Password,
+		Username:     config.Username,
+		DB:           config.DB,
+		MaxRetries:   config.MaxRetries,
+		PoolSize:     config.PoolSize,
+		MinIdleConns: config.MinIdleConns,
+		DialTimeout:  config.DialTimeout,
+		ReadTimeout:  config.ReadTimeout,
+		WriteTimeout: config.WriteTimeout,
+		PoolTimeout:  config.PoolTimeout,
+	}
 
-	if _, err := conn.Do("PING"); err != nil {
-		pool.Close() //nolint:errcheck // best effort cleanup after ping failure
+	client := redis.NewClient(opts)
+
+	// Test connection
+	ctx, cancel := context.WithTimeout(context.Background(), config.DialTimeout)
+	defer cancel()
+
+	if err := client.Ping(ctx).Err(); err != nil {
+		_ = client.Close() //nolint:errcheck // best effort cleanup after ping failure
 		return nil, fmt.Errorf("failed to connect to Redis: %w", err)
 	}
 
-	return cache{pool: pool}, nil
+	return cache{client: client}, nil
 }
 
-// NewWithClient returns a new Cache with the given redis connection.
-// This constructor is useful for backwards compatibility or when you want
-// to manage the connection yourself.
-// Note: This creates a single-connection cache. For production use with
-// connection pooling, use New() instead.
-func NewWithClient(client redis.Conn) httpcache.Cache {
-	pool := &redis.Pool{
-		MaxIdle:   1,
-		MaxActive: 1,
-		Dial: func() (redis.Conn, error) {
-			return client, nil
-		},
-	}
-	return cache{pool: pool}
+// NewWithClient returns a new Cache with the given redis client.
+// This constructor is useful for advanced use cases where you want
+// to manage the client yourself or use a custom configuration.
+// The passed client will be used directly and its lifecycle is managed
+// by the caller (except Close() which can still be called on the cache).
+func NewWithClient(client redis.UniversalClient) httpcache.Cache {
+	return cache{client: client}
 }

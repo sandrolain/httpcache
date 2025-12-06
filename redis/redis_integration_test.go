@@ -8,7 +8,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/gomodule/redigo/redis"
+	"github.com/redis/go-redis/v9"
 	"github.com/sandrolain/httpcache/test"
 	"github.com/testcontainers/testcontainers-go"
 	rediscontainer "github.com/testcontainers/testcontainers-go/modules/redis"
@@ -67,23 +67,23 @@ func setupRedisCache(t *testing.T) (cache, func()) {
 	t.Helper()
 
 	// Connect to the shared Redis instance
-	conn, err := redis.Dial("tcp", sharedRedisEndpoint)
-	if err != nil {
-		t.Fatalf(failedConnectMsg, err)
-	}
+	client := redis.NewClient(&redis.Options{
+		Addr: sharedRedisEndpoint,
+	})
+
+	ctx := context.Background()
 
 	cleanup := func() {
-		_ = conn.Close()
+		_ = client.Close()
 	}
 
 	// Flush all data before each test
-	_, err = conn.Do("FLUSHALL")
-	if err != nil {
+	if err := client.FlushAll(ctx).Err(); err != nil {
 		cleanup()
 		t.Fatalf(failedFlushMsg, err)
 	}
 
-	return NewWithClient(conn).(cache), cleanup
+	return NewWithClient(client).(cache), cleanup
 }
 
 // verifyMultipleKeys verifies that all keys have the expected values.
@@ -205,5 +205,112 @@ func TestRedisCacheIntegrationPersistence(t *testing.T) {
 		if string(val) != string(value) {
 			t.Errorf("iteration %d: expected value %s, got %s", i, value, val)
 		}
+	}
+}
+
+// TestRedisCacheNewIntegration tests creating a cache using the New() constructor.
+func TestRedisCacheNewIntegration(t *testing.T) {
+	if testing.Short() {
+		t.Skip(skipIntegrationMsg)
+	}
+
+	// Test with valid configuration
+	config := Config{
+		Address:      sharedRedisEndpoint,
+		PoolSize:     5,
+		MaxRetries:   2,
+		DialTimeout:  5 * 1e9, // 5 seconds
+		ReadTimeout:  3 * 1e9, // 3 seconds
+		WriteTimeout: 3 * 1e9, // 3 seconds
+	}
+
+	c, err := New(config)
+	if err != nil {
+		t.Fatalf("failed to create cache: %v", err)
+	}
+	defer c.(interface{ Close() error }).Close()
+
+	ctx := context.Background()
+
+	// Test basic operations
+	key := "newTestKey"
+	value := []byte("newTestValue")
+
+	if err := c.Set(ctx, key, value); err != nil {
+		t.Fatalf("failed to set key: %v", err)
+	}
+
+	val, ok, err := c.Get(ctx, key)
+	if err != nil {
+		t.Fatalf("failed to get key: %v", err)
+	}
+	if !ok {
+		t.Fatal("expected key to exist")
+	}
+	if string(val) != string(value) {
+		t.Errorf("expected value %s, got %s", value, val)
+	}
+
+	if err := c.Delete(ctx, key); err != nil {
+		t.Fatalf("failed to delete key: %v", err)
+	}
+
+	_, ok, err = c.Get(ctx, key)
+	if err != nil {
+		t.Fatalf("failed to get key after delete: %v", err)
+	}
+	if ok {
+		t.Error("expected key to not exist after delete")
+	}
+}
+
+// TestRedisCacheNewWithEmptyAddress tests that New() returns an error with empty address.
+func TestRedisCacheNewWithEmptyAddress(t *testing.T) {
+	if testing.Short() {
+		t.Skip(skipIntegrationMsg)
+	}
+
+	_, err := New(Config{})
+	if err == nil {
+		t.Fatal("expected error with empty address")
+	}
+}
+
+// TestRedisCacheNewWithInvalidAddress tests that New() returns an error with invalid address.
+func TestRedisCacheNewWithInvalidAddress(t *testing.T) {
+	if testing.Short() {
+		t.Skip(skipIntegrationMsg)
+	}
+
+	_, err := New(Config{
+		Address:     "localhost:99999", // invalid port
+		DialTimeout: 1 * 1e9,           // 1 second timeout
+	})
+	if err == nil {
+		t.Fatal("expected error with invalid address")
+	}
+}
+
+// TestDefaultConfig tests that DefaultConfig returns sensible defaults.
+func TestDefaultConfig(t *testing.T) {
+	config := DefaultConfig()
+
+	if config.MaxRetries != 3 {
+		t.Errorf("expected MaxRetries to be 3, got %d", config.MaxRetries)
+	}
+	if config.PoolSize != 10 {
+		t.Errorf("expected PoolSize to be 10, got %d", config.PoolSize)
+	}
+	if config.DialTimeout != 5*1e9 {
+		t.Errorf("expected DialTimeout to be 5s, got %v", config.DialTimeout)
+	}
+	if config.ReadTimeout != 5*1e9 {
+		t.Errorf("expected ReadTimeout to be 5s, got %v", config.ReadTimeout)
+	}
+	if config.WriteTimeout != 5*1e9 {
+		t.Errorf("expected WriteTimeout to be 5s, got %v", config.WriteTimeout)
+	}
+	if config.DB != 0 {
+		t.Errorf("expected DB to be 0, got %d", config.DB)
 	}
 }
