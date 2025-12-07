@@ -7,6 +7,7 @@ require (
 	github.com/aws/aws-sdk-go v1.55.8
 	github.com/bradfitz/gomemcache v0.0.0-20250403215159-8d39553ac7cf
 	github.com/coocood/freecache v1.2.4
+	github.com/failsafe-go/failsafe-go v0.9.3
 	github.com/golang/snappy v1.0.0
 	github.com/hazelcast/hazelcast-go-client v1.4.3
 	github.com/jackc/pgx/v5 v5.7.6
@@ -53,6 +54,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/sts v1.39.0 // indirect
 	github.com/aws/smithy-go v1.23.2 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
+	github.com/bits-and-blooms/bitset v1.24.4 // indirect
 	github.com/cenkalti/backoff/v4 v4.3.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/containerd/errdefs v1.0.0 // indirect

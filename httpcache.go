@@ -196,6 +196,10 @@ type Transport struct {
 	// security holds the security configuration for key hashing and optional encryption.
 	// This is configured via WithEncryption option.
 	security *securityConfig
+
+	// resilience holds the resilience configuration (retry, circuit breaker).
+	// Disabled by default. Configure via WithResilience option.
+	resilience *ResilienceConfig
 }
 
 // NewTransport returns a new Transport with the
@@ -738,14 +742,25 @@ func (t *Transport) RoundTrip(req *http.Request) (resp *http.Response, err error
 		transport = http.DefaultTransport
 	}
 
-	// Handle cached vs uncached response
-	if cacheable && cachedResp != nil && err == nil {
-		t.log().Debug("cache hit, processing cached response", "url", req.URL.String())
-		resp, err = t.processCachedResponse(cachedResp, req, transport, cacheKey)
-	} else {
-		t.log().Debug("cache miss, making request", "url", req.URL.String())
-		resp, err = processUncachedRequest(transport, req, t.log())
+	// Wrap the actual request logic for resilience support (retry + circuit breaker)
+	doRequest := func() (*http.Response, error) {
+		var reqResp *http.Response
+		var reqErr error
+
+		// Handle cached vs uncached response
+		if cacheable && cachedResp != nil && err == nil {
+			t.log().Debug("cache hit, processing cached response", "url", req.URL.String())
+			reqResp, reqErr = t.processCachedResponse(cachedResp, req, transport, cacheKey)
+		} else {
+			t.log().Debug("cache miss, making request", "url", req.URL.String())
+			reqResp, reqErr = processUncachedRequest(transport, req, t.log())
+		}
+
+		return reqResp, reqErr
 	}
+
+	// Apply resilience policies (retry + circuit breaker) if configured
+	resp, err = t.executeWithResilience(doRequest)
 
 	if err != nil {
 		return nil, err

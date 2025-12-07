@@ -152,3 +152,38 @@ func WithEncryption(passphrase string) TransportOption {
 		return nil
 	}
 }
+
+// WithResilience enables resilience patterns (retry, circuit breaker) using failsafe-go.
+// Disabled by default. Configure retry policy and/or circuit breaker as needed.
+//
+// Example with retry only:
+//
+//	WithResilience(&httpcache.ResilienceConfig{
+//	    RetryPolicy: httpcache.RetryPolicyBuilder().
+//	        WithMaxRetries(3).
+//	        Build(),
+//	})
+//
+// Example with circuit breaker only:
+//
+//	WithResilience(&httpcache.ResilienceConfig{
+//	    CircuitBreaker: httpcache.CircuitBreakerBuilder().
+//	        WithFailureThreshold(5).
+//	        Build(),
+//	})
+//
+// Example with both retry and circuit breaker:
+//
+//	WithResilience(&httpcache.ResilienceConfig{
+//	    RetryPolicy: httpcache.RetryPolicyBuilder().Build(),
+//	    CircuitBreaker: httpcache.CircuitBreakerBuilder().Build(),
+//	})
+func WithResilience(config *ResilienceConfig) TransportOption {
+	return func(t *Transport) error {
+		if config == nil {
+			return fmt.Errorf("resilience config cannot be nil")
+		}
+		t.resilience = config
+		return nil
+	}
+}

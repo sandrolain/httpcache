@@ -65,6 +65,7 @@
 - ✅ **Multiple Backends** - Memory, Disk, Redis, LevelDB, Memcache, PostgreSQL, MongoDB, NATS K/V, Hazelcast, Cloud Storage (S3/GCS/Azure)
 - ✅ **Multi-Tier Caching** - Combine multiple backends with automatic fallback and promotion
 - ✅ **Compression Wrapper** - Automatic Gzip, Brotli, or Snappy compression for cached data
+- ✅ **Resilience Features** - Retry policies and circuit breakers using [failsafe-go](https://failsafe-go.dev/)
 - ✅ **Built-in Security** - SHA-256 key hashing (always enabled) and optional AES-256-GCM encryption via `WithEncryption`
 - ✅ **Options Pattern** - Clean configuration via `TransportOption` functions (`WithEncryption`, `WithPublicCache`, etc.)
 - ✅ **Thread-Safe** - Safe for concurrent use
@@ -150,6 +151,7 @@ go get github.com/sandrolain/httpcache
 - **[Cache Backends](./docs/backends.md)** - Choose and configure storage backends (Memory, Redis, PostgreSQL, etc.)
 - **[How It Works](./docs/how-it-works.md)** - RFC 7234 implementation details, cache headers, and detecting cache hits
 - **[Advanced Features](./docs/advanced-features.md)** - Transport configuration, stale-if-error, cache key headers, custom cache control
+- **[Resilience Features](./docs/resilience.md)** - Retry policies and circuit breakers for fault-tolerant HTTP clients
 - **[Security Considerations](./docs/security.md)** - Multi-user applications, secure cache wrapper, best practices
 - **[Monitoring with Prometheus](./docs/monitoring.md)** - Optional metrics integration for production monitoring
 
