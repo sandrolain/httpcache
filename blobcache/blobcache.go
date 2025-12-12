@@ -67,6 +67,8 @@ type cache struct {
 	ownsBucket bool // true if we opened the bucket (should close it)
 }
 
+const stalePrefix = "stale_"
+
 // New creates a new blob cache with the given configuration.
 // The bucket is opened using the BucketURL.
 // Call Close() to clean up resources when done.
@@ -171,6 +173,10 @@ func (c *cache) Set(ctx context.Context, key string, data []byte) error {
 		defer cancel()
 	}
 
+	// Remove stale marker when setting a fresh value
+	staleKey := c.cacheKey(stalePrefix + key)
+	_ = c.bucket.Delete(ctx, staleKey) //nolint:errcheck // blob not found is acceptable
+
 	blobKey := c.cacheKey(key)
 
 	writer, err := c.bucket.NewWriter(ctx, blobKey, nil)
@@ -202,12 +208,93 @@ func (c *cache) Delete(ctx context.Context, key string) error {
 	}
 
 	blobKey := c.cacheKey(key)
+	staleKey := c.cacheKey(stalePrefix + key)
 
+	// Delete both the main entry and stale marker
 	err := c.bucket.Delete(ctx, blobKey)
 	if err != nil && gcerrors.Code(err) != gcerrors.NotFound {
 		return fmt.Errorf("blobcache delete failed for key %q: %w", key, err)
 	}
+
+	// Also delete stale marker if it exists (ignore not found errors)
+	_ = c.bucket.Delete(ctx, staleKey) //nolint:errcheck // not found is acceptable
 	return nil
+}
+
+// MarkStale marks a cached response as stale instead of deleting it.
+// Uses the provided context for timeout and cancellation.
+func (c *cache) MarkStale(ctx context.Context, key string) error {
+	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, c.timeout)
+		defer cancel()
+	}
+
+	blobKey := c.cacheKey(key)
+	staleKey := c.cacheKey(stalePrefix + key)
+
+	// Check if entry exists
+	exists, err := c.bucket.Exists(ctx, blobKey)
+	if err != nil {
+		return fmt.Errorf("blobcache mark stale failed to check existence for key %q: %w", key, err)
+	}
+	if !exists {
+		return nil // Entry doesn't exist, nothing to mark
+	}
+
+	// Create a marker blob
+	writer, err := c.bucket.NewWriter(ctx, staleKey, nil)
+	if err != nil {
+		return fmt.Errorf("blobcache mark stale failed to create writer for key %q: %w", key, err)
+	}
+	_, writeErr := writer.Write([]byte("1"))
+	closeErr := writer.Close()
+	if writeErr != nil {
+		return fmt.Errorf("blobcache mark stale failed to write for key %q: %w", key, writeErr)
+	}
+	if closeErr != nil {
+		return fmt.Errorf("blobcache mark stale failed to close writer for key %q: %w", key, closeErr)
+	}
+	return nil
+}
+
+// IsStale checks if a cached response has been marked as stale.
+// Uses the provided context for timeout and cancellation.
+func (c *cache) IsStale(ctx context.Context, key string) (bool, error) {
+	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, c.timeout)
+		defer cancel()
+	}
+
+	staleKey := c.cacheKey(stalePrefix + key)
+	exists, err := c.bucket.Exists(ctx, staleKey)
+	if err != nil {
+		return false, fmt.Errorf("blobcache is stale check failed for key %q: %w", key, err)
+	}
+	return exists, nil
+}
+
+// GetStale retrieves a stale cached response if it exists.
+// Uses the provided context for timeout and cancellation.
+func (c *cache) GetStale(ctx context.Context, key string) ([]byte, bool, error) {
+	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, c.timeout)
+		defer cancel()
+	}
+
+	// Check if marked as stale
+	isStale, err := c.IsStale(ctx, key)
+	if err != nil {
+		return nil, false, err
+	}
+	if !isStale {
+		return nil, false, nil
+	}
+
+	// Retrieve the actual data
+	return c.Get(ctx, key)
 }
 
 // Close closes the bucket if it was opened by New().

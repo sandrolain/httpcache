@@ -104,6 +104,24 @@ func (c *GzipCache) Delete(ctx context.Context, key string) error {
 	return c.delete(ctx, key)
 }
 
+// MarkStale marks the cached entry as stale without removing it.
+// Uses the provided context for cache operations.
+func (c *GzipCache) MarkStale(ctx context.Context, key string) error {
+	return c.markStale(ctx, key)
+}
+
+// IsStale checks if the cached entry is marked as stale.
+// Uses the provided context for cache operations.
+func (c *GzipCache) IsStale(ctx context.Context, key string) (bool, error) {
+	return c.isStale(ctx, key)
+}
+
+// GetStale retrieves and decompresses a stale entry if it exists and is marked as stale.
+// Uses the provided context for cache operations.
+func (c *GzipCache) GetStale(ctx context.Context, key string) ([]byte, bool, error) {
+	return c.getStale(ctx, key, c.decompress)
+}
+
 // Stats returns compression statistics
 func (c *GzipCache) Stats() Stats {
 	return c.stats()

@@ -18,3 +18,15 @@ func TestDiskCache(t *testing.T) {
 
 	test.Cache(t, New(tempDir))
 }
+
+func TestDiskCacheStale(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "httpcache")
+	if err != nil {
+		t.Fatalf("MkdirTemp: %v", err)
+	}
+	defer func() {
+		_ = os.RemoveAll(tempDir)
+	}()
+
+	test.CacheStale(t, New(tempDir))
+}

@@ -147,6 +147,30 @@ func TestMongoDBCacheConfig(t *testing.T) {
 	}
 }
 
+func TestMongoDBCacheStale(t *testing.T) {
+	uri := os.Getenv("MONGODB_TEST_URI")
+	if uri == "" {
+		uri = "mongodb://localhost:27017"
+	}
+
+	config := Config{
+		URI:        uri,
+		Database:   "httpcache_test",
+		Collection: "cache_stale_test",
+		Timeout:    2 * time.Second,
+	}
+
+	ctx := context.Background()
+	cache, err := New(ctx, config)
+	if err != nil {
+		t.Skipf("Skipping MongoDB stale tests: %v", err)
+		return
+	}
+	defer cache.(interface{ Close() error }).Close()
+
+	test.CacheStale(t, cache)
+}
+
 func TestMongoDBDefaultConfig(t *testing.T) {
 	config := DefaultConfig()
 

@@ -66,3 +66,10 @@ func TestHazelcastCache(t *testing.T) {
 
 	test.Cache(t, c)
 }
+
+func TestHazelcastCacheStale(t *testing.T) {
+	c, cleanup := setupHazelcastCache(t)
+	defer cleanup()
+
+	test.CacheStale(t, c)
+}

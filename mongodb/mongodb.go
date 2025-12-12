@@ -48,6 +48,7 @@ type cacheEntry struct {
 	Key       string    `bson:"_id"`
 	Data      []byte    `bson:"data"`
 	CreatedAt time.Time `bson:"createdAt"`
+	Stale     bool      `bson:"stale,omitempty"`
 }
 
 // cache is an implementation of httpcache.Cache that caches responses in MongoDB.
@@ -127,6 +128,71 @@ func (c cache) Delete(ctx context.Context, key string) error {
 		return fmt.Errorf("mongodb cache delete failed for key %q: %w", key, err)
 	}
 	return nil
+}
+
+// MarkStale marks a cached response as stale instead of deleting it.
+func (c cache) MarkStale(ctx context.Context, key string) error {
+	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, c.timeout)
+		defer cancel()
+	}
+
+	// Check if entry exists and mark it as stale
+	result, err := c.collection.UpdateOne(
+		ctx,
+		bson.M{"_id": c.cacheKey(key)},
+		bson.M{"$set": bson.M{"stale": true}},
+	)
+	if err != nil {
+		return fmt.Errorf("mongodb cache mark stale failed for key %q: %w", key, err)
+	}
+	if result.MatchedCount == 0 {
+		return nil // Entry doesn't exist, nothing to mark
+	}
+	return nil
+}
+
+// IsStale checks if a cached response has been marked as stale.
+func (c cache) IsStale(ctx context.Context, key string) (bool, error) {
+	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, c.timeout)
+		defer cancel()
+	}
+
+	var entry cacheEntry
+	err := c.collection.FindOne(ctx, bson.M{"_id": c.cacheKey(key)}).Decode(&entry)
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			return false, nil
+		}
+		return false, fmt.Errorf("mongodb cache is stale check failed for key %q: %w", key, err)
+	}
+	return entry.Stale, nil
+}
+
+// GetStale retrieves a stale cached response if it exists.
+func (c cache) GetStale(ctx context.Context, key string) ([]byte, bool, error) {
+	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, c.timeout)
+		defer cancel()
+	}
+
+	// Find entry marked as stale
+	var entry cacheEntry
+	err := c.collection.FindOne(ctx, bson.M{
+		"_id":   c.cacheKey(key),
+		"stale": true,
+	}).Decode(&entry)
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			return nil, false, nil
+		}
+		return nil, false, fmt.Errorf("mongodb cache get stale failed for key %q: %w", key, err)
+	}
+	return entry.Data, true, nil
 }
 
 // Close disconnects from MongoDB.

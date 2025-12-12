@@ -18,6 +18,8 @@ type Cache struct {
 	d *diskv.Diskv
 }
 
+const stalePrefix = "stale_"
+
 // Get returns the response corresponding to key if present.
 // The context parameter is accepted for interface compliance but not used for disk operations.
 func (c *Cache) Get(_ context.Context, key string) (resp []byte, ok bool, err error) {
@@ -33,6 +35,9 @@ func (c *Cache) Get(_ context.Context, key string) (resp []byte, ok bool, err er
 // The context parameter is accepted for interface compliance but not used for disk operations.
 func (c *Cache) Set(_ context.Context, key string, resp []byte) error {
 	key = keyToFilename(key)
+	// Remove stale marker when setting a fresh value
+	_ = c.d.Erase(stalePrefix + key) //nolint:errcheck // file not found is acceptable
+
 	if err := c.d.WriteStream(key, bytes.NewReader(resp), true); err != nil {
 		return fmt.Errorf("diskcache set failed for key: %w", err)
 	}
@@ -45,7 +50,52 @@ func (c *Cache) Delete(_ context.Context, key string) error {
 	key = keyToFilename(key)
 	// Erase errors when file doesn't exist are not real errors, so we ignore them
 	_ = c.d.Erase(key) //nolint:errcheck // file not found is acceptable
+	// Also remove stale marker if it exists
+	_ = c.d.Erase(stalePrefix + key) //nolint:errcheck // file not found is acceptable
 	return nil
+}
+
+// MarkStale marks a cached response as stale instead of deleting it.
+// The context parameter is accepted for interface compliance but not used for disk operations.
+func (c *Cache) MarkStale(_ context.Context, key string) error {
+	key = keyToFilename(key)
+	// Check if the entry exists
+	if _, err := c.d.Read(key); err != nil {
+		return nil // Entry doesn't exist, nothing to mark
+	}
+	// Create a marker file to indicate staleness
+	if err := c.d.WriteStream(stalePrefix+key, bytes.NewReader([]byte("1")), true); err != nil {
+		return fmt.Errorf("diskcache mark stale failed for key: %w", err)
+	}
+	return nil
+}
+
+// IsStale checks if a cached response has been marked as stale.
+// The context parameter is accepted for interface compliance but not used for disk operations.
+func (c *Cache) IsStale(_ context.Context, key string) (bool, error) {
+	key = keyToFilename(key)
+	_, err := c.d.Read(stalePrefix + key)
+	if err != nil {
+		return false, nil // Marker doesn't exist
+	}
+	return true, nil
+}
+
+// GetStale retrieves a stale cached response if it exists.
+// The context parameter is accepted for interface compliance but not used for disk operations.
+func (c *Cache) GetStale(_ context.Context, key string) ([]byte, bool, error) {
+	key = keyToFilename(key)
+	// Check if marked as stale
+	_, err := c.d.Read(stalePrefix + key)
+	if err != nil {
+		return nil, false, nil // Not marked as stale
+	}
+	// Retrieve the actual data
+	resp, err := c.d.Read(key)
+	if err != nil {
+		return nil, false, nil // Data doesn't exist
+	}
+	return resp, true, nil
 }
 
 func keyToFilename(key string) string {

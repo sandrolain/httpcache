@@ -24,6 +24,8 @@ type Cache struct {
 	cache *freecache.Cache
 }
 
+const stalePrefix = "stale:"
+
 // New creates a new Cache with the specified size in bytes.
 // The cache size will be set to 512KB at minimum.
 //
@@ -59,6 +61,9 @@ func (c *Cache) Get(_ context.Context, key string) ([]byte, bool, error) {
 // The entry has no expiration time and will only be evicted when cache is full.
 // The context parameter is accepted for interface compliance but not used for in-memory operations.
 func (c *Cache) Set(_ context.Context, key string, value []byte) error {
+	// Remove stale marker when setting a fresh value
+	c.cache.Del([]byte(stalePrefix + key))
+
 	if err := c.cache.Set([]byte(key), value, 0); err != nil {
 		return fmt.Errorf("freecache set failed for key %q: %w", key, err)
 	}
@@ -69,7 +74,69 @@ func (c *Cache) Set(_ context.Context, key string, value []byte) error {
 // The context parameter is accepted for interface compliance but not used for in-memory operations.
 func (c *Cache) Delete(_ context.Context, key string) error {
 	c.cache.Del([]byte(key))
+	// Also remove stale marker if present
+	c.cache.Del([]byte(stalePrefix + key))
 	return nil
+}
+
+// MarkStale marks the cached entry as stale without removing it.
+// The context parameter is accepted for interface compliance but not used for in-memory operations.
+func (c *Cache) MarkStale(_ context.Context, key string) error {
+	// Check if the key exists
+	_, err := c.cache.Get([]byte(key))
+	if err != nil {
+		if err == freecache.ErrNotFound {
+			return nil // Key doesn't exist, nothing to mark
+		}
+		return fmt.Errorf("freecache check for key %q failed: %w", key, err)
+	}
+
+	// Create a stale marker entry with minimal value
+	staleKey := stalePrefix + key
+	if err := c.cache.Set([]byte(staleKey), []byte{1}, 0); err != nil {
+		return fmt.Errorf("freecache mark stale failed for key %q: %w", key, err)
+	}
+	return nil
+}
+
+// IsStale checks if the cached entry is marked as stale.
+// The context parameter is accepted for interface compliance but not used for in-memory operations.
+func (c *Cache) IsStale(_ context.Context, key string) (bool, error) {
+	staleKey := stalePrefix + key
+	_, err := c.cache.Get([]byte(staleKey))
+	if err != nil {
+		if err == freecache.ErrNotFound {
+			return false, nil // No marker, not stale
+		}
+		return false, fmt.Errorf("freecache check stale marker for key %q failed: %w", key, err)
+	}
+	return true, nil
+}
+
+// GetStale retrieves a stale entry if it exists and is marked as stale.
+// Returns the value and true if the entry is stale, nil and false otherwise.
+// The context parameter is accepted for interface compliance but not used for in-memory operations.
+func (c *Cache) GetStale(_ context.Context, key string) ([]byte, bool, error) {
+	// Check if marked as stale
+	staleKey := stalePrefix + key
+	_, err := c.cache.Get([]byte(staleKey))
+	if err != nil {
+		if err == freecache.ErrNotFound {
+			return nil, false, nil // Not marked as stale
+		}
+		return nil, false, fmt.Errorf("freecache check stale marker for key %q failed: %w", key, err)
+	}
+
+	// Get the actual entry
+	value, err := c.cache.Get([]byte(key))
+	if err != nil {
+		if err == freecache.ErrNotFound {
+			return nil, false, nil // Entry was removed
+		}
+		return nil, false, fmt.Errorf("freecache get stale for key %q failed: %w", key, err)
+	}
+
+	return value, true, nil
 }
 
 // Clear removes all entries from the cache

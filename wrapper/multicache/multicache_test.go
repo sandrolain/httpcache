@@ -12,13 +12,15 @@ import (
 
 // mockCache is a simple in-memory cache for testing
 type mockCache struct {
-	mu   sync.RWMutex
-	data map[string][]byte
+	mu     sync.RWMutex
+	data   map[string][]byte
+	stales map[string]bool
 }
 
 func newMockCache() *mockCache {
 	return &mockCache{
-		data: make(map[string][]byte),
+		data:   make(map[string][]byte),
+		stales: make(map[string]bool),
 	}
 }
 
@@ -33,6 +35,7 @@ func (m *mockCache) Set(_ context.Context, key string, value []byte) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.data[key] = value
+	delete(m.stales, key)
 	return nil
 }
 
@@ -40,7 +43,33 @@ func (m *mockCache) Delete(_ context.Context, key string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	delete(m.data, key)
+	delete(m.stales, key)
 	return nil
+}
+
+func (m *mockCache) MarkStale(_ context.Context, key string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, exists := m.data[key]; exists {
+		m.stales[key] = true
+	}
+	return nil
+}
+
+func (m *mockCache) IsStale(_ context.Context, key string) (bool, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.stales[key], nil
+}
+
+func (m *mockCache) GetStale(_ context.Context, key string) ([]byte, bool, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if !m.stales[key] {
+		return nil, false, nil
+	}
+	value, ok := m.data[key]
+	return value, ok, nil
 }
 
 func TestInterface(t *testing.T) {

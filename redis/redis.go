@@ -63,6 +63,8 @@ type cache struct {
 	client redis.UniversalClient
 }
 
+const stalePrefix = "stale:"
+
 // cacheKey modifies an httpcache key for use in redis. Specifically, it
 // prefixes keys to avoid collision with other data stored in redis.
 func cacheKey(key string) string {
@@ -83,7 +85,12 @@ func (c cache) Get(ctx context.Context, key string) (resp []byte, ok bool, err e
 
 // Set saves a response to the cache as key.
 func (c cache) Set(ctx context.Context, key string, resp []byte) error {
-	if err := c.client.Set(ctx, cacheKey(key), resp, 0).Err(); err != nil {
+	// Use pipeline to set value and remove stale marker atomically
+	pipe := c.client.Pipeline()
+	pipe.Set(ctx, cacheKey(key), resp, 0)
+	pipe.Del(ctx, cacheKey(stalePrefix+key))
+	_, err := pipe.Exec(ctx)
+	if err != nil {
 		return fmt.Errorf("redis cache set failed for key %q: %w", key, err)
 	}
 	return nil
@@ -91,10 +98,56 @@ func (c cache) Set(ctx context.Context, key string, resp []byte) error {
 
 // Delete removes the response with key from the cache.
 func (c cache) Delete(ctx context.Context, key string) error {
-	if err := c.client.Del(ctx, cacheKey(key)).Err(); err != nil {
+	pipe := c.client.Pipeline()
+	pipe.Del(ctx, cacheKey(key))
+	pipe.Del(ctx, cacheKey(stalePrefix+key))
+	_, err := pipe.Exec(ctx)
+	if err != nil {
 		return fmt.Errorf("redis cache delete failed for key %q: %w", key, err)
 	}
 	return nil
+}
+
+// MarkStale marks a cached response as stale instead of deleting it.
+func (c cache) MarkStale(ctx context.Context, key string) error {
+	// Check if entry exists
+	exists, err := c.client.Exists(ctx, cacheKey(key)).Result()
+	if err != nil {
+		return fmt.Errorf("redis cache mark stale check failed for key %q: %w", key, err)
+	}
+	if exists == 0 {
+		return nil // Entry doesn't exist, nothing to mark
+	}
+
+	// Set a marker key
+	if err := c.client.Set(ctx, cacheKey(stalePrefix+key), "1", 0).Err(); err != nil {
+		return fmt.Errorf("redis cache mark stale failed for key %q: %w", key, err)
+	}
+	return nil
+}
+
+// IsStale checks if a cached response has been marked as stale.
+func (c cache) IsStale(ctx context.Context, key string) (bool, error) {
+	exists, err := c.client.Exists(ctx, cacheKey(stalePrefix+key)).Result()
+	if err != nil {
+		return false, fmt.Errorf("redis cache is stale check failed for key %q: %w", key, err)
+	}
+	return exists > 0, nil
+}
+
+// GetStale retrieves a stale cached response if it exists.
+func (c cache) GetStale(ctx context.Context, key string) ([]byte, bool, error) {
+	// Check if marked as stale
+	isStale, err := c.IsStale(ctx, key)
+	if err != nil {
+		return nil, false, err
+	}
+	if !isStale {
+		return nil, false, nil
+	}
+
+	// Retrieve the actual data
+	return c.Get(ctx, key)
 }
 
 // Close closes the connection to Redis.

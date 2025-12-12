@@ -117,6 +117,19 @@ type Cache interface {
 	// Delete removes the value associated with the key.
 	// Returns an error if the operation fails.
 	Delete(ctx context.Context, key string) error
+	// MarkStale marks a cached response as stale instead of deleting it.
+	// This allows the cache to serve stale content when stale-if-error is in effect.
+	// Returns an error if the operation fails.
+	MarkStale(ctx context.Context, key string) error
+	// IsStale checks if a cached response has been marked as stale.
+	// Returns true if the entry exists and is marked as stale, false otherwise.
+	// Returns an error if the operation fails.
+	IsStale(ctx context.Context, key string) (bool, error)
+	// GetStale retrieves a stale cached response if it exists.
+	// Returns (nil, false, nil) if the key doesn't exist or is not marked as stale.
+	// Returns (data, true, nil) if a stale entry exists.
+	// Returns (nil, false, err) if there was an error retrieving the value.
+	GetStale(ctx context.Context, key string) (responseBytes []byte, ok bool, err error)
 }
 
 // CachedResponse returns the cached http.Response for req if present, and nil
@@ -188,6 +201,13 @@ type Transport struct {
 	// Default is false (Warning headers are enabled for backward compatibility).
 	// Set to true to comply with RFC 9111 and avoid deprecated headers.
 	DisableWarningHeader bool
+	// EnableStaleMarking enables the stale marking system instead of immediate cache deletion.
+	// When true, cache entries are marked as stale rather than deleted on errors or invalidation.
+	// This allows serving stale content when stale-if-error conditions are met, improving resilience.
+	// When false (default), cache entries are deleted immediately (backward compatible behavior).
+	// Note: The underlying cache backend must implement MarkStale, IsStale, and GetStale methods.
+	// Default is false to maintain backward compatibility.
+	EnableStaleMarking bool
 
 	// logger is the slog.Logger instance used by this Transport.
 	// Configure via WithLogger option. If nil, falls back to the global logger.
@@ -275,19 +295,37 @@ func (t *Transport) cacheDelete(ctx context.Context, key string) error {
 	return t.Cache.Delete(ctx, hashedKey)
 }
 
+// cacheMarkStale marks a cached entry as stale, applying key hashing.
+func (t *Transport) cacheMarkStale(ctx context.Context, key string) error {
+	hashedKey := hashKey(key)
+	return t.Cache.MarkStale(ctx, hashedKey)
+}
+
 // cachedResponseWithKeySecure returns the cached http.Response for the given cache key if present.
 // Applies key hashing and optional decryption.
-func (t *Transport) cachedResponseWithKeySecure(req *http.Request, key string) (resp *http.Response, err error) {
+//
+// If stale marking is enabled, it also reports whether the entry has been marked stale.
+func (t *Transport) cachedResponseWithKeySecure(req *http.Request, key string) (resp *http.Response, markedStale bool, err error) {
 	cachedVal, ok, err := t.cacheGet(req.Context(), key)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	if !ok {
-		return nil, nil
+		return nil, false, nil
+	}
+
+	if t.EnableStaleMarking {
+		hashedKey := hashKey(key)
+		isStale, staleErr := t.Cache.IsStale(req.Context(), hashedKey)
+		if staleErr != nil {
+			return nil, false, staleErr
+		}
+		markedStale = isStale
 	}
 
 	b := bytes.NewBuffer(cachedVal)
-	return http.ReadResponse(bufio.NewReader(b), req)
+	resp, err = http.ReadResponse(bufio.NewReader(b), req)
+	return resp, markedStale, err
 }
 
 // addValidatorsToRequest adds conditional request headers (If-None-Match, If-Modified-Since)
@@ -353,12 +391,20 @@ func (t *Transport) asyncRevalidate(req *http.Request) {
 	}()
 }
 
-// handleCachedResponse processes a cached response based on its freshness
-// Returns the request (possibly modified with validators) and whether to use cache directly
-func (t *Transport) handleCachedResponse(cachedResp *http.Response, req *http.Request) (*http.Request, bool) {
+// handleCachedResponse processes a cached response based on its freshness.
+// Returns the request (possibly modified with validators) and whether to use cache directly.
+func (t *Transport) handleCachedResponse(cachedResp *http.Response, req *http.Request, markedStale bool) (*http.Request, bool) {
 	if !varyMatches(cachedResp, req) {
 		t.log().Debug("vary mismatch, bypassing cache", "url", req.URL.String())
 		return req, false
+	}
+
+	if markedStale {
+		t.log().Debug("cached entry is marked stale, forcing revalidation", "url", req.URL.String())
+		if t.MarkCachedResponses {
+			cachedResp.Header.Set(XFreshness, freshnessString(stale))
+		}
+		return addValidatorsToRequest(req, cachedResp), false
 	}
 
 	// Don't serve server errors (5xx) from cache if SkipServerErrorsFromCache is enabled
@@ -539,13 +585,54 @@ func (t *Transport) storeCachedResponse(ctx context.Context, resp *http.Response
 	}
 }
 
-// processCachedResponse handles the logic when a valid cached response exists
-func (t *Transport) processCachedResponse(cachedResp *http.Response, req *http.Request, transport http.RoundTripper, cacheKey string) (*http.Response, error) {
+func (t *Transport) handleCachedNotModified(cachedResp *http.Response, notModifiedResp *http.Response, req *http.Request) *http.Response {
+	t.log().Debug("304 Not Modified received, using cached response", "url", req.URL.String())
+	if notModifiedResp != nil {
+		if drainErr := drainDiscardedBody(notModifiedResp.Body); drainErr != nil {
+			t.log().Warn("error draining 304 response body", "error", drainErr)
+		}
+	}
+	return handleNotModifiedResponse(cachedResp, notModifiedResp, t.MarkCachedResponses, t.log())
+}
+
+func (t *Transport) serveStaleCachedResponseOnError(cachedResp *http.Response, originResp *http.Response, req *http.Request) *http.Response {
+	t.log().Info("returning stale cached response due to error", "url", req.URL.String())
+	if originResp != nil {
+		if drainErr := drainDiscardedBody(originResp.Body); drainErr != nil {
+			t.log().Warn("error draining stale response body", "error", drainErr)
+		}
+	}
+	if t.MarkCachedResponses {
+		cachedResp.Header.Set(XStale, "1")
+	}
+	if !t.DisableWarningHeader {
+		addRevalidationFailedWarning(cachedResp)
+	}
+	return cachedResp
+}
+
+func (t *Transport) invalidateOrMarkCachedEntryOnFailure(ctx context.Context, cacheKey string, statusCode int, reqErr error) {
+	if t.EnableStaleMarking {
+		t.log().Debug("marking cache as stale due to error or non-200 response", "key", cacheKey, "status", statusCode, "error", reqErr)
+		if markErr := t.cacheMarkStale(ctx, cacheKey); markErr != nil {
+			t.log().Warn("failed to mark cache entry as stale", "key", cacheKey, "error", markErr)
+		}
+		return
+	}
+
+	t.log().Debug("invalidating cache due to error or non-200 response", "key", cacheKey, "status", statusCode, "error", reqErr)
+	if delErr := t.cacheDelete(ctx, cacheKey); delErr != nil {
+		t.log().Warn("failed to delete cache entry", "key", cacheKey, "error", delErr)
+	}
+}
+
+// processCachedResponse handles the logic when a valid cached response exists.
+func (t *Transport) processCachedResponse(cachedResp *http.Response, markedStale bool, req *http.Request, transport http.RoundTripper, cacheKey string) (*http.Response, error) {
 	if t.MarkCachedResponses {
 		cachedResp.Header.Set(XFromCache, "1")
 	}
 
-	modifiedReq, useCache := t.handleCachedResponse(cachedResp, req)
+	modifiedReq, useCache := t.handleCachedResponse(cachedResp, req, markedStale)
 	if useCache {
 		return cachedResp, nil
 	}
@@ -554,43 +641,19 @@ func (t *Transport) processCachedResponse(cachedResp *http.Response, req *http.R
 
 	// Handle 304 Not Modified
 	if err == nil && req.Method == methodGET && resp.StatusCode == http.StatusNotModified {
-		t.log().Debug("304 Not Modified received, using cached response", "url", req.URL.String())
-		// Drain and close the 304 response body since we're using the cached response
-		if resp != nil {
-			if drainErr := drainDiscardedBody(resp.Body); drainErr != nil {
-				t.log().Warn("error draining 304 response body", "error", drainErr)
-			}
-		}
-		return handleNotModifiedResponse(cachedResp, resp, t.MarkCachedResponses, t.log()), nil
+		return t.handleCachedNotModified(cachedResp, resp, req), nil
 	}
 
 	if shouldReturnStaleOnError(err, resp, cachedResp, req, t.log()) {
-		t.log().Info("returning stale cached response due to error", "url", req.URL.String())
-		// Drain and close the error response body since we're using the cached response
-		if resp != nil {
-			if drainErr := drainDiscardedBody(resp.Body); drainErr != nil {
-				t.log().Warn("error draining stale response body", "error", drainErr)
-			}
-		}
-		if t.MarkCachedResponses {
-			cachedResp.Header.Set(XStale, "1")
-		}
-		// RFC 7234 Section 5.5: Add Warning 111 (Revalidation Failed)
-		if !t.DisableWarningHeader {
-			addRevalidationFailedWarning(cachedResp)
-		}
-		return cachedResp, nil
+		return t.serveStaleCachedResponseOnError(cachedResp, resp, req), nil
 	}
 
 	if err != nil || resp.StatusCode != http.StatusOK {
-		var statusCode int
+		statusCode := 0
 		if resp != nil {
 			statusCode = resp.StatusCode
 		}
-		t.log().Debug("invalidating cache due to error or non-200 response", "key", cacheKey, "status", statusCode, "error", err)
-		if delErr := t.cacheDelete(req.Context(), cacheKey); delErr != nil {
-			t.log().Warn("failed to delete cache entry", "key", cacheKey, "error", delErr)
-		}
+		t.invalidateOrMarkCachedEntryOnFailure(req.Context(), cacheKey, statusCode, err)
 	}
 
 	if err != nil {
@@ -615,9 +678,16 @@ func (t *Transport) storeResponseInCache(resp *http.Response, req *http.Request,
 	reqCacheControl := parseCacheControl(req.Header, t.log())
 
 	if !cacheable || !canStore(req, reqCacheControl, respCacheControl, t.IsPublicCache, resp.StatusCode, t.log()) {
-		t.log().Debug("response not cacheable, deleting cache entry", "key", cacheKey, "status", resp.StatusCode)
-		if err := t.cacheDelete(ctx, cacheKey); err != nil {
-			t.log().Warn("failed to delete cache entry", "key", cacheKey, "error", err)
+		if t.EnableStaleMarking {
+			t.log().Debug("response not cacheable, marking as stale", "key", cacheKey, "status", resp.StatusCode)
+			if err := t.cacheMarkStale(ctx, cacheKey); err != nil {
+				t.log().Warn("failed to mark cache entry as stale", "key", cacheKey, "error", err)
+			}
+		} else {
+			t.log().Debug("response not cacheable, deleting cache entry", "key", cacheKey, "status", resp.StatusCode)
+			if err := t.cacheDelete(ctx, cacheKey); err != nil {
+				t.log().Warn("failed to delete cache entry", "key", cacheKey, "error", err)
+			}
 		}
 		return
 	}
@@ -706,9 +776,10 @@ func (t *Transport) RoundTrip(req *http.Request) (resp *http.Response, err error
 	t.log().Debug("RoundTrip started", "method", req.Method, "url", req.URL.String(), "cacheable", cacheable)
 
 	var cachedResp *http.Response
+	var cachedMarkedStale bool
 	if cacheable {
 		// Try to get cached response
-		cachedResp, err = t.cachedResponseWithKeySecure(req, cacheKey)
+		cachedResp, cachedMarkedStale, err = t.cachedResponseWithKeySecure(req, cacheKey)
 
 		// RFC 9111 Vary Separation: If EnableVarySeparation is true and cached response has Vary headers,
 		// recalculate cache key with vary values and try again for the correct variant.
@@ -720,9 +791,10 @@ func (t *Transport) RoundTrip(req *http.Request) (resp *http.Response, err error
 				varyCacheKey := cacheKeyWithVary(req, varyHeaders)
 				if varyCacheKey != cacheKey {
 					// Try with vary-specific key
-					varyCachedResp, varyErr := t.cachedResponseWithKeySecure(req, varyCacheKey)
+					varyCachedResp, varyCachedMarkedStale, varyErr := t.cachedResponseWithKeySecure(req, varyCacheKey)
 					if varyErr == nil && varyCachedResp != nil {
 						cachedResp = varyCachedResp
+						cachedMarkedStale = varyCachedMarkedStale
 						cacheKey = varyCacheKey
 					}
 				}
@@ -750,7 +822,7 @@ func (t *Transport) RoundTrip(req *http.Request) (resp *http.Response, err error
 		// Handle cached vs uncached response
 		if cacheable && cachedResp != nil && err == nil {
 			t.log().Debug("cache hit, processing cached response", "url", req.URL.String())
-			reqResp, reqErr = t.processCachedResponse(cachedResp, req, transport, cacheKey)
+			reqResp, reqErr = t.processCachedResponse(cachedResp, cachedMarkedStale, req, transport, cacheKey)
 		} else {
 			t.log().Debug("cache miss, making request", "url", req.URL.String())
 			reqResp, reqErr = processUncachedRequest(transport, req, t.log())

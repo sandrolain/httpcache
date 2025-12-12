@@ -64,6 +64,18 @@ func (c *StatsCache) Delete(ctx context.Context, key string) error {
 	return c.underlying.Delete(ctx, key)
 }
 
+func (c *StatsCache) MarkStale(ctx context.Context, key string) error {
+	return c.underlying.MarkStale(ctx, key)
+}
+
+func (c *StatsCache) IsStale(ctx context.Context, key string) (bool, error) {
+	return c.underlying.IsStale(ctx, key)
+}
+
+func (c *StatsCache) GetStale(ctx context.Context, key string) ([]byte, bool, error) {
+	return c.underlying.GetStale(ctx, key)
+}
+
 // Stats returns current cache statistics
 func (c *StatsCache) Stats() map[string]int64 {
 	c.mu.RLock()
@@ -100,6 +112,7 @@ type TTLCache struct {
 type cacheItem struct {
 	value      []byte
 	expiration time.Time
+	stale      bool
 }
 
 // NewTTLCache creates a new cache with TTL support
@@ -150,6 +163,43 @@ func (c *TTLCache) Delete(_ context.Context, key string) error {
 
 	delete(c.items, key)
 	return nil
+}
+
+func (c *TTLCache) MarkStale(_ context.Context, key string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if item, ok := c.items[key]; ok {
+		item.stale = true
+	}
+	return nil
+}
+
+func (c *TTLCache) IsStale(_ context.Context, key string) (bool, error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	if item, ok := c.items[key]; ok {
+		return item.stale, nil
+	}
+	return false, nil
+}
+
+func (c *TTLCache) GetStale(_ context.Context, key string) ([]byte, bool, error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	item, ok := c.items[key]
+	if !ok || !item.stale {
+		return nil, false, nil
+	}
+
+	// Check if expired
+	if time.Now().After(item.expiration) {
+		return nil, false, nil
+	}
+
+	return item.value, true, nil
 }
 
 func (c *TTLCache) cleanupExpired() {

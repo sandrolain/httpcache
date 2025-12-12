@@ -23,3 +23,18 @@ func TestRedisCache(t *testing.T) {
 
 	test.Cache(t, NewWithClient(client))
 }
+
+func TestRedisCacheStale(t *testing.T) {
+	ctx := context.Background()
+	client := redis.NewClient(&redis.Options{
+		Addr: "localhost:6379",
+	})
+
+	// Check if Redis is available
+	if err := client.Ping(ctx).Err(); err != nil {
+		t.Skipf("skipping test; no server running at localhost:6379")
+	}
+	_ = client.FlushAll(ctx)
+
+	test.CacheStale(t, NewWithClient(client))
+}

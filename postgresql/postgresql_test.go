@@ -62,6 +62,50 @@ func TestPostgreSQLCache(t *testing.T) {
 	}
 }
 
+func TestPostgreSQLCacheStale(t *testing.T) {
+	ctx := context.Background()
+	connString := getTestConnString()
+
+	pool, err := pgxpool.New(ctx, connString)
+	if err != nil {
+		t.Skipf("skipping test; could not connect to PostgreSQL: %v", err)
+	}
+	defer pool.Close()
+
+	// Test connection
+	if err := pool.Ping(ctx); err != nil {
+		t.Skipf("skipping test; PostgreSQL not available: %v", err)
+	}
+
+	config := DefaultConfig()
+	config.TableName = "httpcache_stale_test"
+
+	cache, err := NewWithPool(pool, config)
+	if err != nil {
+		t.Fatalf("NewWithPool failed: %v", err)
+	}
+	defer cache.Close()
+
+	// Create table
+	if err := cache.CreateTable(ctx); err != nil {
+		t.Fatalf("CreateTable failed: %v", err)
+	}
+
+	// Clean up table before tests
+	_, err = pool.Exec(ctx, "DELETE FROM "+config.TableName)
+	if err != nil {
+		t.Fatalf("failed to clean up table: %v", err)
+	}
+
+	test.CacheStale(t, cache)
+
+	// Clean up table after tests
+	_, err = pool.Exec(ctx, "DROP TABLE IF EXISTS "+config.TableName)
+	if err != nil {
+		t.Logf("warning: failed to drop test table: %v", err)
+	}
+}
+
 func TestPostgreSQLCacheWithConn(t *testing.T) {
 	ctx := context.Background()
 	connString := getTestConnString()

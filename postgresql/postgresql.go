@@ -101,9 +101,9 @@ func (c *Cache) Set(ctx context.Context, key string, resp []byte) error {
 	}
 
 	query := `
-		INSERT INTO ` + c.tableName + ` (key, data, created_at)
-		VALUES ($1, $2, $3)
-		ON CONFLICT (key) DO UPDATE SET data = $2, created_at = $3
+		INSERT INTO ` + c.tableName + ` (key, data, created_at, stale)
+		VALUES ($1, $2, $3, false)
+		ON CONFLICT (key) DO UPDATE SET data = $2, created_at = $3, stale = false
 	`
 
 	var err error
@@ -145,13 +145,99 @@ func (c *Cache) Delete(ctx context.Context, key string) error {
 	return nil
 }
 
+// MarkStale marks a cached response as stale instead of deleting it.
+func (c *Cache) MarkStale(ctx context.Context, key string) error {
+	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, c.timeout)
+		defer cancel()
+	}
+
+	query := `UPDATE ` + c.tableName + ` SET stale = true WHERE key = $1`
+
+	var err error
+	if c.pool != nil {
+		_, err = c.pool.Exec(ctx, query, c.cacheKey(key))
+	} else {
+		_, err = c.conn.Exec(ctx, query, c.cacheKey(key))
+	}
+
+	if err != nil {
+		return fmt.Errorf("postgresql cache mark stale failed for key %q: %w", key, err)
+	}
+	return nil
+}
+
+// IsStale checks if a cached response has been marked as stale.
+func (c *Cache) IsStale(ctx context.Context, key string) (bool, error) {
+	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, c.timeout)
+		defer cancel()
+	}
+
+	var stale bool
+	query := `SELECT COALESCE(stale, false) FROM ` + c.tableName + ` WHERE key = $1`
+
+	var err error
+	if c.pool != nil {
+		err = c.pool.QueryRow(ctx, query, c.cacheKey(key)).Scan(&stale)
+	} else {
+		err = c.conn.QueryRow(ctx, query, c.cacheKey(key)).Scan(&stale)
+	}
+
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return false, nil
+		}
+		return false, fmt.Errorf("postgresql cache is stale check failed for key %q: %w", key, err)
+	}
+
+	return stale, nil
+}
+
+// GetStale retrieves a stale cached response if it exists.
+func (c *Cache) GetStale(ctx context.Context, key string) ([]byte, bool, error) {
+	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, c.timeout)
+		defer cancel()
+	}
+
+	var data []byte
+	var stale bool
+
+	query := `SELECT data, COALESCE(stale, false) FROM ` + c.tableName + ` WHERE key = $1`
+
+	var err error
+	if c.pool != nil {
+		err = c.pool.QueryRow(ctx, query, c.cacheKey(key)).Scan(&data, &stale)
+	} else {
+		err = c.conn.QueryRow(ctx, query, c.cacheKey(key)).Scan(&data, &stale)
+	}
+
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, false, nil
+		}
+		return nil, false, fmt.Errorf("postgresql cache get stale failed for key %q: %w", key, err)
+	}
+
+	if !stale {
+		return nil, false, nil
+	}
+
+	return data, true, nil
+}
+
 // CreateTable creates the cache table if it doesn't exist.
 func (c *Cache) CreateTable(ctx context.Context) error {
 	query := `
 		CREATE TABLE IF NOT EXISTS ` + c.tableName + ` (
 			key TEXT PRIMARY KEY,
 			data BYTEA NOT NULL,
-			created_at TIMESTAMP NOT NULL
+			created_at TIMESTAMP NOT NULL,
+			stale BOOLEAN DEFAULT FALSE
 		)
 	`
 
@@ -161,7 +247,17 @@ func (c *Cache) CreateTable(ctx context.Context) error {
 	} else {
 		_, err = c.conn.Exec(ctx, query)
 	}
+	if err != nil {
+		return err
+	}
 
+	// Ensure the stale column exists for users upgrading from older schemas.
+	alter := `ALTER TABLE ` + c.tableName + ` ADD COLUMN IF NOT EXISTS stale BOOLEAN DEFAULT FALSE`
+	if c.pool != nil {
+		_, err = c.pool.Exec(ctx, alter)
+	} else {
+		_, err = c.conn.Exec(ctx, alter)
+	}
 	return err
 }
 

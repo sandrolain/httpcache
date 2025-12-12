@@ -35,6 +35,29 @@ func TestBlobCache(t *testing.T) {
 	test.Cache(t, cache)
 }
 
+func TestBlobCacheStale(t *testing.T) {
+	// Use in-memory blob for testing
+	ctx := context.Background()
+
+	cache, err := New(ctx, Config{
+		BucketURL: "mem://",
+		KeyPrefix: "test/",
+		Timeout:   5 * time.Second,
+	})
+	if err != nil {
+		t.Fatalf("Failed to create cache: %v", err)
+	}
+	defer func() {
+		if closer, ok := cache.(interface{ Close() error }); ok {
+			if err := closer.Close(); err != nil {
+				t.Logf("Failed to close cache: %v", err)
+			}
+		}
+	}()
+
+	test.CacheStale(t, cache)
+}
+
 func TestBlobCacheWithFile(t *testing.T) {
 	// Create temporary directory for file-based blob storage
 	tmpDir, err := os.MkdirTemp("", "blobcache-test-*")

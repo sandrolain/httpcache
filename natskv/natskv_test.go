@@ -83,6 +83,34 @@ func TestNATSKVCache(t *testing.T) {
 	test.Cache(t, c)
 }
 
+func TestNATSKVCacheStale(t *testing.T) {
+	// Use a different bucket for stale tests to avoid interference
+	ns := startNATSServer(t)
+	defer ns.Shutdown()
+
+	nc, err := nats.Connect(ns.ClientURL())
+	if err != nil {
+		t.Fatalf("failed to connect to NATS: %v", err)
+	}
+	defer nc.Close()
+
+	js, err := jetstream.New(nc)
+	if err != nil {
+		t.Fatalf("failed to create JetStream context: %v", err)
+	}
+
+	ctx := context.Background()
+	kv, err := js.CreateKeyValue(ctx, jetstream.KeyValueConfig{
+		Bucket: "test-cache-stale",
+	})
+	if err != nil {
+		t.Fatalf("failed to create K/V bucket: %v", err)
+	}
+
+	c := NewWithKeyValue(kv)
+	test.CacheStale(t, c)
+}
+
 // TestNew tests the New constructor.
 func TestNew(t *testing.T) {
 	ns := startNATSServer(t)

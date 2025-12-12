@@ -11,11 +11,15 @@ import (
 
 // mockCache is a simple in-memory cache for testing
 type mockCacheInternal struct {
-	data map[string][]byte
+	data   map[string][]byte
+	stales map[string]bool
 }
 
 func newMockCacheInternal() *mockCacheInternal {
-	return &mockCacheInternal{data: make(map[string][]byte)}
+	return &mockCacheInternal{
+		data:   make(map[string][]byte),
+		stales: make(map[string]bool),
+	}
 }
 
 func (m *mockCacheInternal) Get(ctx context.Context, key string) ([]byte, bool, error) {
@@ -25,12 +29,33 @@ func (m *mockCacheInternal) Get(ctx context.Context, key string) ([]byte, bool, 
 
 func (m *mockCacheInternal) Set(ctx context.Context, key string, data []byte) error {
 	m.data[key] = data
+	delete(m.stales, key) // Clear stale marker on set
 	return nil
 }
 
 func (m *mockCacheInternal) Delete(ctx context.Context, key string) error {
 	delete(m.data, key)
+	delete(m.stales, key)
 	return nil
+}
+
+func (m *mockCacheInternal) MarkStale(ctx context.Context, key string) error {
+	if _, exists := m.data[key]; exists {
+		m.stales[key] = true
+	}
+	return nil
+}
+
+func (m *mockCacheInternal) IsStale(ctx context.Context, key string) (bool, error) {
+	return m.stales[key], nil
+}
+
+func (m *mockCacheInternal) GetStale(ctx context.Context, key string) ([]byte, bool, error) {
+	if !m.stales[key] {
+		return nil, false, nil
+	}
+	data, ok := m.data[key]
+	return data, ok, nil
 }
 
 func TestHashKey(t *testing.T) {

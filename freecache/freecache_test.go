@@ -249,3 +249,95 @@ func TestConcurrentAccess(t *testing.T) {
 		t.Error("Cache should work correctly after concurrent access")
 	}
 }
+
+func TestFreecacheStale(t *testing.T) {
+	cache := New(1024 * 1024) // 1MB
+	ctx := context.Background()
+
+	key := "staleKey"
+	value := []byte("stale test value")
+
+	// Test marking non-existent key
+	if err := cache.MarkStale(ctx, key); err != nil {
+		t.Fatalf("MarkStale error on non-existent key: %v", err)
+	}
+
+	// Test IsStale on non-existent key
+	isStale, err := cache.IsStale(ctx, key)
+	if err != nil {
+		t.Fatalf("IsStale error: %v", err)
+	}
+	if isStale {
+		t.Error("Non-existent key should not be stale")
+	}
+
+	// Set a value
+	if err := cache.Set(ctx, key, value); err != nil {
+		t.Fatalf("Set error: %v", err)
+	}
+
+	// Should not be stale initially
+	isStale, err = cache.IsStale(ctx, key)
+	if err != nil {
+		t.Fatalf("IsStale error: %v", err)
+	}
+	if isStale {
+		t.Error("Fresh key should not be stale")
+	}
+
+	// Mark as stale
+	if err := cache.MarkStale(ctx, key); err != nil {
+		t.Fatalf("MarkStale error: %v", err)
+	}
+
+	// Should be stale now
+	isStale, err = cache.IsStale(ctx, key)
+	if err != nil {
+		t.Fatalf("IsStale error after marking: %v", err)
+	}
+	if !isStale {
+		t.Error("Marked key should be stale")
+	}
+
+	// GetStale should return the value
+	staleVal, ok, err := cache.GetStale(ctx, key)
+	if err != nil {
+		t.Fatalf("GetStale error: %v", err)
+	}
+	if !ok {
+		t.Fatal("GetStale should return true for stale key")
+	}
+	if string(staleVal) != string(value) {
+		t.Error("GetStale returned wrong value")
+	}
+
+	// Set should clear stale marker
+	newValue := []byte("fresh value")
+	if err := cache.Set(ctx, key, newValue); err != nil {
+		t.Fatalf("Set error: %v", err)
+	}
+
+	isStale, err = cache.IsStale(ctx, key)
+	if err != nil {
+		t.Fatalf("IsStale error after refresh: %v", err)
+	}
+	if isStale {
+		t.Error("Refreshed key should not be stale")
+	}
+
+	// Delete should remove stale marker
+	if err := cache.MarkStale(ctx, key); err != nil {
+		t.Fatalf("MarkStale error: %v", err)
+	}
+	if err := cache.Delete(ctx, key); err != nil {
+		t.Fatalf("Delete error: %v", err)
+	}
+
+	isStale, err = cache.IsStale(ctx, key)
+	if err != nil {
+		t.Fatalf("IsStale error after delete: %v", err)
+	}
+	if isStale {
+		t.Error("Deleted key should not be stale")
+	}
+}

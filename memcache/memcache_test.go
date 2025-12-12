@@ -22,3 +22,14 @@ func TestMemCache(t *testing.T) {
 
 	test.Cache(t, New(testServer))
 }
+
+func TestMemCacheStale(t *testing.T) {
+	conn, err := net.Dial("tcp", testServer)
+	if err != nil {
+		t.Skipf("skipping test; no server running at %s", testServer)
+	}
+	_, _ = conn.Write([]byte("flush_all\r\n")) // flush memcache
+	_ = conn.Close()
+
+	test.CacheStale(t, New(testServer))
+}

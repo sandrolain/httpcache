@@ -102,6 +102,52 @@ func (c *MultiCache) Delete(ctx context.Context, key string) error {
 	return nil
 }
 
+// MarkStale marks the cached entry as stale in all cache tiers.
+// Returns an error if any tier fails to mark the value as stale.
+func (c *MultiCache) MarkStale(ctx context.Context, key string) error {
+	for _, tier := range c.tiers {
+		if err := tier.MarkStale(ctx, key); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// IsStale checks if the cached entry is marked as stale in any tier.
+// Returns true if marked stale in any tier.
+func (c *MultiCache) IsStale(ctx context.Context, key string) (bool, error) {
+	for _, tier := range c.tiers {
+		isStale, err := tier.IsStale(ctx, key)
+		if err != nil {
+			return false, err
+		}
+		if isStale {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// GetStale retrieves a stale entry if it exists and is marked as stale in any tier.
+// It searches each tier in order and promotes found values to faster tiers.
+func (c *MultiCache) GetStale(ctx context.Context, key string) ([]byte, bool, error) {
+	// Try each tier in order
+	for i, tier := range c.tiers {
+		value, ok, err := tier.GetStale(ctx, key)
+		if err != nil {
+			return nil, false, err
+		}
+		if ok {
+			// Found in this tier - promote to all faster tiers
+			// Promotion errors are silently ignored as the value was found successfully
+			_ = c.promoteToFasterTiers(ctx, key, value, i) //nolint:errcheck // promotion is best-effort
+			return value, true, nil
+		}
+	}
+
+	return nil, false, nil
+}
+
 // promoteToFasterTiers writes the value to all tiers faster than the one
 // where it was found. This optimizes future reads by moving hot data to
 // faster tiers.

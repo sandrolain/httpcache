@@ -104,5 +104,56 @@ func (c *InstrumentedCache) Delete(ctx context.Context, key string) error {
 	return err
 }
 
+// MarkStale marks the cached entry as stale with metrics recording.
+// Uses the provided context for cache operations.
+func (c *InstrumentedCache) MarkStale(ctx context.Context, key string) error {
+	start := time.Now()
+	err := c.underlying.MarkStale(ctx, key)
+	duration := time.Since(start)
+
+	result := resultSuccess
+	if err != nil {
+		result = resultError
+	}
+
+	c.collector.RecordCacheOperation("mark_stale", c.backend, result, duration)
+
+	return err
+}
+
+// IsStale checks if the cached entry is marked as stale with metrics recording.
+// Uses the provided context for cache operations.
+func (c *InstrumentedCache) IsStale(ctx context.Context, key string) (bool, error) {
+	start := time.Now()
+	isStale, err := c.underlying.IsStale(ctx, key)
+	duration := time.Since(start)
+
+	result := resultSuccess
+	if err != nil {
+		result = resultError
+	}
+
+	c.collector.RecordCacheOperation("is_stale", c.backend, result, duration)
+
+	return isStale, err
+}
+
+// GetStale retrieves a stale entry if it exists and is marked as stale with metrics recording.
+// Uses the provided context for cache operations.
+func (c *InstrumentedCache) GetStale(ctx context.Context, key string) ([]byte, bool, error) {
+	start := time.Now()
+	value, ok, err := c.underlying.GetStale(ctx, key)
+	duration := time.Since(start)
+
+	result := resultSuccess
+	if err != nil {
+		result = resultError
+	}
+
+	c.collector.RecordCacheOperation("get_stale", c.backend, result, duration)
+
+	return value, ok, err
+}
+
 // Verify interface implementation at compile time
 var _ httpcache.Cache = (*InstrumentedCache)(nil)

@@ -723,7 +723,7 @@ func TestSkipServerErrorsFromCache(t *testing.T) {
 	}
 
 	// With default settings (SkipServerErrorsFromCache = false), handleCachedResponse should allow it
-	_, useCache := s.transport.handleCachedResponse(cachedResp, req)
+	_, useCache := s.transport.handleCachedResponse(cachedResp, req, false)
 	if !useCache {
 		t.Fatal("Expected to use cached 500 with default settings")
 	}
@@ -733,7 +733,7 @@ func TestSkipServerErrorsFromCache(t *testing.T) {
 
 	// Now handleCachedResponse should NOT allow using the cached 500
 	cachedResp2, _ := CachedResponse(s.transport.Cache, req)
-	_, useCache2 := s.transport.handleCachedResponse(cachedResp2, req)
+	_, useCache2 := s.transport.handleCachedResponse(cachedResp2, req, false)
 	if useCache2 {
 		t.Fatal("Should NOT use cached 500 when SkipServerErrorsFromCache is true")
 	}

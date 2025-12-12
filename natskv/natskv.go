@@ -11,6 +11,8 @@ import (
 	"github.com/sandrolain/httpcache"
 )
 
+const stalePrefix = "stale."
+
 // Config holds the configuration for creating a NATS K/V cache.
 type Config struct {
 	// NATSUrl is the URL of the NATS server (e.g., "nats://localhost:4222").
@@ -47,6 +49,11 @@ func cacheKey(key string) string {
 	return "httpcache." + key
 }
 
+// staleCacheKey returns the key for a stale marker.
+func staleCacheKey(key string) string {
+	return "httpcache." + stalePrefix + key
+}
+
 // Get returns the response corresponding to key if present.
 // Uses the provided context for cancellation.
 func (c cache) Get(ctx context.Context, key string) (resp []byte, ok bool, err error) {
@@ -63,6 +70,9 @@ func (c cache) Get(ctx context.Context, key string) (resp []byte, ok bool, err e
 // Set saves a response to the cache as key.
 // Uses the provided context for cancellation.
 func (c cache) Set(ctx context.Context, key string, resp []byte) error {
+	// Remove stale marker when setting a fresh value
+	_ = c.kv.Delete(ctx, staleCacheKey(key)) //nolint:errcheck // Ignore errors if marker doesn't exist
+
 	if _, err := c.kv.Put(ctx, cacheKey(key), resp); err != nil {
 		return fmt.Errorf("natskv cache set failed for key %q: %w", key, err)
 	}
@@ -72,12 +82,61 @@ func (c cache) Set(ctx context.Context, key string, resp []byte) error {
 // Delete removes the response with key from the cache.
 // Uses the provided context for cancellation.
 func (c cache) Delete(ctx context.Context, key string) error {
+	// Delete both main entry and stale marker
 	if err := c.kv.Delete(ctx, cacheKey(key)); err != nil {
 		if err != jetstream.ErrKeyNotFound {
 			return fmt.Errorf("natskv cache delete failed for key %q: %w", key, err)
 		}
 	}
+	// Also delete stale marker (ignore not found)
+	//nolint:errcheck // Intentionally ignore errors when removing stale marker
+	_ = c.kv.Delete(ctx, staleCacheKey(key))
 	return nil
+}
+
+// MarkStale marks a cached response as stale instead of deleting it.
+func (c cache) MarkStale(ctx context.Context, key string) error {
+	// Check if entry exists
+	_, err := c.kv.Get(ctx, cacheKey(key))
+	if err == jetstream.ErrKeyNotFound {
+		return nil // Entry doesn't exist, nothing to mark
+	}
+	if err != nil {
+		return fmt.Errorf("natskv cache mark stale check failed for key %q: %w", key, err)
+	}
+
+	// Set stale marker
+	if _, err := c.kv.Put(ctx, staleCacheKey(key), []byte("1")); err != nil {
+		return fmt.Errorf("natskv cache mark stale failed for key %q: %w", key, err)
+	}
+	return nil
+}
+
+// IsStale checks if a cached response has been marked as stale.
+func (c cache) IsStale(ctx context.Context, key string) (bool, error) {
+	_, err := c.kv.Get(ctx, staleCacheKey(key))
+	if err == jetstream.ErrKeyNotFound {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("natskv cache is stale check failed for key %q: %w", key, err)
+	}
+	return true, nil
+}
+
+// GetStale retrieves a stale cached response if it exists.
+func (c cache) GetStale(ctx context.Context, key string) ([]byte, bool, error) {
+	// Check if marked as stale
+	isStale, err := c.IsStale(ctx, key)
+	if err != nil {
+		return nil, false, err
+	}
+	if !isStale {
+		return nil, false, nil
+	}
+
+	// Retrieve the actual data
+	return c.Get(ctx, key)
 }
 
 // Close closes the underlying NATS connection if it was created by New().

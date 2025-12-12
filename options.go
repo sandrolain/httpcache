@@ -44,6 +44,18 @@ func WithSkipServerErrorsFromCache(skip bool) TransportOption {
 	}
 }
 
+// WithEnableStaleMarking enables the stale marking system for improved resilience.
+// When enabled, cache entries are marked as stale instead of being deleted on errors.
+// This allows serving stale content when stale-if-error conditions are met.
+// Note: Requires cache backend to implement MarkStale, IsStale, and GetStale methods.
+// Default: false (backward compatible behavior with immediate deletion)
+func WithEnableStaleMarking(enable bool) TransportOption {
+	return func(t *Transport) error {
+		t.EnableStaleMarking = enable
+		return nil
+	}
+}
+
 // WithAsyncRevalidateTimeout sets the context timeout for async requests
 // triggered by stale-while-revalidate.
 // If zero, no timeout is applied to async revalidation requests.

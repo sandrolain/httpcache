@@ -183,6 +183,53 @@ func (c *baseCompressCache) delete(ctx context.Context, key string) error {
 	return c.cache.Delete(ctx, key)
 }
 
+// markStale marks the cached entry as stale without removing it.
+// Uses the provided context for cache operations.
+func (c *baseCompressCache) markStale(ctx context.Context, key string) error {
+	return c.cache.MarkStale(ctx, key)
+}
+
+// isStale checks if the cached entry is marked as stale.
+// Uses the provided context for cache operations.
+func (c *baseCompressCache) isStale(ctx context.Context, key string) (bool, error) {
+	return c.cache.IsStale(ctx, key)
+}
+
+// getStale retrieves and decompresses a stale entry if it exists and is marked as stale.
+// Uses the provided context for cache operations.
+func (c *baseCompressCache) getStale(ctx context.Context, key string, decompressFn decompressFunc) ([]byte, bool, error) {
+	data, ok, err := c.cache.GetStale(ctx, key)
+	if err != nil {
+		return nil, false, err
+	}
+	if !ok {
+		return nil, false, nil
+	}
+
+	// Check if data is compressed (has our marker)
+	if len(data) < 1 {
+		return data, true, nil
+	}
+
+	// First byte indicates compression algorithm
+	marker := data[0]
+	if marker == 0 {
+		// Not compressed
+		return data[1:], true, nil
+	}
+
+	// Get the algorithm from marker
+	storedAlgo := Algorithm(marker - 1)
+
+	// Decompress using the appropriate algorithm
+	decompressed, err := c.decompressWithAlgorithm(data[1:], storedAlgo, decompressFn)
+	if err != nil {
+		return nil, false, err
+	}
+
+	return decompressed, true, nil
+}
+
 // stats returns compression statistics
 func (c *baseCompressCache) stats() Stats {
 	compressed := c.compressedBytes.Load()
