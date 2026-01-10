@@ -12,11 +12,14 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httputil"
 	"time"
+
+	"golang.org/x/sync/singleflight"
 )
 
 const (
@@ -220,6 +223,10 @@ type Transport struct {
 	// resilience holds the resilience configuration (retry, circuit breaker).
 	// Disabled by default. Configure via WithResilience option.
 	resilience *ResilienceConfig
+
+	// requests is a singleflight.Group used to deduplicate concurrent requests to the same resource.
+	// Multiple goroutines requesting the same cacheable URL will share the result of a single request.
+	requests singleflight.Group
 }
 
 // NewTransport returns a new Transport with the
@@ -637,7 +644,8 @@ func (t *Transport) processCachedResponse(cachedResp *http.Response, markedStale
 		return cachedResp, nil
 	}
 
-	resp, err := performRequest(transport, modifiedReq, false)
+	// Use singleflight for revalidation requests
+	resp, err := t.performCacheableRequestOnce(transport, modifiedReq, true, cacheKey, false)
 
 	// Handle 304 Not Modified
 	if err == nil && req.Method == methodGET && resp.StatusCode == http.StatusNotModified {
@@ -663,11 +671,43 @@ func (t *Transport) processCachedResponse(cachedResp *http.Response, markedStale
 	return resp, nil
 }
 
-// processUncachedRequest handles the logic when no valid cached response exists
-func processUncachedRequest(transport http.RoundTripper, req *http.Request, log *slog.Logger) (*http.Response, error) {
-	reqCacheControl := parseCacheControl(req.Header, log)
-	_, onlyIfCached := reqCacheControl[cacheControlOnlyIfCached]
-	return performRequest(transport, req, onlyIfCached)
+// performCacheableRequestOnce uses singleflight to deduplicate concurrent requests to the same resource.
+// For non-cacheable requests, it calls performRequest directly.
+// For cacheable requests, it uses singleflight to ensure only one request is made,
+// and all concurrent callers receive the same result.
+func (t *Transport) performCacheableRequestOnce(transport http.RoundTripper, req *http.Request, cacheable bool, cacheKey string, onlyIfCached bool) (*http.Response, error) {
+	if !cacheable {
+		return performRequest(transport, req, onlyIfCached)
+	}
+
+	// Use singleflight to deduplicate concurrent requests
+	res, err, shared := t.requests.Do(cacheKey, func() (interface{}, error) {
+		resp, err := performRequest(transport, req, onlyIfCached)
+		if err != nil {
+			return nil, err
+		}
+		return shareHttpResponse(resp), nil
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	// Type assertion: should always succeed
+	resp, ok := res.(*shareableResponse)
+	if !ok {
+		return nil, errors.New("internal error: unexpected response type from singleflight")
+	}
+
+	if !shared {
+		// First goroutine: return the original response
+		t.log().Debug("request not shared", "url", req.URL.String())
+		return resp.GetUnsharedResponse(), nil
+	}
+
+	// Subsequent goroutines: return a reusable clone
+	t.log().Debug("request deduplicated via singleflight", "url", req.URL.String())
+	return resp.GetReusableResponse(), nil
 }
 
 // storeResponseInCache stores the response in cache if applicable.
@@ -825,7 +865,10 @@ func (t *Transport) RoundTrip(req *http.Request) (resp *http.Response, err error
 			reqResp, reqErr = t.processCachedResponse(cachedResp, cachedMarkedStale, req, transport, cacheKey)
 		} else {
 			t.log().Debug("cache miss, making request", "url", req.URL.String())
-			reqResp, reqErr = processUncachedRequest(transport, req, t.log())
+			// Use singleflight for uncached requests
+			reqCacheControl := parseCacheControl(req.Header, t.log())
+			_, onlyIfCached := reqCacheControl[cacheControlOnlyIfCached]
+			reqResp, reqErr = t.performCacheableRequestOnce(transport, req, cacheable, cacheKey, onlyIfCached)
 		}
 
 		return reqResp, reqErr
