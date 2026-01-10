@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 This is a **major breaking release** that adds `context.Context` support and error returns to the `Cache` interface, enabling modern Go patterns for timeout, cancellation, and error handling.
 
+### Added
+
+- **Request Deduplication**: New `EnableDeduplication` flag coalesces concurrent requests to the same resource into a single network request using `golang.org/x/sync/singleflight`. Reduces server load and latency for parallel access patterns. ([#1](https://github.com/sandrolain/httpcache/issues/1))
+
 ### Breaking Changes
 
 **Cache Interface Signature Changes**

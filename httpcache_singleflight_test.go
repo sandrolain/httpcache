@@ -32,6 +32,7 @@ func TestDuplicateRequests(t *testing.T) {
 
 	cache := newMockCache()
 	transport := NewTransport(cache)
+	transport.EnableDeduplication = true
 	client := http.Client{Transport: transport}
 
 	// Create multiple identical requests in parallel
@@ -84,6 +85,7 @@ func TestDuplicateRequestsWithError(t *testing.T) {
 
 	cache := newMockCache()
 	transport := NewTransport(cache)
+	transport.EnableDeduplication = true
 	client := http.Client{Transport: transport}
 
 	const numRequests = 3
@@ -130,6 +132,7 @@ func TestDuplicateRequestsNonCacheable(t *testing.T) {
 
 	cache := newMockCache()
 	transport := NewTransport(cache)
+	transport.EnableDeduplication = true
 	client := http.Client{Transport: transport}
 
 	const numRequests = 3
@@ -168,6 +171,7 @@ func TestDuplicateRequestsBodyReading(t *testing.T) {
 
 	cache := newMockCache()
 	transport := NewTransport(cache)
+	transport.EnableDeduplication = true
 	client := http.Client{Transport: transport}
 
 	const numRequests = 4

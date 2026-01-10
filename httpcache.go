@@ -211,6 +211,12 @@ type Transport struct {
 	// Note: The underlying cache backend must implement MarkStale, IsStale, and GetStale methods.
 	// Default is false to maintain backward compatibility.
 	EnableStaleMarking bool
+	// EnableDeduplication enables request deduplication for parallel requests to the same resource.
+	// When enabled, multiple concurrent requests to the same URL will be coalesced into a single
+	// network request, with all callers receiving the same response.
+	// This is particularly useful for high-traffic scenarios or slow backends.
+	// Default is false for backward compatibility.
+	EnableDeduplication bool
 
 	// logger is the slog.Logger instance used by this Transport.
 	// Configure via WithLogger option. If nil, falls back to the global logger.
@@ -673,10 +679,10 @@ func (t *Transport) processCachedResponse(cachedResp *http.Response, markedStale
 
 // performCacheableRequestOnce uses singleflight to deduplicate concurrent requests to the same resource.
 // For non-cacheable requests, it calls performRequest directly.
-// For cacheable requests, it uses singleflight to ensure only one request is made,
+// For cacheable requests with EnableDeduplication=true, it uses singleflight to ensure only one request is made,
 // and all concurrent callers receive the same result.
 func (t *Transport) performCacheableRequestOnce(transport http.RoundTripper, req *http.Request, cacheable bool, cacheKey string, onlyIfCached bool) (*http.Response, error) {
-	if !cacheable {
+	if !cacheable || !t.EnableDeduplication {
 		return performRequest(transport, req, onlyIfCached)
 	}
 
@@ -865,7 +871,7 @@ func (t *Transport) RoundTrip(req *http.Request) (resp *http.Response, err error
 			reqResp, reqErr = t.processCachedResponse(cachedResp, cachedMarkedStale, req, transport, cacheKey)
 		} else {
 			t.log().Debug("cache miss, making request", "url", req.URL.String())
-			// Use singleflight for uncached requests
+			// Use singleflight for uncached requests if deduplication is enabled
 			reqCacheControl := parseCacheControl(req.Header, t.log())
 			_, onlyIfCached := reqCacheControl[cacheControlOnlyIfCached]
 			reqResp, reqErr = t.performCacheableRequestOnce(transport, req, cacheable, cacheKey, onlyIfCached)

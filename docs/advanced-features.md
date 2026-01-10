@@ -20,6 +20,10 @@ transport.IsPublicCache = true  // Default: false (private cache)
 // Disable deprecated Warning headers (RFC 9111 compliance)
 // RFC 9111 has obsoleted the Warning header field
 transport.DisableWarningHeader = true  // Default: false (enabled for backward compatibility)
+
+// Enable request deduplication for parallel requests to the same resource
+// Multiple concurrent requests to the same URL will be coalesced into a single network request
+transport.EnableDeduplication = true  // Default: false
 ```
 
 ### Disabling Warning Headers (RFC 9111)
@@ -548,6 +552,77 @@ transport.ShouldCache = func(resp *http.Response) bool {
 ⚠️ **Current Limitation**: The `Vary` response header is currently used for **validation only**, not for creating separate cache entries.
 
 See [How It Works](./how-it-works.md) for details on Vary header handling.
+
+## Request Deduplication
+
+When multiple goroutines make concurrent requests to the same slow endpoint, each request typically goes to the server before the cache is populated. The `EnableDeduplication` option coalesces these parallel requests into a single network request using [golang.org/x/sync/singleflight](https://pkg.go.dev/golang.org/x/sync/singleflight).
+
+**Problem:**
+
+```go
+// Without deduplication:
+// 5 goroutines start simultaneously
+// Cache is empty when requests start
+// Result: 5 requests to the slow server
+for i := 0; i < 5; i++ {
+    go func() {
+        resp, _ := client.Get("https://slow-api.example.com/data")
+        // ... process response
+    }()
+}
+```
+
+**Solution:**
+
+```go
+cache := diskcache.New("/tmp/cache")
+transport := httpcache.NewTransport(cache)
+transport.EnableDeduplication = true  // Enable request deduplication
+
+client := transport.Client()
+
+// With deduplication enabled:
+// 5 goroutines start simultaneously
+// First goroutine makes the request
+// Other 4 wait and share the same response
+// Result: Only 1 request to the slow server
+for i := 0; i < 5; i++ {
+    go func() {
+        resp, _ := client.Get("https://slow-api.example.com/data")
+        // All goroutines can independently read resp.Body
+    }()
+}
+```
+
+**How It Works:**
+
+1. Multiple goroutines request the same cacheable URL
+2. First goroutine performs the HTTP request
+3. Subsequent goroutines wait for the first request to complete
+4. All goroutines receive their own copy of the response with independent body readers
+5. Only one network request is made, reducing server load and latency
+
+**Benefits:**
+
+- **Reduced Server Load**: Eliminates redundant requests during parallel access
+- **Lower Latency**: Waiting goroutines get results faster than making their own requests
+- **Cost Savings**: Fewer network requests = less bandwidth usage
+- **Transparent**: No application code changes needed beyond enabling the flag
+
+**Important Notes:**
+
+- Only applies to **cacheable** requests (GET/HEAD without Range headers)
+- POST, PUT, DELETE, and other non-cacheable methods are not deduplicated
+- Each goroutine gets an independent response body that can be read without conflicts
+- Default is `false` for backward compatibility
+- Particularly useful for high-traffic scenarios or slow backends
+
+**Use Cases:**
+
+- Multiple workers polling the same slow API endpoint
+- Web applications with concurrent requests to the same resource
+- Batch processing systems accessing shared resources
+- Microservices with parallel requests to upstream services
 
 ## Multi-Tier Caching
 

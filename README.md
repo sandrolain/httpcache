@@ -75,6 +75,7 @@
 - ✅ **Stale-If-Error** - Resilient caching with RFC 5861 support
 - ✅ **Stale-While-Revalidate** - Async cache updates for better performance (RFC 5861)
 - ✅ **Configurable Cache Mode** - Use as private cache (default) or shared/public cache
+- ✅ **Request Deduplication** - Coalesce concurrent requests to the same resource (optional `EnableDeduplication` flag)
 
 ## Quick Start
 
@@ -132,6 +133,9 @@ transport := httpcache.NewTransport(cache,
     httpcache.WithVarySeparation(true),                    // RFC 9111 Vary handling
     httpcache.WithCacheKeyHeaders([]string{"Accept-Language"}), // Include headers in key
 )
+
+// Enable request deduplication for high-traffic scenarios
+transport.EnableDeduplication = true  // Coalesce parallel requests to same resource
 ```
 
 > **Note**: All cache keys are automatically hashed with SHA-256 before storage, protecting sensitive data in URLs.
