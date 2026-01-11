@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/credentials"
-	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/aws/aws-sdk-go/service/s3"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/credentials"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/sandrolain/httpcache/test"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
@@ -78,24 +78,28 @@ func setupMinIOContainer(ctx context.Context, t *testing.T) (string, func()) {
 	return endpoint, cleanup
 }
 
-// createS3Bucket creates a bucket in MinIO using AWS SDK v1
+// createS3Bucket creates a bucket in MinIO using AWS SDK v2
 func createS3Bucket(ctx context.Context, t *testing.T, endpoint, bucketName string) {
 	t.Helper()
 
-	sess, err := session.NewSession(&aws.Config{
-		Credentials:      credentials.NewStaticCredentials(minioAccessKey, minioSecretKey, ""),
-		Endpoint:         aws.String(endpoint),
-		Region:           aws.String(minioRegion),
-		DisableSSL:       aws.Bool(true),
-		S3ForcePathStyle: aws.Bool(true),
-	})
+	cfg, err := config.LoadDefaultConfig(ctx,
+		config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(
+			minioAccessKey,
+			minioSecretKey,
+			"",
+		)),
+		config.WithRegion(minioRegion),
+	)
 	if err != nil {
-		t.Fatalf("failed to create AWS session: %v", err)
+		t.Fatalf("failed to load AWS config: %v", err)
 	}
 
-	client := s3.New(sess)
+	client := s3.NewFromConfig(cfg, func(o *s3.Options) {
+		o.BaseEndpoint = aws.String("http://" + endpoint)
+		o.UsePathStyle = true
+	})
 
-	_, err = client.CreateBucketWithContext(ctx, &s3.CreateBucketInput{
+	_, err = client.CreateBucket(ctx, &s3.CreateBucketInput{
 		Bucket: aws.String(bucketName),
 	})
 	if err != nil {
@@ -103,9 +107,10 @@ func createS3Bucket(ctx context.Context, t *testing.T, endpoint, bucketName stri
 	}
 
 	// Wait for bucket to be available
-	err = client.WaitUntilBucketExistsWithContext(ctx, &s3.HeadBucketInput{
+	waiter := s3.NewBucketExistsWaiter(client)
+	err = waiter.Wait(ctx, &s3.HeadBucketInput{
 		Bucket: aws.String(bucketName),
-	})
+	}, 30*time.Second)
 	if err != nil {
 		t.Fatalf("bucket not available: %v", err)
 	}
