@@ -135,6 +135,7 @@ transport := httpcache.NewTransport(cache,
     httpcache.WithVarySeparation(true),                    // RFC 9111 Vary handling
     httpcache.WithCacheKeyHeaders([]string{"Accept-Language"}), // Include headers in key
     httpcache.WithMaxCacheableResponseSize(5*1024*1024),   // Limit cacheable size to 5MB (default: 10MB)
+    httpcache.WithCacheOperationTimeout(60*time.Second),   // Cache write timeout (default: 30s)
 )
 
 // Enable request deduplication for high-traffic scenarios
@@ -142,6 +143,8 @@ transport.EnableDeduplication = true  // Coalesce parallel requests to same reso
 ```
 
 > **Note**: All cache keys are automatically hashed with SHA-256 before storage, protecting sensitive data in URLs.
+
+> **Cache Operation Timeout**: By default, cache write operations have a **30-second timeout** to prevent indefinite operations after request completion. The cache operation uses an independent context to allow completing writes even if the client disconnects, but with this reasonable timeout. Set to 0 to disable (not recommended for production).
 
 > **Memory Protection**: By default, responses larger than **10MB** are not cached to prevent memory exhaustion. This limit can be configured with `WithMaxCacheableResponseSize()` or disabled by setting it to 0. Large responses that exceed the limit are still served normally but bypass the cache.
 

@@ -223,6 +223,13 @@ type Transport struct {
 	// Default: 10MB (10 * 1024 * 1024)
 	// Set to 0 to disable the limit (not recommended for production).
 	MaxCacheableResponseSize int64
+	// CacheOperationTimeout is the timeout for cache write operations in setupCachingBody.
+	// This prevents cache operations from running indefinitely after the original request
+	// context has been cancelled. The cache operation uses an independent context to allow
+	// completing the cache write even if the client disconnects, but with a reasonable timeout.
+	// Default: 30 seconds
+	// Set to 0 to disable the timeout (uses context.Background() without timeout).
+	CacheOperationTimeout time.Duration
 
 	// logger is the slog.Logger instance used by this Transport.
 	// Configure via WithLogger option. If nil, falls back to the global logger.
@@ -250,14 +257,15 @@ func NewTransport(c Cache, opts ...TransportOption) *Transport {
 	t := &Transport{
 		Cache:                    c,
 		MarkCachedResponses:      true,
-		MaxCacheableResponseSize: 10 * 1024 * 1024, // 10MB default
+		MaxCacheableResponseSize: 10 * 1024 * 1024, // Default: 10MB
+		CacheOperationTimeout:    30 * time.Second, // Default: 30 seconds
 	}
 	for _, opt := range opts {
 		if err := opt(t); err != nil {
 			t.log().Error("failed to apply transport option", "error", err)
 		}
 	}
-	t.log().Debug("transport initialized", "markCachedResponses", t.MarkCachedResponses, "publicCache", t.IsPublicCache, "maxCacheableSize", t.MaxCacheableResponseSize)
+	t.log().Debug("transport initialized", "markCachedResponses", t.MarkCachedResponses, "publicCache", t.IsPublicCache, "maxCacheableSize", t.MaxCacheableResponseSize, "cacheOpTimeout", t.CacheOperationTimeout)
 	return t
 }
 
@@ -540,8 +548,10 @@ func performRequest(transport http.RoundTripper, req *http.Request, onlyIfCached
 }
 
 // setupCachingBody wraps the response body to cache it when fully read.
-// Uses context.Background() for the cache operation since the body may be read
-// after the original request context has been cancelled.
+// Uses an independent context with timeout (CacheOperationTimeout) for the cache operation
+// since the body may be read after the original request context has been cancelled.
+// This allows completing cache writes even if the client disconnects, while preventing
+// indefinite cache operations.
 // Respects MaxCacheableResponseSize to prevent memory exhaustion.
 func (t *Transport) setupCachingBody(resp *http.Response, cacheKey string) {
 	resp.Body = &cachingReadCloser{
@@ -555,7 +565,14 @@ func (t *Transport) setupCachingBody(resp *http.Response, cacheKey string) {
 			resp.Header.Set(XCachedTime, resp.Header.Get(XResponseTime))
 			respBytes, err := httputil.DumpResponse(&resp, true)
 			if err == nil {
-				if cacheErr := t.cacheSet(context.Background(), cacheKey, respBytes); cacheErr != nil {
+				// Create context with timeout for cache operation
+				ctx := context.Background()
+				if t.CacheOperationTimeout > 0 {
+					var cancel context.CancelFunc
+					ctx, cancel = context.WithTimeout(ctx, t.CacheOperationTimeout)
+					defer cancel()
+				}
+				if cacheErr := t.cacheSet(ctx, cacheKey, respBytes); cacheErr != nil {
 					t.log().Warn("failed to cache response", "key", cacheKey, "error", cacheErr)
 				} else {
 					t.log().Debug("response cached", "key", cacheKey, "size", len(respBytes))
@@ -574,8 +591,10 @@ func (t *Transport) setupCachingBody(resp *http.Response, cacheKey string) {
 // setupCachingBodyMultiple stores the cached response under multiple cache keys when the
 // response body is fully read. This is used for Vary separation where we also keep
 // a manifest or pointer under the base key to allow discovery of variant keys.
-// Uses context.Background() for the cache operation since the body may be read
-// after the original request context has been cancelled.
+// Uses an independent context with timeout (CacheOperationTimeout) for the cache operation
+// since the body may be read after the original request context has been cancelled.
+// This allows completing cache writes even if the client disconnects, while preventing
+// indefinite cache operations.
 // Respects MaxCacheableResponseSize to prevent memory exhaustion.
 func (t *Transport) setupCachingBodyMultiple(resp *http.Response, cacheKeys []string) {
 	resp.Body = &cachingReadCloser{
@@ -589,8 +608,15 @@ func (t *Transport) setupCachingBodyMultiple(resp *http.Response, cacheKeys []st
 			respCopy.Header.Set(XCachedTime, respCopy.Header.Get(XResponseTime))
 			respBytes, err := httputil.DumpResponse(&respCopy, true)
 			if err == nil {
+				// Create context with timeout for cache operations
+				ctx := context.Background()
+				if t.CacheOperationTimeout > 0 {
+					var cancel context.CancelFunc
+					ctx, cancel = context.WithTimeout(ctx, t.CacheOperationTimeout)
+					defer cancel()
+				}
 				for _, k := range cacheKeys {
-					if cacheErr := t.cacheSet(context.Background(), k, respBytes); cacheErr != nil {
+					if cacheErr := t.cacheSet(ctx, k, respBytes); cacheErr != nil {
 						t.log().Warn("failed to cache response", "key", k, "error", cacheErr)
 					} else {
 						t.log().Debug("response cached (vary)", "key", k, "size", len(respBytes))

@@ -13,6 +13,7 @@ This is a **major breaking release** that adds `context.Context` support and err
 
 - **Request Deduplication**: New `EnableDeduplication` flag coalesces concurrent requests to the same resource into a single network request using `golang.org/x/sync/singleflight`. Reduces server load and latency for parallel access patterns. ([#1](https://github.com/sandrolain/httpcache/issues/1))
 - **Memory Protection**: New `MaxCacheableResponseSize` field and `WithMaxCacheableResponseSize()` option protect against memory exhaustion from large response bodies. Default limit of **10MB** prevents caching responses that could cause OOM errors. Large responses exceeding the limit are served normally but bypass the cache. Set to 0 to disable the limit.
+- **Cache Operation Timeout**: New `CacheOperationTimeout` field and `WithCacheOperationTimeout()` option prevent cache write operations from running indefinitely. Default timeout of **30 seconds** ensures cache operations complete within a reasonable time even if the original request context is cancelled. Cache operations use an independent context to allow completing writes after client disconnection, but with this timeout protection. Set to 0 to disable (not recommended for production).
 
 ### Breaking Changes
 
@@ -97,6 +98,7 @@ cache := rediscache.NewWithClient(client)
   - `WithDisableWarningHeader(bool)` - Disable deprecated Warning header
   - `WithTransport(rt)` - Set underlying RoundTripper
   - `WithMaxCacheableResponseSize(bytes)` - Limit max cacheable response size (default: 10MB)
+  - `WithCacheOperationTimeout(duration)` - Set timeout for cache write operations (default: 30s)
 - `IsEncryptionEnabled() bool` method on Transport to check encryption status
 - Timeout and cancellation support for all cache operations
 - Error propagation from cache backends (no more silent failures)

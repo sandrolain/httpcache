@@ -66,6 +66,29 @@ func WithMaxCacheableResponseSize(size int64) TransportOption {
 	}
 }
 
+// WithCacheOperationTimeout sets the timeout for cache write operations.
+// This prevents cache operations from running indefinitely after the original request
+// context has been cancelled. Cache operations use an independent context to allow
+// completing writes even if the client disconnects, but with this timeout limit.
+// Default: 30 seconds
+// Set to 0 to disable the timeout (cache operations will use context.Background() without timeout).
+//
+// Example:
+//
+//	Transport := httpcache.NewTransport(
+//	    cache,
+//	    httpcache.WithCacheOperationTimeout(60 * time.Second), // 60 seconds
+//	)
+func WithCacheOperationTimeout(timeout time.Duration) TransportOption {
+	return func(t *Transport) error {
+		if timeout < 0 {
+			return fmt.Errorf("cache operation timeout cannot be negative: %v", timeout)
+		}
+		t.CacheOperationTimeout = timeout
+		return nil
+	}
+}
+
 // WithEnableStaleMarking enables the stale marking system for improved resilience.
 // When enabled, cache entries are marked as stale instead of being deleted on errors.
 // This allows serving stale content when stale-if-error conditions are met.

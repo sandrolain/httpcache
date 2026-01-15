@@ -28,6 +28,10 @@ transport.EnableDeduplication = true  // Default: false
 // Limit maximum cacheable response size to prevent memory exhaustion
 // Responses larger than this size will be served normally but not cached
 transport.MaxCacheableResponseSize = 5 * 1024 * 1024  // 5MB (default: 10MB, 0 = unlimited)
+
+// Set timeout for cache write operations
+// Prevents cache operations from running indefinitely after request completion
+transport.CacheOperationTimeout = 60 * time.Second  // 60 seconds (default: 30s, 0 = no timeout)
 ```
 
 ### Disabling Warning Headers (RFC 9111)
@@ -181,6 +185,109 @@ transport := httpcache.NewTransport(cache,
 
 - See [examples/maxcacheablesize](../examples/maxcacheablesize/) for complete working example
 - See [bottleneck analysis](../context/bottleneck-analysis-2025-01-14.md) for performance considerations
+
+### Cache Operation Timeout
+
+By default, cache write operations use an independent context with a **30-second timeout** to prevent operations from running indefinitely after the original request context has been cancelled. This design allows cache writes to complete even if the client disconnects, but with a reasonable time limit.
+
+**Default Behavior:**
+
+- Cache write operations have a 30-second timeout
+- Uses independent context (not tied to request context)
+- Allows completing writes after client disconnection
+- Prevents indefinite resource consumption
+
+**Example: Using Default 30s Timeout**
+
+```go
+cache := diskcache.New("/tmp/cache")
+transport := httpcache.NewTransport(cache)
+// transport.CacheOperationTimeout = 30 * time.Second  // Default: 30 seconds
+
+client := transport.Client()
+
+// Make request with short-lived context
+ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+defer cancel()
+
+req, _ := http.NewRequestWithContext(ctx, "GET", "https://api.example.com/data", nil)
+resp, _ := client.Do(req)
+defer resp.Body.Close()
+
+// Read response body
+io.Copy(io.Discard, resp.Body)
+
+// ✅ Cache write continues independently with 30s timeout
+// ✅ Even if request context is cancelled, cache write may complete
+// ✅ Cache operation will timeout after 30 seconds if backend is slow
+```
+
+**Example: Custom Timeout (60 seconds)**
+
+```go
+cache := diskcache.New("/tmp/cache")
+transport := httpcache.NewTransport(cache,
+    httpcache.WithCacheOperationTimeout(60 * time.Second),  // 60 seconds
+)
+
+client := transport.Client()
+
+// Cache writes will have 60 seconds to complete
+resp, _ := client.Get("https://api.example.com/data")
+io.Copy(io.Discard, resp.Body)
+resp.Body.Close()
+```
+
+**Example: Disable Timeout (Not Recommended)**
+
+```go
+// NOT RECOMMENDED for production!
+transport := httpcache.NewTransport(cache,
+    httpcache.WithCacheOperationTimeout(0),  // 0 = no timeout
+)
+// ⚠️ Risk of indefinite cache operations if backend is slow or unresponsive
+```
+
+**Why Independent Context?**
+
+Cache writes happen asynchronously when the response body is fully read. This may occur after:
+
+- Client has already received all data
+- Request context has been cancelled
+- HTTP connection has closed
+
+Using an independent context with timeout ensures:
+
+1. **Resilience**: Cache writes complete even if client disconnects
+2. **Resource Protection**: Timeout prevents indefinite operations
+3. **No Request Blocking**: Cache write doesn't block HTTP response
+
+**Best Practices:**
+
+- **Keep default 30s** for most production environments
+- **Increase to 60-120s** if using slow cache backends (network storage, remote databases)
+- **Lower to 10-15s** for local high-speed caches (memory, local disk)
+- **Never set to 0** (unlimited) in production unless using extremely fast local cache
+- Monitor cache operation timeouts with logging to detect slow backends
+
+**Interaction with MaxCacheableResponseSize:**
+
+Both settings work together to protect against resource exhaustion:
+
+```go
+transport := httpcache.NewTransport(cache,
+    httpcache.WithMaxCacheableResponseSize(10*1024*1024),  // Max 10MB responses
+    httpcache.WithCacheOperationTimeout(30*time.Second),   // Max 30s cache writes
+)
+
+// Large response (50MB): Rejected by MaxCacheableResponseSize, timeout not reached
+// Slow cache backend: Timeout prevents hanging, MaxCacheableResponseSize irrelevant
+```
+
+**Related:**
+
+- See [bottleneck analysis](../context/bottleneck-analysis-2025-01-14.md#12-race-condition-in-contextbackground-usage) for technical details
+- RFC 9111 doesn't specify cache operation timeouts (implementation detail)
 
 ### Private vs Public Cache
 
