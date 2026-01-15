@@ -24,6 +24,10 @@ transport.DisableWarningHeader = true  // Default: false (enabled for backward c
 // Enable request deduplication for parallel requests to the same resource
 // Multiple concurrent requests to the same URL will be coalesced into a single network request
 transport.EnableDeduplication = true  // Default: false
+
+// Limit maximum cacheable response size to prevent memory exhaustion
+// Responses larger than this size will be served normally but not cached
+transport.MaxCacheableResponseSize = 5 * 1024 * 1024  // 5MB (default: 10MB, 0 = unlimited)
 ```
 
 ### Disabling Warning Headers (RFC 9111)
@@ -74,6 +78,109 @@ resp, _ = client.Get("https://example.com/api")
 ```
 
 **Recommendation:** Set `DisableWarningHeader = true` for new applications to comply with RFC 9111. The default is `false` for backward compatibility with existing code.
+
+### Memory Protection with MaxCacheableResponseSize
+
+By default, httpcache limits the size of cacheable responses to **10MB** to prevent memory exhaustion from large response bodies. This protection is critical for production environments where large files (videos, archives, etc.) could cause Out-Of-Memory (OOM) errors.
+
+**Default Behavior:**
+
+- Responses ≤ 10MB: Cached normally
+- Responses > 10MB: Served normally but **NOT cached**
+- The limit can be configured via `WithMaxCacheableResponseSize()` option
+- Set to `0` to disable the limit (use with caution)
+
+**Example: Using Default 10MB Limit**
+
+```go
+cache := diskcache.New("/tmp/cache")
+transport := httpcache.NewTransport(cache)
+// transport.MaxCacheableResponseSize = 10 * 1024 * 1024  // Default: 10MB
+
+client := transport.Client()
+
+// Small response (2MB) - will be cached
+resp, _ := client.Get("https://api.example.com/data")  // Content-Length: 2MB
+// ✅ Response is cached
+
+// Large response (50MB) - will NOT be cached
+resp, _ = client.Get("https://example.com/large-file.zip")  // Content-Length: 50MB
+// ✅ Response is served normally (200 OK)
+// ❌ Response is NOT cached (exceeds 10MB limit)
+// Warning logged: "Response body exceeds max cacheable size: 52428800 bytes > 10485760 bytes"
+```
+
+**Example: Custom Limit (5MB)**
+
+```go
+cache := diskcache.New("/tmp/cache")
+transport := httpcache.NewTransport(cache,
+    httpcache.WithMaxCacheableResponseSize(5 * 1024 * 1024),  // 5MB limit
+)
+
+client := transport.Client()
+
+// Response within limit - cached
+resp, _ := client.Get("https://api.example.com/small")  // 3MB
+// ✅ Cached
+
+// Response exceeds limit - not cached
+resp, _ = client.Get("https://api.example.com/large")  // 8MB
+// ❌ NOT cached (exceeds 5MB limit)
+```
+
+**Example: Unlimited Size (Dangerous)**
+
+```go
+// NOT RECOMMENDED for production!
+transport := httpcache.NewTransport(cache,
+    httpcache.WithMaxCacheableResponseSize(0),  // 0 = unlimited
+)
+// ⚠️ Risk of OOM if large responses are cached
+```
+
+**Example: Adaptive Sizing Based on Environment**
+
+```go
+var maxSize int64 = 10 * 1024 * 1024  // Default: 10MB
+
+// In memory-constrained environments (containers, edge devices)
+if isLowMemory() {
+    maxSize = 1 * 1024 * 1024  // 1MB
+}
+
+// In high-memory servers
+if isHighMemoryServer() {
+    maxSize = 100 * 1024 * 1024  // 100MB
+}
+
+transport := httpcache.NewTransport(cache,
+    httpcache.WithMaxCacheableResponseSize(maxSize),
+)
+```
+
+**How It Works:**
+
+1. As response body is read, total bytes are tracked
+2. When `MaxCacheableResponseSize` is exceeded:
+   - Internal buffer is immediately released (`buf.Reset()`)
+   - Streaming continues normally to client
+   - Response is NOT stored in cache
+   - Warning is logged (if logger is configured)
+3. Memory is protected from large responses
+
+**Best Practices:**
+
+- **Keep default 10MB** for most production environments
+- **Lower to 1-5MB** for memory-constrained containers or edge devices
+- **Increase to 50-100MB** only on high-memory servers with known response sizes
+- **Never set to 0** (unlimited) in production unless you control all response sizes
+- Monitor memory usage with `/examples/prometheus/` metrics
+
+**Related:**
+
+- See [examples/maxcacheablesize](../examples/maxcacheablesize/) for complete working example
+- See [bottleneck analysis](../context/bottleneck-analysis-2025-01-14.md) for performance considerations
 
 ### Private vs Public Cache
 

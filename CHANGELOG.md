@@ -12,6 +12,7 @@ This is a **major breaking release** that adds `context.Context` support and err
 ### Added
 
 - **Request Deduplication**: New `EnableDeduplication` flag coalesces concurrent requests to the same resource into a single network request using `golang.org/x/sync/singleflight`. Reduces server load and latency for parallel access patterns. ([#1](https://github.com/sandrolain/httpcache/issues/1))
+- **Memory Protection**: New `MaxCacheableResponseSize` field and `WithMaxCacheableResponseSize()` option protect against memory exhaustion from large response bodies. Default limit of **10MB** prevents caching responses that could cause OOM errors. Large responses exceeding the limit are served normally but bypass the cache. Set to 0 to disable the limit.
 
 ### Breaking Changes
 
@@ -95,6 +96,7 @@ cache := rediscache.NewWithClient(client)
   - `WithCacheKeyHeaders(headers)` - Include headers in cache key
   - `WithDisableWarningHeader(bool)` - Disable deprecated Warning header
   - `WithTransport(rt)` - Set underlying RoundTripper
+  - `WithMaxCacheableResponseSize(bytes)` - Limit max cacheable response size (default: 10MB)
 - `IsEncryptionEnabled() bool` method on Transport to check encryption status
 - Timeout and cancellation support for all cache operations
 - Error propagation from cache backends (no more silent failures)

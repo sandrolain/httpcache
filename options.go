@@ -44,6 +44,28 @@ func WithSkipServerErrorsFromCache(skip bool) TransportOption {
 	}
 }
 
+// WithMaxCacheableResponseSize sets the maximum size (in bytes) of a response body
+// that will be cached. Responses exceeding this size will be streamed to the caller
+// without caching, preventing memory exhaustion from large responses.
+// Default: 10MB (10 * 1024 * 1024)
+// Set to 0 to disable the limit (not recommended for production).
+//
+// Example:
+//
+//	Transport := httpcache.NewTransport(
+//	    cache,
+//	    httpcache.WithMaxCacheableResponseSize(50 * 1024 * 1024), // 50MB
+//	)
+func WithMaxCacheableResponseSize(size int64) TransportOption {
+	return func(t *Transport) error {
+		if size < 0 {
+			return fmt.Errorf("max cacheable response size cannot be negative: %d", size)
+		}
+		t.MaxCacheableResponseSize = size
+		return nil
+	}
+}
+
 // WithEnableStaleMarking enables the stale marking system for improved resilience.
 // When enabled, cache entries are marked as stale instead of being deleted on errors.
 // This allows serving stale content when stale-if-error conditions are met.

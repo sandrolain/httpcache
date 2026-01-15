@@ -86,25 +86,52 @@ func newGatewayTimeoutResponse(req *http.Request) *http.Response {
 
 // cachingReadCloser is a wrapper around ReadCloser R that calls OnEOF
 // handler with a full copy of the content read from R when EOF is
-// reached.
+// reached. It respects a maximum buffer size to prevent memory exhaustion.
 type cachingReadCloser struct {
 	// Underlying ReadCloser.
 	R io.ReadCloser
 	// OnEOF is called with a copy of the content of R when EOF is reached.
+	// Only called if the total size didn't exceed maxSize.
 	OnEOF func(io.Reader)
+	// OnExceeded is called when the response size exceeds maxSize.
+	// Provides the total bytes read so far.
+	OnExceeded func(totalSize int64)
 
-	buf bytes.Buffer // buf stores a copy of the content of R.
+	buf       bytes.Buffer // buf stores a copy of the content of R.
+	maxSize   int64        // Maximum size to buffer (0 = unlimited)
+	totalRead int64        // Total bytes read so far
+	exceeded  bool         // True if maxSize was exceeded
 }
 
 // Read reads the next len(p) bytes from R or until R is drained. The
 // return value n is the number of bytes read. If R has no data to
 // return, err is io.EOF and OnEOF is called with a full copy of what
-// has been read so far.
+// has been read so far (only if size limit wasn't exceeded).
 func (r *cachingReadCloser) Read(p []byte) (n int, err error) {
 	n, err = r.R.Read(p)
-	r.buf.Write(p[:n])
+
+	// Only buffer if we haven't exceeded the limit and there's a limit set
+	if !r.exceeded {
+		if r.maxSize > 0 && r.totalRead+int64(n) > r.maxSize {
+			// Size limit exceeded
+			r.exceeded = true
+			if r.OnExceeded != nil {
+				r.OnExceeded(r.totalRead + int64(n))
+			}
+			// Clear buffer to free memory
+			r.buf.Reset()
+		} else {
+			// Still within limit, buffer the data
+			r.buf.Write(p[:n])
+			r.totalRead += int64(n)
+		}
+	}
+
 	if err == io.EOF || n < len(p) {
-		r.OnEOF(bytes.NewReader(r.buf.Bytes()))
+		// Only call OnEOF if we didn't exceed the size limit
+		if !r.exceeded && r.OnEOF != nil {
+			r.OnEOF(bytes.NewReader(r.buf.Bytes()))
+		}
 	}
 	return n, err
 }

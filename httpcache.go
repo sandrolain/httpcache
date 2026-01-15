@@ -217,6 +217,12 @@ type Transport struct {
 	// This is particularly useful for high-traffic scenarios or slow backends.
 	// Default is false for backward compatibility.
 	EnableDeduplication bool
+	// MaxCacheableResponseSize defines the maximum size (in bytes) of a response body that will be cached.
+	// If a response body exceeds this size, it will be streamed to the caller without caching.
+	// This prevents memory exhaustion from large responses.
+	// Default: 10MB (10 * 1024 * 1024)
+	// Set to 0 to disable the limit (not recommended for production).
+	MaxCacheableResponseSize int64
 
 	// logger is the slog.Logger instance used by this Transport.
 	// Configure via WithLogger option. If nil, falls back to the global logger.
@@ -241,13 +247,17 @@ type Transport struct {
 // All cache keys are automatically hashed with SHA-256 before being passed to the backend.
 // Use WithEncryption to enable AES-256-GCM encryption of cached data.
 func NewTransport(c Cache, opts ...TransportOption) *Transport {
-	t := &Transport{Cache: c, MarkCachedResponses: true}
+	t := &Transport{
+		Cache:                    c,
+		MarkCachedResponses:      true,
+		MaxCacheableResponseSize: 10 * 1024 * 1024, // 10MB default
+	}
 	for _, opt := range opts {
 		if err := opt(t); err != nil {
 			t.log().Error("failed to apply transport option", "error", err)
 		}
 	}
-	t.log().Debug("transport initialized", "markCachedResponses", t.MarkCachedResponses, "publicCache", t.IsPublicCache)
+	t.log().Debug("transport initialized", "markCachedResponses", t.MarkCachedResponses, "publicCache", t.IsPublicCache, "maxCacheableSize", t.MaxCacheableResponseSize)
 	return t
 }
 
@@ -532,9 +542,11 @@ func performRequest(transport http.RoundTripper, req *http.Request, onlyIfCached
 // setupCachingBody wraps the response body to cache it when fully read.
 // Uses context.Background() for the cache operation since the body may be read
 // after the original request context has been cancelled.
+// Respects MaxCacheableResponseSize to prevent memory exhaustion.
 func (t *Transport) setupCachingBody(resp *http.Response, cacheKey string) {
 	resp.Body = &cachingReadCloser{
-		R: resp.Body,
+		R:       resp.Body,
+		maxSize: t.MaxCacheableResponseSize,
 		OnEOF: func(r io.Reader) {
 			resp := *resp
 			resp.Body = io.NopCloser(r)
@@ -550,6 +562,12 @@ func (t *Transport) setupCachingBody(resp *http.Response, cacheKey string) {
 				}
 			}
 		},
+		OnExceeded: func(totalSize int64) {
+			t.log().Warn("response size exceeded cache limit, streaming without caching",
+				"key", cacheKey,
+				"size", totalSize,
+				"limit", t.MaxCacheableResponseSize)
+		},
 	}
 }
 
@@ -558,9 +576,11 @@ func (t *Transport) setupCachingBody(resp *http.Response, cacheKey string) {
 // a manifest or pointer under the base key to allow discovery of variant keys.
 // Uses context.Background() for the cache operation since the body may be read
 // after the original request context has been cancelled.
+// Respects MaxCacheableResponseSize to prevent memory exhaustion.
 func (t *Transport) setupCachingBodyMultiple(resp *http.Response, cacheKeys []string) {
 	resp.Body = &cachingReadCloser{
-		R: resp.Body,
+		R:       resp.Body,
+		maxSize: t.MaxCacheableResponseSize,
 		OnEOF: func(r io.Reader) {
 			respCopy := *resp
 			respCopy.Body = io.NopCloser(r)
@@ -577,6 +597,12 @@ func (t *Transport) setupCachingBodyMultiple(resp *http.Response, cacheKeys []st
 					}
 				}
 			}
+		},
+		OnExceeded: func(totalSize int64) {
+			t.log().Warn("response size exceeded cache limit, streaming without caching",
+				"keys", cacheKeys,
+				"size", totalSize,
+				"limit", t.MaxCacheableResponseSize)
 		},
 	}
 }

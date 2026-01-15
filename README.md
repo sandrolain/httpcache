@@ -30,7 +30,8 @@
   - [Table of Contents](#table-of-contents)
   - [Features](#features)
   - [Quick Start](#quick-start)
-  - [Installation](#installation)
+    - [With Encryption (Optional)](#with-encryption-optional)
+    - [Transport Options](#transport-options)
   - [Documentation](#documentation)
     - [📚 Core Documentation](#-core-documentation)
     - [🔍 Quick Navigation](#-quick-navigation)
@@ -76,6 +77,7 @@
 - ✅ **Stale-While-Revalidate** - Async cache updates for better performance (RFC 5861)
 - ✅ **Configurable Cache Mode** - Use as private cache (default) or shared/public cache
 - ✅ **Request Deduplication** - Coalesce concurrent requests to the same resource (optional `EnableDeduplication` flag)
+- ✅ **Memory Protection** - Configurable max cacheable response size (default: 10MB) prevents memory exhaustion from large responses
 
 ## Quick Start
 
@@ -132,6 +134,7 @@ transport := httpcache.NewTransport(cache,
     httpcache.WithPublicCache(true),                       // Shared cache mode
     httpcache.WithVarySeparation(true),                    // RFC 9111 Vary handling
     httpcache.WithCacheKeyHeaders([]string{"Accept-Language"}), // Include headers in key
+    httpcache.WithMaxCacheableResponseSize(5*1024*1024),   // Limit cacheable size to 5MB (default: 10MB)
 )
 
 // Enable request deduplication for high-traffic scenarios
@@ -139,6 +142,8 @@ transport.EnableDeduplication = true  // Coalesce parallel requests to same reso
 ```
 
 > **Note**: All cache keys are automatically hashed with SHA-256 before storage, protecting sensitive data in URLs.
+
+> **Memory Protection**: By default, responses larger than **10MB** are not cached to prevent memory exhaustion. This limit can be configured with `WithMaxCacheableResponseSize()` or disabled by setting it to 0. Large responses that exceed the limit are still served normally but bypass the cache.
 
 ```
 
@@ -202,6 +207,7 @@ See the [`examples/`](./examples) directory for complete, runnable examples:
 - **[Custom Backend](./examples/custom-backend/)** - Build your own cache backend
 - **[Prometheus Metrics](./examples/prometheus/)** - Monitoring cache performance
 - **[Cache Key Headers](./examples/cachekeyheaders/)** - User-specific caching with headers
+- **[Max Cacheable Size](./examples/maxcacheablesize/)** - Prevent memory exhaustion from large responses
 
 Each example includes:
 
