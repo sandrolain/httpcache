@@ -9,7 +9,39 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 )
+
+// bufferPool is a sync.Pool for reusing bytes.Buffer to reduce allocations and GC pressure.
+// Buffers larger than maxPooledBufferSize are not returned to the pool to avoid holding
+// large amounts of memory indefinitely.
+var bufferPool = sync.Pool{
+	New: func() interface{} {
+		return new(bytes.Buffer)
+	},
+}
+
+const maxPooledBufferSize = 64 * 1024 // 64KB - maximum buffer size to pool
+
+// getBuffer retrieves a buffer from the pool and resets it for use.
+// The returned buffer is ready to use and must be returned to the pool
+// with putBuffer when no longer needed.
+func getBuffer() *bytes.Buffer {
+	//nolint:errcheck // sync.Pool.Get() does not return an error; this is a type assertion
+	buf := bufferPool.Get().(*bytes.Buffer)
+	buf.Reset()
+	return buf
+}
+
+// putBuffer returns a buffer to the pool for reuse.
+// Large buffers (>maxPooledBufferSize) are not pooled to avoid memory bloat.
+// Always call this with defer after getting a buffer to ensure it's returned.
+func putBuffer(buf *bytes.Buffer) {
+	// Only pool buffers that are not too large
+	if buf.Cap() <= maxPooledBufferSize {
+		bufferPool.Put(buf)
+	}
+}
 
 // cloneRequest returns a clone of the provided *http.Request.
 // The clone is a shallow copy of the struct and its Header map.
@@ -75,9 +107,11 @@ func getEndToEndHeaders(respHeaders http.Header) []string {
 
 // newGatewayTimeoutResponse creates a 504 Gateway Timeout response
 func newGatewayTimeoutResponse(req *http.Request) *http.Response {
-	var braw bytes.Buffer
+	// Use buffer pool to reduce allocations
+	braw := getBuffer()
+	defer putBuffer(braw)
 	braw.WriteString("HTTP/1.1 504 Gateway Timeout\r\n\r\n")
-	resp, err := http.ReadResponse(bufio.NewReader(&braw), req)
+	resp, err := http.ReadResponse(bufio.NewReader(braw), req)
 	if err != nil {
 		panic(err)
 	}

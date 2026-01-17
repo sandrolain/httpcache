@@ -354,7 +354,10 @@ func (t *Transport) cachedResponseWithKeySecure(req *http.Request, key string) (
 		markedStale = isStale
 	}
 
-	b := bytes.NewBuffer(cachedVal)
+	// Use buffer pool to reduce allocations
+	b := getBuffer()
+	defer putBuffer(b)
+	b.Write(cachedVal)
 	resp, err = http.ReadResponse(bufio.NewReader(b), req)
 	return resp, markedStale, err
 }
