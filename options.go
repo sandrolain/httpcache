@@ -244,3 +244,27 @@ func WithResilience(config *ResilienceConfig) TransportOption {
 		return nil
 	}
 }
+
+// WithClock sets a custom timer implementation for time-related operations.
+// This is primarily intended for testing purposes, allowing you to control time
+// in tests without modifying global state.
+// Default: realClock (uses time.Since)
+//
+// Example for testing:
+//
+//	type mockClock struct {
+//	    now time.Time
+//	}
+//	func (m *mockClock) since(t time.Time) time.Duration {
+//	    return m.now.Sub(t)
+//	}
+//	transport := httpcache.NewTransport(cache, httpcache.WithClock(&mockClock{now: time.Now()}))
+func WithClock(clock timer) TransportOption {
+	return func(t *Transport) error {
+		if clock == nil {
+			return fmt.Errorf("clock cannot be nil")
+		}
+		t.clock = clock
+		return nil
+	}
+}

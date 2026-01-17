@@ -83,7 +83,7 @@ func parseAgeHeader(headers http.Header, log *slog.Logger) (age time.Duration, v
 //   - response_time is stored in X-Response-Time header (falls back to X-Cached-Time for compatibility)
 //   - date_value comes from Date header
 //   - age_value comes from Age header (if present)
-func calculateAge(respHeaders http.Header, log *slog.Logger) (age time.Duration, err error) {
+func calculateAge(respHeaders http.Header, clock timer, log *slog.Logger) (age time.Duration, err error) {
 	// Get the Date header (required)
 	dateValue, err := Date(respHeaders)
 	if err != nil {

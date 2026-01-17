@@ -20,8 +20,6 @@ func (c *realClock) since(d time.Time) time.Duration {
 	return time.Since(d)
 }
 
-var clock timer = &realClock{}
-
 // getFreshness will return one of fresh/stale/transparent based on the cache-control
 // values of the request and the response
 //
@@ -33,7 +31,7 @@ var clock timer = &realClock{}
 // - Cache-Control: private - Allowed (private caches CAN store these responses)
 // - Cache-Control: public - Ignored (has no additional effect in private caches)
 // - s-maxage - Ignored (only applies to shared caches)
-func getFreshness(respHeaders, reqHeaders http.Header, log *slog.Logger) (freshness int) {
+func getFreshness(respHeaders, reqHeaders http.Header, clock timer, log *slog.Logger) (freshness int) {
 	respCacheControl := parseCacheControl(respHeaders, log)
 	reqCacheControl := parseCacheControl(reqHeaders, log)
 
@@ -174,7 +172,7 @@ func adjustAgeForRequestControls(respCacheControl, reqCacheControl cacheControl,
 }
 
 // isActuallyStale checks if a response is actually stale (ignoring client's max-stale tolerance)
-func isActuallyStale(respHeaders http.Header, log *slog.Logger) bool {
+func isActuallyStale(respHeaders http.Header, clock timer, log *slog.Logger) bool {
 	respCacheControl := parseCacheControl(respHeaders, log)
 
 	date, err := Date(respHeaders)
@@ -234,7 +232,7 @@ func parseStaleIfError(cacheControl cacheControl) (time.Duration, bool, bool) {
 }
 
 // checkStaleIfErrorLifetime checks if the response is within the stale-if-error lifetime
-func checkStaleIfErrorLifetime(respHeaders http.Header, lifetime time.Duration) bool {
+func checkStaleIfErrorLifetime(respHeaders http.Header, lifetime time.Duration, clock timer) bool {
 	date, err := Date(respHeaders)
 	if err != nil {
 		return false
@@ -245,7 +243,7 @@ func checkStaleIfErrorLifetime(respHeaders http.Header, lifetime time.Duration) 
 
 // canStaleOnError determines if a stale response can be returned on error
 // cache control extension: https://tools.ietf.org/html/rfc5861
-func canStaleOnError(respHeaders, reqHeaders http.Header, log *slog.Logger) bool {
+func canStaleOnError(respHeaders, reqHeaders http.Header, clock timer, log *slog.Logger) bool {
 	respCacheControl := parseCacheControl(respHeaders, log)
 	reqCacheControl := parseCacheControl(reqHeaders, log)
 
@@ -269,7 +267,7 @@ func canStaleOnError(respHeaders, reqHeaders http.Header, log *slog.Logger) bool
 
 	// Check if within lifetime
 	if lifetime >= 0 {
-		return checkStaleIfErrorLifetime(respHeaders, lifetime)
+		return checkStaleIfErrorLifetime(respHeaders, lifetime, clock)
 	}
 
 	return false

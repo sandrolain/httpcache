@@ -289,11 +289,7 @@ func TestDisableWarningHeaderStaleWhileRevalidate(t *testing.T) {
 	defer ts.Close()
 
 	cache := newMockCache()
-	tp := &Transport{
-		Cache:                cache,
-		MarkCachedResponses:  true,
-		DisableWarningHeader: true, // Disable Warning headers
-	}
+	tp := NewTransport(cache, WithDisableWarningHeader(true), WithMarkCachedResponses(true))
 	client := &http.Client{Transport: tp}
 
 	// First request
@@ -343,11 +339,7 @@ func TestDisableWarningHeaderRevalidationFailed(t *testing.T) {
 	defer ts.Close()
 
 	cache := newMockCache()
-	tp := &Transport{
-		Cache:                cache,
-		MarkCachedResponses:  true,
-		DisableWarningHeader: true, // Disable Warning headers
-	}
+	tp := NewTransport(cache, WithDisableWarningHeader(true), WithMarkCachedResponses(true))
 	client := &http.Client{Transport: tp}
 
 	// First request
@@ -394,11 +386,7 @@ func TestDisableWarningHeaderMaxStale(t *testing.T) {
 	defer ts.Close()
 
 	cache := newMockCache()
-	tp := &Transport{
-		Cache:                cache,
-		MarkCachedResponses:  true,
-		DisableWarningHeader: true, // Disable Warning headers
-	}
+	tp := NewTransport(cache, WithDisableWarningHeader(true), WithMarkCachedResponses(true))
 	client := &http.Client{Transport: tp}
 
 	// First request
@@ -442,11 +430,7 @@ func TestWarningHeaderEnabledByDefault(t *testing.T) {
 	defer ts.Close()
 
 	cache := newMockCache()
-	tp := &Transport{
-		Cache:               cache,
-		MarkCachedResponses: true,
-		// DisableWarningHeader not set - should default to false
-	}
+	tp := NewTransport(cache, WithMarkCachedResponses(true))
 	client := &http.Client{Transport: tp}
 
 	// First request

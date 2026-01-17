@@ -84,6 +84,7 @@ func TestAgeHeader(t *testing.T) {
 // TestAgeHeaderWithRevalidation verifies Age header on 304 Not Modified
 func TestAgeHeaderWithRevalidation(t *testing.T) {
 	resetTest()
+	fakeClock := &fakeClock{}
 
 	counter := 0
 	etag := `"test-etag"`
@@ -102,7 +103,7 @@ func TestAgeHeaderWithRevalidation(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	tp := newMockCacheTransport()
+	tp := newMockCacheTransportWithClock(fakeClock)
 	tp.MarkCachedResponses = true
 	client := &http.Client{Transport: tp}
 
@@ -115,13 +116,10 @@ func TestAgeHeaderWithRevalidation(t *testing.T) {
 	io.ReadAll(resp.Body)
 	resp.Body.Close()
 
-	// Wait for cache to become stale
-	time.Sleep(2 * time.Second)
+	// Simulate cache becoming stale
+	fakeClock.elapsed = 2 * time.Second
 
 	// Second request - should revalidate with 304
-	clock = &fakeClock{elapsed: 2 * time.Second}
-	defer func() { clock = &realClock{} }()
-
 	resp2, err := client.Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -216,7 +214,7 @@ func TestCalculateAge(t *testing.T) {
 				headers.Set(headerAge, tt.ageHeader)
 			}
 
-			age, err := calculateAge(headers, slog.Default())
+			age, err := calculateAge(headers, &realClock{}, slog.Default())
 
 			if tt.shouldError {
 				if err == nil {
@@ -424,7 +422,7 @@ func TestCalculateAgeWithRequestAndResponseTime(t *testing.T) {
 	headers.Set(XResponseTime, responseTime.Format(time.RFC3339))
 	headers.Set(headerAge, "5") // Age from origin server
 
-	age, err := calculateAge(headers, slog.Default())
+	age, err := calculateAge(headers, &realClock{}, slog.Default())
 	if err != nil {
 		t.Fatalf("calculateAge() error = %v", err)
 	}
@@ -455,7 +453,7 @@ func TestCalculateAgeWithoutRequestTime(t *testing.T) {
 	headers.Set(XResponseTime, responseTime.Format(time.RFC3339))
 	headers.Set(headerAge, "3")
 
-	age, err := calculateAge(headers, slog.Default())
+	age, err := calculateAge(headers, &realClock{}, slog.Default())
 	if err != nil {
 		t.Fatalf("calculateAge() error = %v", err)
 	}
@@ -484,7 +482,7 @@ func TestCalculateAgeBackwardCompatibility(t *testing.T) {
 	headers.Set(XCachedTime, cachedTime.Format(time.RFC3339))
 	headers.Set(headerAge, "8")
 
-	age, err := calculateAge(headers, slog.Default())
+	age, err := calculateAge(headers, &realClock{}, slog.Default())
 	if err != nil {
 		t.Fatalf("calculateAge() error = %v", err)
 	}
@@ -508,7 +506,7 @@ func TestCalculateAgeClockSkew(t *testing.T) {
 	headers.Set(XResponseTime, responseTime.Format(time.RFC3339))
 	headers.Set(headerAge, "0")
 
-	age, err := calculateAge(headers, slog.Default())
+	age, err := calculateAge(headers, &realClock{}, slog.Default())
 	if err != nil {
 		t.Fatalf("calculateAge() error = %v", err)
 	}
@@ -533,7 +531,7 @@ func TestCalculateAgeResponseDelayCalculation(t *testing.T) {
 	headers.Set(XResponseTime, responseTime.Format(time.RFC3339))
 	headers.Set(headerAge, "0") // No age from origin
 
-	age, err := calculateAge(headers, slog.Default())
+	age, err := calculateAge(headers, &realClock{}, slog.Default())
 	if err != nil {
 		t.Fatalf("calculateAge() error = %v", err)
 	}

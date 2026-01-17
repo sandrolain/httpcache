@@ -89,3 +89,10 @@ func newMockCacheTransport() *Transport {
 	t := NewTransport(c)
 	return t
 }
+
+// newMockCacheTransportWithClock returns a new Transport with a custom clock for testing.
+func newMockCacheTransportWithClock(clock timer) *Transport {
+	c := newMockCache()
+	t := NewTransport(c, WithClock(clock))
+	return t
+}

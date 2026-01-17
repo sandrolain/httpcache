@@ -219,7 +219,6 @@ func teardown() {
 
 func resetTest() {
 	s.transport.Cache = newMockCache()
-	clock = &realClock{}
 }
 
 // TestCacheableMethod ensures that uncacheable method does not get stored
@@ -1126,7 +1125,7 @@ func TestNoCacheRequestExpiration(t *testing.T) {
 
 	reqHeaders := http.Header{}
 	reqHeaders.Set("Cache-Control", "no-cache")
-	if getFreshness(respHeaders, reqHeaders, slog.Default()) != transparent {
+	if getFreshness(respHeaders, reqHeaders, &realClock{}, slog.Default()) != transparent {
 		t.Fatal("freshness isn't transparent")
 	}
 }
@@ -1138,7 +1137,7 @@ func TestNoCacheResponseExpiration(t *testing.T) {
 	respHeaders.Set("Expires", "Wed, 19 Apr 3000 11:43:00 GMT")
 
 	reqHeaders := http.Header{}
-	if getFreshness(respHeaders, reqHeaders, slog.Default()) != stale {
+	if getFreshness(respHeaders, reqHeaders, &realClock{}, slog.Default()) != stale {
 		t.Fatal("freshness isn't stale")
 	}
 }
@@ -1151,7 +1150,7 @@ func TestReqMustRevalidate(t *testing.T) {
 
 	reqHeaders := http.Header{}
 	reqHeaders.Set("Cache-Control", "must-revalidate")
-	if getFreshness(respHeaders, reqHeaders, slog.Default()) != stale {
+	if getFreshness(respHeaders, reqHeaders, &realClock{}, slog.Default()) != stale {
 		t.Fatal("freshness isn't stale")
 	}
 }
@@ -1162,7 +1161,7 @@ func TestRespMustRevalidate(t *testing.T) {
 	respHeaders.Set("Cache-Control", "must-revalidate")
 
 	reqHeaders := http.Header{}
-	if getFreshness(respHeaders, reqHeaders, slog.Default()) != stale {
+	if getFreshness(respHeaders, reqHeaders, &realClock{}, slog.Default()) != stale {
 		t.Fatal("freshness isn't stale")
 	}
 }
@@ -1175,12 +1174,12 @@ func TestFreshExpiration(t *testing.T) {
 	respHeaders.Set("expires", now.Add(time.Duration(2)*time.Second).Format(time.RFC1123))
 
 	reqHeaders := http.Header{}
-	if getFreshness(respHeaders, reqHeaders, slog.Default()) != fresh {
+	if getFreshness(respHeaders, reqHeaders, &realClock{}, slog.Default()) != fresh {
 		t.Fatal("freshness isn't fresh")
 	}
 
-	clock = &fakeClock{elapsed: 3 * time.Second}
-	if getFreshness(respHeaders, reqHeaders, slog.Default()) != stale {
+	fakeClock := &fakeClock{elapsed: 3 * time.Second}
+	if getFreshness(respHeaders, reqHeaders, fakeClock, slog.Default()) != stale {
 		t.Fatal("freshness isn't stale")
 	}
 }
@@ -1193,12 +1192,12 @@ func TestMaxAge(t *testing.T) {
 	respHeaders.Set("cache-control", "max-age=2")
 
 	reqHeaders := http.Header{}
-	if getFreshness(respHeaders, reqHeaders, slog.Default()) != fresh {
+	if getFreshness(respHeaders, reqHeaders, &realClock{}, slog.Default()) != fresh {
 		t.Fatal("freshness isn't fresh")
 	}
 
-	clock = &fakeClock{elapsed: 3 * time.Second}
-	if getFreshness(respHeaders, reqHeaders, slog.Default()) != stale {
+	fakeClock := &fakeClock{elapsed: 3 * time.Second}
+	if getFreshness(respHeaders, reqHeaders, fakeClock, slog.Default()) != stale {
 		t.Fatal("freshness isn't stale")
 	}
 }
@@ -1211,7 +1210,7 @@ func TestMaxAgeZero(t *testing.T) {
 	respHeaders.Set("cache-control", "max-age=0")
 
 	reqHeaders := http.Header{}
-	if getFreshness(respHeaders, reqHeaders, slog.Default()) != stale {
+	if getFreshness(respHeaders, reqHeaders, &realClock{}, slog.Default()) != stale {
 		t.Fatal("freshness isn't stale")
 	}
 }
@@ -1225,7 +1224,7 @@ func TestBothMaxAge(t *testing.T) {
 
 	reqHeaders := http.Header{}
 	reqHeaders.Set("cache-control", "max-age=0")
-	if getFreshness(respHeaders, reqHeaders, slog.Default()) != stale {
+	if getFreshness(respHeaders, reqHeaders, &realClock{}, slog.Default()) != stale {
 		t.Fatal("freshness isn't stale")
 	}
 }
@@ -1239,13 +1238,13 @@ func TestMinFreshWithExpires(t *testing.T) {
 
 	reqHeaders := http.Header{}
 	reqHeaders.Set("cache-control", "min-fresh=1")
-	if getFreshness(respHeaders, reqHeaders, slog.Default()) != fresh {
+	if getFreshness(respHeaders, reqHeaders, &realClock{}, slog.Default()) != fresh {
 		t.Fatal("freshness isn't fresh")
 	}
 
 	reqHeaders = http.Header{}
 	reqHeaders.Set("cache-control", "min-fresh=2")
-	if getFreshness(respHeaders, reqHeaders, slog.Default()) != stale {
+	if getFreshness(respHeaders, reqHeaders, &realClock{}, slog.Default()) != stale {
 		t.Fatal("freshness isn't stale")
 	}
 }
@@ -1259,13 +1258,13 @@ func TestEmptyMaxStale(t *testing.T) {
 
 	reqHeaders := http.Header{}
 	reqHeaders.Set("cache-control", "max-stale")
-	clock = &fakeClock{elapsed: 10 * time.Second}
-	if getFreshness(respHeaders, reqHeaders, slog.Default()) != fresh {
+	fakeClock := &fakeClock{elapsed: 10 * time.Second}
+	if getFreshness(respHeaders, reqHeaders, fakeClock, slog.Default()) != fresh {
 		t.Fatal("freshness isn't fresh")
 	}
 
-	clock = &fakeClock{elapsed: 60 * time.Second}
-	if getFreshness(respHeaders, reqHeaders, slog.Default()) != fresh {
+	fakeClock.elapsed = 60 * time.Second
+	if getFreshness(respHeaders, reqHeaders, fakeClock, slog.Default()) != fresh {
 		t.Fatal("freshness isn't fresh")
 	}
 }
@@ -1279,18 +1278,18 @@ func TestMaxStaleValue(t *testing.T) {
 
 	reqHeaders := http.Header{}
 	reqHeaders.Set("cache-control", "max-stale=20")
-	clock = &fakeClock{elapsed: 5 * time.Second}
-	if getFreshness(respHeaders, reqHeaders, slog.Default()) != fresh {
+	fakeClock := &fakeClock{elapsed: 5 * time.Second}
+	if getFreshness(respHeaders, reqHeaders, fakeClock, slog.Default()) != fresh {
 		t.Fatal("freshness isn't fresh")
 	}
 
-	clock = &fakeClock{elapsed: 15 * time.Second}
-	if getFreshness(respHeaders, reqHeaders, slog.Default()) != fresh {
+	fakeClock.elapsed = 15 * time.Second
+	if getFreshness(respHeaders, reqHeaders, fakeClock, slog.Default()) != fresh {
 		t.Fatal("freshness isn't fresh")
 	}
 
-	clock = &fakeClock{elapsed: 30 * time.Second}
-	if getFreshness(respHeaders, reqHeaders, slog.Default()) != stale {
+	fakeClock.elapsed = 30 * time.Second
+	if getFreshness(respHeaders, reqHeaders, fakeClock, slog.Default()) != stale {
 		t.Fatal("freshness isn't stale")
 	}
 }
@@ -1411,6 +1410,7 @@ func TestStaleIfErrorRequest(t *testing.T) {
 
 func TestStaleIfErrorRequestLifetime(t *testing.T) {
 	resetTest()
+	fakeClock := &fakeClock{}
 	now := time.Now()
 	tmock := transportMock{
 		response: &http.Response{
@@ -1424,7 +1424,7 @@ func TestStaleIfErrorRequestLifetime(t *testing.T) {
 		},
 		err: nil,
 	}
-	tp := newMockCacheTransport()
+	tp := newMockCacheTransportWithClock(fakeClock)
 	tp.Transport = &tmock
 
 	// First time, response is cached on success
@@ -1471,7 +1471,7 @@ func TestStaleIfErrorRequestLifetime(t *testing.T) {
 	}
 
 	// If failure last more than max stale, error is returned
-	clock = &fakeClock{elapsed: 200 * time.Second}
+	fakeClock.elapsed = 200 * time.Second
 	_, err = tp.RoundTrip(r)
 	if err != tmock.err {
 		t.Fatalf("got err %v, want %v", err, tmock.err)
@@ -1527,6 +1527,7 @@ func TestStaleIfErrorResponse(t *testing.T) {
 
 func TestStaleIfErrorResponseLifetime(t *testing.T) {
 	resetTest()
+	fakeClock := &fakeClock{}
 	now := time.Now()
 	tmock := transportMock{
 		response: &http.Response{
@@ -1540,7 +1541,7 @@ func TestStaleIfErrorResponseLifetime(t *testing.T) {
 		},
 		err: nil,
 	}
-	tp := newMockCacheTransport()
+	tp := newMockCacheTransportWithClock(fakeClock)
 	tp.Transport = &tmock
 
 	// First time, response is cached on success
@@ -1572,7 +1573,7 @@ func TestStaleIfErrorResponseLifetime(t *testing.T) {
 	}
 
 	// If failure last more than max stale, error is returned
-	clock = &fakeClock{elapsed: 200 * time.Second}
+	fakeClock.elapsed = 200 * time.Second
 	_, err = tp.RoundTrip(r)
 	if err != tmock.err {
 		t.Fatalf("got err %v, want %v", err, tmock.err)
@@ -1670,24 +1671,30 @@ func TestFreshnessStaleWhileRevalidate(t *testing.T) {
 
 	reqHeaders := http.Header{}
 
-	clock = &fakeClock{elapsed: 50 * time.Second}
-	if getFreshness(respHeaders, reqHeaders, slog.Default()) != fresh {
+	fakeClock := &fakeClock{elapsed: 50 * time.Second}
+	if getFreshness(respHeaders, reqHeaders, fakeClock, slog.Default()) != fresh {
 		t.Fatal("freshness isn't fresh")
 	}
 
-	clock = &fakeClock{elapsed: 150 * time.Second}
-	if getFreshness(respHeaders, reqHeaders, slog.Default()) != staleWhileRevalidate {
+	fakeClock.elapsed = 150 * time.Second
+	if getFreshness(respHeaders, reqHeaders, fakeClock, slog.Default()) != staleWhileRevalidate {
 		t.Fatal("freshness isn't staleWhileRevalidate")
 	}
 
-	clock = &fakeClock{elapsed: 250 * time.Second}
-	if getFreshness(respHeaders, reqHeaders, slog.Default()) != stale {
+	fakeClock.elapsed = 250 * time.Second
+	if getFreshness(respHeaders, reqHeaders, fakeClock, slog.Default()) != stale {
 		t.Fatal("freshness isn't stale")
 	}
 }
 
 func TestStaleWhileRevalidate(t *testing.T) {
 	resetTest()
+
+	// Use a local transport with fakeClock for this test
+	fakeClock := &fakeClock{elapsed: 0}
+	tp := newMockCacheTransportWithClock(fakeClock)
+	client := http.Client{Transport: tp}
+
 	req, err := http.NewRequest("GET", s.server.URL+"/stale-while-revalidate", nil)
 	if err != nil {
 		t.Fatal(err)
@@ -1695,7 +1702,7 @@ func TestStaleWhileRevalidate(t *testing.T) {
 	var counter1 string
 	{
 		// 1st request: Not cached
-		resp, err := s.client.Do(req)
+		resp, err := client.Do(req)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1717,8 +1724,8 @@ func TestStaleWhileRevalidate(t *testing.T) {
 	}
 	{
 		// 2nd request: Fresh
-		clock = &fakeClock{elapsed: 50 * time.Second}
-		resp, err := s.client.Do(req)
+		fakeClock.elapsed = 50 * time.Second
+		resp, err := client.Do(req)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1743,8 +1750,8 @@ func TestStaleWhileRevalidate(t *testing.T) {
 	}
 	{
 		// 3rd request: Stale-While-Revalidate
-		clock = &fakeClock{elapsed: 150 * time.Second}
-		resp, err := s.client.Do(req)
+		fakeClock.elapsed = 150 * time.Second
+		resp, err := client.Do(req)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1772,8 +1779,8 @@ func TestStaleWhileRevalidate(t *testing.T) {
 	}
 	{
 		// 4th request: Return the response cached just now
-		clock = &fakeClock{elapsed: 50 * time.Second}
-		resp, err := s.client.Do(req)
+		fakeClock.elapsed = 50 * time.Second
+		resp, err := client.Do(req)
 		if err != nil {
 			t.Fatal(err)
 		}

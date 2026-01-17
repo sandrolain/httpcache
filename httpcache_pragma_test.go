@@ -11,7 +11,7 @@ import (
 // when Cache-Control is not present (HTTP/1.0 compatibility)
 func TestPragmaNoCacheRequest(t *testing.T) {
 	resetTest()
-	clock = &fakeClock{}
+	fakeClock := &fakeClock{}
 
 	callCount := 0
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -22,7 +22,7 @@ func TestPragmaNoCacheRequest(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	tp := newMockCacheTransport()
+	tp := newMockCacheTransportWithClock(fakeClock)
 
 	// First request - should cache
 	req1, _ := http.NewRequest(methodGET, ts.URL, nil)
@@ -60,7 +60,7 @@ func TestPragmaNoCacheRequest(t *testing.T) {
 // when Cache-Control is present (RFC 7234 Section 5.4)
 func TestPragmaNoCacheIgnoredWithCacheControl(t *testing.T) {
 	resetTest()
-	clock = &fakeClock{}
+	fakeClock := &fakeClock{}
 
 	callCount := 0
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -71,7 +71,7 @@ func TestPragmaNoCacheIgnoredWithCacheControl(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	tp := newMockCacheTransport()
+	tp := newMockCacheTransportWithClock(fakeClock)
 
 	// First request - should cache
 	req1, _ := http.NewRequest(methodGET, ts.URL, nil)
@@ -112,7 +112,7 @@ func TestPragmaNoCacheIgnoredWithCacheControl(t *testing.T) {
 // TestPragmaNoCacheOnlyInRequest tests that Pragma: no-cache only affects requests
 func TestPragmaNoCacheOnlyInRequest(t *testing.T) {
 	resetTest()
-	clock = &fakeClock{}
+	fakeClock := &fakeClock{}
 
 	callCount := 0
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -125,7 +125,7 @@ func TestPragmaNoCacheOnlyInRequest(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	tp := newMockCacheTransport()
+	tp := newMockCacheTransportWithClock(fakeClock)
 
 	// First request - should cache (Pragma in response is ignored)
 	req1, _ := http.NewRequest(methodGET, ts.URL, nil)
@@ -161,7 +161,7 @@ func TestPragmaNoCacheOnlyInRequest(t *testing.T) {
 // TestPragmaOtherValuesIgnored tests that Pragma values other than "no-cache" are ignored
 func TestPragmaOtherValuesIgnored(t *testing.T) {
 	resetTest()
-	clock = &fakeClock{}
+	fakeClock := &fakeClock{}
 
 	callCount := 0
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -172,7 +172,7 @@ func TestPragmaOtherValuesIgnored(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	tp := newMockCacheTransport()
+	tp := newMockCacheTransportWithClock(fakeClock)
 
 	// First request - should cache
 	req1, _ := http.NewRequest(methodGET, ts.URL, nil)
@@ -209,7 +209,7 @@ func TestPragmaOtherValuesIgnored(t *testing.T) {
 // TestPragmaNoCacheCaseInsensitive tests that Pragma: no-cache is case-insensitive
 func TestPragmaNoCacheCaseInsensitive(t *testing.T) {
 	resetTest()
-	clock = &fakeClock{}
+	fakeClock := &fakeClock{}
 
 	callCount := 0
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -220,7 +220,7 @@ func TestPragmaNoCacheCaseInsensitive(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	tp := newMockCacheTransport()
+	tp := newMockCacheTransportWithClock(fakeClock)
 
 	// First request - should cache
 	req1, _ := http.NewRequest(methodGET, ts.URL, nil)

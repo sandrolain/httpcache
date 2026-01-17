@@ -10,7 +10,7 @@ import (
 // TestInvalidateOnPOST tests that POST requests invalidate the request URI
 func TestInvalidateOnPOST(t *testing.T) {
 	resetTest()
-	clock = &fakeClock{}
+	fakeClock := &fakeClock{}
 
 	callCount := 0
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -27,7 +27,7 @@ func TestInvalidateOnPOST(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	tp := newMockCacheTransport()
+	tp := newMockCacheTransportWithClock(fakeClock)
 
 	// First GET - should cache
 	req1, _ := http.NewRequest(methodGET, ts.URL, nil)
@@ -93,7 +93,7 @@ func TestInvalidateOnPOST(t *testing.T) {
 // TestInvalidateOnPUT tests that PUT requests invalidate the request URI
 func TestInvalidateOnPUT(t *testing.T) {
 	resetTest()
-	clock = &fakeClock{}
+	fakeClock := &fakeClock{}
 
 	callCount := 0
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -110,7 +110,7 @@ func TestInvalidateOnPUT(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	tp := newMockCacheTransport()
+	tp := newMockCacheTransportWithClock(fakeClock)
 
 	// Cache a GET response
 	req1, _ := http.NewRequest(methodGET, ts.URL, nil)
@@ -151,7 +151,7 @@ func TestInvalidateOnPUT(t *testing.T) {
 // TestInvalidateOnDELETE tests that DELETE requests invalidate the request URI
 func TestInvalidateOnDELETE(t *testing.T) {
 	resetTest()
-	clock = &fakeClock{}
+	fakeClock := &fakeClock{}
 
 	callCount := 0
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -167,7 +167,7 @@ func TestInvalidateOnDELETE(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	tp := newMockCacheTransport()
+	tp := newMockCacheTransportWithClock(fakeClock)
 
 	// Cache a GET response
 	req1, _ := http.NewRequest(methodGET, ts.URL, nil)
@@ -208,7 +208,7 @@ func TestInvalidateOnDELETE(t *testing.T) {
 // TestInvalidateOnPATCH tests that PATCH requests invalidate the request URI
 func TestInvalidateOnPATCH(t *testing.T) {
 	resetTest()
-	clock = &fakeClock{}
+	fakeClock := &fakeClock{}
 
 	callCount := 0
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -225,7 +225,7 @@ func TestInvalidateOnPATCH(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	tp := newMockCacheTransport()
+	tp := newMockCacheTransportWithClock(fakeClock)
 
 	// Cache a GET response
 	req1, _ := http.NewRequest(methodGET, ts.URL, nil)
@@ -266,7 +266,7 @@ func TestInvalidateOnPATCH(t *testing.T) {
 // TestInvalidateLocationHeader tests that Location header URI is invalidated
 func TestInvalidateLocationHeader(t *testing.T) {
 	resetTest()
-	clock = &fakeClock{}
+	fakeClock := &fakeClock{}
 
 	callCount := 0
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -285,7 +285,7 @@ func TestInvalidateLocationHeader(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	tp := newMockCacheTransport()
+	tp := newMockCacheTransportWithClock(fakeClock)
 
 	// Cache both the base URL and the created resource URL
 	req1, _ := http.NewRequest(methodGET, ts.URL, nil)
@@ -375,7 +375,7 @@ func TestInvalidateLocationHeader(t *testing.T) {
 // TestInvalidateContentLocationHeader tests that Content-Location header URI is invalidated
 func TestInvalidateContentLocationHeader(t *testing.T) {
 	resetTest()
-	clock = &fakeClock{}
+	fakeClock := &fakeClock{}
 
 	callCount := 0
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -394,7 +394,7 @@ func TestInvalidateContentLocationHeader(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	tp := newMockCacheTransport()
+	tp := newMockCacheTransportWithClock(fakeClock)
 
 	// Cache the resource that will be in Content-Location
 	req1, _ := http.NewRequest(methodGET, ts.URL+"/updated-resource", nil)
@@ -456,7 +456,7 @@ func TestInvalidateContentLocationHeader(t *testing.T) {
 // TestNoInvalidateOnErrorResponse tests that error responses (4xx, 5xx) don't invalidate cache
 func TestNoInvalidateOnErrorResponse(t *testing.T) {
 	resetTest()
-	clock = &fakeClock{}
+	fakeClock := &fakeClock{}
 
 	callCount := 0
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -474,7 +474,7 @@ func TestNoInvalidateOnErrorResponse(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	tp := newMockCacheTransport()
+	tp := newMockCacheTransportWithClock(fakeClock)
 
 	// Cache a GET response
 	req1, _ := http.NewRequest(methodGET, ts.URL, nil)

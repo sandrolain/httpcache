@@ -60,6 +60,7 @@ func TestMustRevalidateEnforcement(t *testing.T) {
 // TestMustRevalidateWithoutMaxStale verifies normal stale behavior with must-revalidate
 func TestMustRevalidateWithoutMaxStale(t *testing.T) {
 	resetTest()
+	fakeClock := &fakeClock{}
 
 	counter := 0
 	etag := `"test-etag"`
@@ -78,7 +79,7 @@ func TestMustRevalidateWithoutMaxStale(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	tp := newMockCacheTransport()
+	tp := newMockCacheTransportWithClock(fakeClock)
 	tp.MarkCachedResponses = true
 	client := &http.Client{Transport: tp}
 
@@ -95,13 +96,10 @@ func TestMustRevalidateWithoutMaxStale(t *testing.T) {
 		t.Fatalf("Expected 1 server hit, got %d", counter)
 	}
 
-	// Wait for response to become stale
-	time.Sleep(2 * time.Second)
+	// Simulate response becoming stale
+	fakeClock.elapsed = 2 * time.Second
 
 	// Second request - should revalidate with 304
-	clock = &fakeClock{elapsed: 2 * time.Second}
-	defer func() { clock = &realClock{} }()
-
 	resp2, err := client.Do(req)
 	if err != nil {
 		t.Fatal(err)

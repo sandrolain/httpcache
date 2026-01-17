@@ -246,6 +246,11 @@ type Transport struct {
 	// requests is a singleflight.Group used to deduplicate concurrent requests to the same resource.
 	// Multiple goroutines requesting the same cacheable URL will share the result of a single request.
 	requests singleflight.Group
+
+	// clock is the timer interface used for time-related operations.
+	// Defaults to realClock (time.Since) but can be set to a custom implementation for testing.
+	// Configure via WithClock option.
+	clock timer
 }
 
 // NewTransport returns a new Transport with the
@@ -259,6 +264,7 @@ func NewTransport(c Cache, opts ...TransportOption) *Transport {
 		MarkCachedResponses:      true,
 		MaxCacheableResponseSize: 10 * 1024 * 1024, // Default: 10MB
 		CacheOperationTimeout:    30 * time.Second, // Default: 30 seconds
+		clock:                    &realClock{},     // Default: real clock
 	}
 	for _, opt := range opts {
 		if err := opt(t); err != nil {
@@ -447,7 +453,7 @@ func (t *Transport) handleCachedResponse(cachedResp *http.Response, req *http.Re
 		return req, false
 	}
 
-	freshness := getFreshness(cachedResp.Header, req.Header, t.log())
+	freshness := getFreshness(cachedResp.Header, req.Header, t.clock, t.log())
 	t.log().Debug("cache freshness evaluated", "url", req.URL.String(), "freshness", freshnessString(freshness))
 
 	// Add freshness header if marking cached responses
@@ -456,14 +462,14 @@ func (t *Transport) handleCachedResponse(cachedResp *http.Response, req *http.Re
 	}
 
 	// Calculate and set Age header (RFC 7234 Section 4.2.3)
-	if age, err := calculateAge(cachedResp.Header, t.log()); err == nil {
+	if age, err := calculateAge(cachedResp.Header, t.clock, t.log()); err == nil {
 		cachedResp.Header.Set(headerAge, formatAge(age))
 	}
 
 	if freshness == fresh {
 		t.log().Debug("serving fresh response from cache", "url", req.URL.String())
 		// Check if it's actually stale but served due to max-stale
-		if !t.DisableWarningHeader && isActuallyStale(cachedResp.Header, t.log()) {
+		if !t.DisableWarningHeader && isActuallyStale(cachedResp.Header, t.clock, t.log()) {
 			// RFC 7234 Section 5.5: Add Warning 110 (Response is Stale)
 			addStaleWarning(cachedResp)
 		}
@@ -490,7 +496,7 @@ func (t *Transport) handleCachedResponse(cachedResp *http.Response, req *http.Re
 }
 
 // handleNotModifiedResponse updates the cached response with new headers from a 304 response
-func handleNotModifiedResponse(cachedResp *http.Response, newResp *http.Response, markRevalidated bool, log *slog.Logger) *http.Response {
+func handleNotModifiedResponse(cachedResp *http.Response, newResp *http.Response, markRevalidated bool, clock timer, log *slog.Logger) *http.Response {
 	endToEndHeaders := getEndToEndHeaders(newResp.Header)
 	for _, header := range endToEndHeaders {
 		cachedResp.Header[header] = newResp.Header[header]
@@ -500,7 +506,7 @@ func handleNotModifiedResponse(cachedResp *http.Response, newResp *http.Response
 	}
 
 	// Recalculate and update Age header after revalidation (RFC 7234 Section 4.2.3)
-	if age, err := calculateAge(cachedResp.Header, log); err == nil {
+	if age, err := calculateAge(cachedResp.Header, clock, log); err == nil {
 		cachedResp.Header.Set(headerAge, formatAge(age))
 	}
 
@@ -508,7 +514,7 @@ func handleNotModifiedResponse(cachedResp *http.Response, newResp *http.Response
 }
 
 // shouldReturnStaleOnError checks if a stale cached response should be returned due to an error
-func shouldReturnStaleOnError(err error, resp *http.Response, cachedResp *http.Response, req *http.Request, log *slog.Logger) bool {
+func shouldReturnStaleOnError(err error, resp *http.Response, cachedResp *http.Response, req *http.Request, clock timer, log *slog.Logger) bool {
 	if req.Method != methodGET || cachedResp == nil {
 		return false
 	}
@@ -520,7 +526,7 @@ func shouldReturnStaleOnError(err error, resp *http.Response, cachedResp *http.R
 		return false
 	}
 
-	return canStaleOnError(cachedResp.Header, req.Header, log)
+	return canStaleOnError(cachedResp.Header, req.Header, clock, log)
 }
 
 // performRequest executes the HTTP request using the provided transport
@@ -660,7 +666,7 @@ func (t *Transport) handleCachedNotModified(cachedResp *http.Response, notModifi
 			t.log().Warn("error draining 304 response body", "error", drainErr)
 		}
 	}
-	return handleNotModifiedResponse(cachedResp, notModifiedResp, t.MarkCachedResponses, t.log())
+	return handleNotModifiedResponse(cachedResp, notModifiedResp, t.MarkCachedResponses, t.clock, t.log())
 }
 
 func (t *Transport) serveStaleCachedResponseOnError(cachedResp *http.Response, originResp *http.Response, req *http.Request) *http.Response {
@@ -713,7 +719,7 @@ func (t *Transport) processCachedResponse(cachedResp *http.Response, markedStale
 		return t.handleCachedNotModified(cachedResp, resp, req), nil
 	}
 
-	if shouldReturnStaleOnError(err, resp, cachedResp, req, t.log()) {
+	if shouldReturnStaleOnError(err, resp, cachedResp, req, t.clock, t.log()) {
 		return t.serveStaleCachedResponseOnError(cachedResp, resp, req), nil
 	}
 
