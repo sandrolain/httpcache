@@ -6,21 +6,46 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 )
 
 // cacheControl is a map of Cache-Control directive names to their values.
 type cacheControl map[string]string
 
+// cacheControlCache stores parsed Cache-Control headers to avoid redundant parsing.
+// Key is the raw Cache-Control header value, value is the parsed cacheControl map.
+var cacheControlCache sync.Map
+
 // parseCacheControl parses the Cache-Control header and returns a map of directives.
+// Results are cached to avoid redundant parsing of the same header value.
 // Implements RFC 9111 Section 4.2.1 validation:
 // - Duplicate directives: uses the first occurrence, logs warning
 // - Conflicting directives: applies the most restrictive, logs warning
 // - Invalid values: logs warning but continues processing
 func parseCacheControl(headers http.Header, log *slog.Logger) cacheControl {
+	ccHeader := headers.Get("Cache-Control")
+
+	// Check cache first
+	if cached, ok := cacheControlCache.Load(ccHeader); ok {
+		if cc, ok := cached.(cacheControl); ok {
+			return cc
+		}
+	}
+
+	// Parse if not cached
+	cc := parseCacheControlInternal(ccHeader, log)
+
+	// Store in cache
+	cacheControlCache.Store(ccHeader, cc)
+
+	return cc
+}
+
+// parseCacheControlInternal performs the actual parsing of Cache-Control header.
+func parseCacheControlInternal(ccHeader string, log *slog.Logger) cacheControl {
 	cc := cacheControl{}
 	seen := make(map[string]bool)
-	ccHeader := headers.Get("Cache-Control")
 
 	for _, part := range strings.Split(ccHeader, ",") {
 		part = strings.Trim(part, " ")
