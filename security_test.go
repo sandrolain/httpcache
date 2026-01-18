@@ -153,6 +153,102 @@ func TestHashKeyConcurrent(t *testing.T) {
 	}
 }
 
+func TestHashKeyXXHash(t *testing.T) {
+	// Test that xxHash produces consistent results
+	key := "https://example.com/test"
+	hash1 := hashKeyXXHash(key)
+	hash2 := hashKeyXXHash(key)
+
+	if hash1 != hash2 {
+		t.Errorf("hashKeyXXHash should produce consistent results: %s != %s", hash1, hash2)
+	}
+
+	// Test that xxHash produces base36 string (variable length, but reasonable)
+	if len(hash1) < 1 || len(hash1) > 20 {
+		t.Errorf("hashKeyXXHash should produce reasonable length base36 string, got %d", len(hash1))
+	}
+
+	// Test that different keys produce different hashes
+	key2 := "https://example.com/other"
+	hash3 := hashKeyXXHash(key2)
+	if hash1 == hash3 {
+		t.Error("hashKeyXXHash should produce different hashes for different keys")
+	}
+
+	// Test that hash is URL-safe (base36 uses 0-9, a-z)
+	for _, c := range hash1 {
+		isValidChar := (c >= '0' && c <= '9') || (c >= 'a' && c <= 'z')
+		if !isValidChar {
+			t.Errorf("hashKeyXXHash should produce URL-safe base36: found character %c", c)
+		}
+	}
+}
+
+func TestHashKeyXXHashDeterministic(t *testing.T) {
+	// Test that the same key always produces the same hash
+	key := "GET:https://api.example.com/users?page=1"
+
+	hashes := make(map[string]int)
+	for i := 0; i < 1000; i++ {
+		hash := hashKeyXXHash(key)
+		hashes[hash]++
+	}
+
+	if len(hashes) != 1 {
+		t.Errorf("hashKeyXXHash should be deterministic, got %d different hashes for same key", len(hashes))
+	}
+}
+
+func TestHashKeyXXHashUniqueness(t *testing.T) {
+	// Test that different keys produce different hashes
+	testCases := []string{
+		"GET:https://example.com/api/users",
+		"GET:https://example.com/api/users?page=1",
+		"POST:https://example.com/api/users",
+		"GET:https://example.com/api/posts",
+		"GET:https://example.com/api/users/123",
+		"GET:https://example.com/api/users/456",
+	}
+
+	seen := make(map[string]string)
+	for _, key := range testCases {
+		hash := hashKeyXXHash(key)
+		if existingKey, exists := seen[hash]; exists {
+			t.Errorf("Hash collision: keys '%s' and '%s' produced same hash: %s", key, existingKey, hash)
+		}
+		seen[hash] = key
+	}
+}
+
+func TestHashKeyWithAlgorithm(t *testing.T) {
+	key := "GET:https://example.com/api/users"
+
+	// Test SHA256
+	sha256Hash := hashKeyWithAlgorithm(key, HashAlgorithmSHA256)
+	expectedSHA256 := hashKey(key)
+	if sha256Hash != expectedSHA256 {
+		t.Errorf("hashKeyWithAlgorithm(SHA256) should match hashKey: %s != %s", sha256Hash, expectedSHA256)
+	}
+
+	// Test XXHash
+	xxhashHash := hashKeyWithAlgorithm(key, HashAlgorithmXXHash)
+	expectedXXHash := hashKeyXXHash(key)
+	if xxhashHash != expectedXXHash {
+		t.Errorf("hashKeyWithAlgorithm(XXHash) should match hashKeyXXHash: %s != %s", xxhashHash, expectedXXHash)
+	}
+
+	// Test that different algorithms produce different hashes
+	if sha256Hash == xxhashHash {
+		t.Error("Different hash algorithms should produce different hashes")
+	}
+
+	// Test default (should use SHA256)
+	defaultHash := hashKeyWithAlgorithm(key, 0)
+	if defaultHash != expectedSHA256 {
+		t.Error("Default algorithm should be SHA256")
+	}
+}
+
 func TestEncryptDecrypt(t *testing.T) {
 	passphrase := "test-passphrase-12345"
 	cfg, err := initEncryption(passphrase, false)

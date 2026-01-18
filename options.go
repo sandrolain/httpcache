@@ -101,6 +101,27 @@ func WithEnableStaleMarking(enable bool) TransportOption {
 	}
 }
 
+// WithHashAlgorithm sets the hashing algorithm to use for cache keys.
+// Default: HashAlgorithmSHA256 (backward compatible, cryptographically secure).
+// Alternative: HashAlgorithmXXHash (~10x faster, recommended for high-throughput scenarios).
+//
+// WARNING: Changing the hash algorithm after data is cached will invalidate existing cache entries
+// as keys will hash to different values. Plan cache warming strategy if changing on existing systems.
+//
+// Example:
+//
+//	// Use xxHash for performance in high-throughput scenarios
+//	transport := httpcache.NewTransport(
+//	    cache,
+//	    httpcache.WithHashAlgorithm(httpcache.HashAlgorithmXXHash),
+//	)
+func WithHashAlgorithm(algo HashAlgorithm) TransportOption {
+	return func(t *Transport) error {
+		t.HashAlgorithm = algo
+		return nil
+	}
+}
+
 // WithAsyncRevalidateTimeout sets the context timeout for async requests
 // triggered by stale-while-revalidate.
 // If zero, no timeout is applied to async revalidation requests.

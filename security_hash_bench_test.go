@@ -98,8 +98,69 @@ func BenchmarkHashKeyOutputSize(b *testing.B) {
 
 	newHash := hashKey(key)
 	oldHash := oldHashKey(key)
+	xxHash := hashKeyXXHash(key)
 
-	b.Logf("New hash (base64): %s (length: %d)", newHash, len(newHash))
-	b.Logf("Old hash (hex):    %s (length: %d)", oldHash, len(oldHash))
-	b.Logf("Size reduction: %.1f%%", float64(len(oldHash)-len(newHash))/float64(len(oldHash))*100)
+	b.Logf("New hash (base64):  %s (length: %d)", newHash, len(newHash))
+	b.Logf("Old hash (hex):     %s (length: %d)", oldHash, len(oldHash))
+	b.Logf("xxHash (base36):    %s (length: %d)", xxHash, len(xxHash))
+	b.Logf("SHA256 size reduction vs hex: %.1f%%", float64(len(oldHash)-len(newHash))/float64(len(oldHash))*100)
+	b.Logf("xxHash size reduction vs hex: %.1f%%", float64(len(oldHash)-len(xxHash))/float64(len(oldHash))*100)
+	b.Logf("xxHash size reduction vs SHA256: %.1f%%", float64(len(newHash)-len(xxHash))/float64(len(newHash))*100)
+}
+
+// BenchmarkHashKeyXXHash tests the xxHash implementation
+func BenchmarkHashKeyXXHash(b *testing.B) {
+	testCases := []struct {
+		name string
+		key  string
+	}{
+		{"Short", "GET:https://example.com/api/users"},
+		{"Medium", "GET:https://example.com/api/users?page=1&limit=50&sort=created_at&order=desc"},
+		{"Long", "GET:https://example.com/api/data?query=very_long_parameter_string_that_represents_a_complex_query&filter=multiple_conditions&sort=various_fields&limit=100&offset=0&include=relations"},
+	}
+
+	for _, tc := range testCases {
+		b.Run(tc.name, func(b *testing.B) {
+			b.ReportAllocs()
+			for i := 0; i < b.N; i++ {
+				_ = hashKeyXXHash(tc.key)
+			}
+		})
+	}
+}
+
+// BenchmarkHashKeyXXHashParallel tests concurrent xxHash usage
+func BenchmarkHashKeyXXHashParallel(b *testing.B) {
+	key := "GET:https://example.com/api/users?page=1&limit=50"
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			_ = hashKeyXXHash(key)
+		}
+	})
+}
+
+// BenchmarkHashAlgorithmComparison compares all three algorithms side by side
+func BenchmarkHashAlgorithmComparison(b *testing.B) {
+	key := "GET:https://example.com/api/users?page=1&limit=50&sort=created_at"
+
+	b.Run("SHA256-Hex-Old", func(b *testing.B) {
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			_ = oldHashKey(key)
+		}
+	})
+
+	b.Run("SHA256-Base64-Pooled", func(b *testing.B) {
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			_ = hashKey(key)
+		}
+	})
+
+	b.Run("XXHash-Base36", func(b *testing.B) {
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			_ = hashKeyXXHash(key)
+		}
+	})
 }

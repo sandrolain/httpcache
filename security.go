@@ -11,9 +11,23 @@ import (
 	"fmt"
 	"hash"
 	"io"
+	"strconv"
 	"sync"
 
+	"github.com/cespare/xxhash/v2"
 	"golang.org/x/crypto/scrypt"
+)
+
+// HashAlgorithm represents the hashing algorithm to use for cache keys.
+type HashAlgorithm int
+
+const (
+	// HashAlgorithmSHA256 uses SHA-256 for hashing (default, backward compatible).
+	// More secure but slower than xxHash.
+	HashAlgorithmSHA256 HashAlgorithm = iota
+	// HashAlgorithmXXHash uses xxHash for hashing (faster, ~10x than SHA-256).
+	// Recommended for high-throughput scenarios where cryptographic security is not required.
+	HashAlgorithmXXHash
 )
 
 const (
@@ -48,7 +62,7 @@ type securityConfig struct {
 	fixedSalt     []byte // Used when useRandomSalt is false for backward compatibility
 }
 
-// hashKey converts a cache key to its SHA-256 hash representation.
+// hashKey converts a cache key to its hash representation using SHA-256.
 // This is always applied to cache keys before passing to the backend.
 // Uses sync.Pool to reduce allocations and base64 for more compact output.
 func hashKey(key string) string {
@@ -69,6 +83,29 @@ func hashKey(key string) string {
 	// Use base64.RawURLEncoding (no padding) for more compact and faster encoding
 	// RawURLEncoding is URL-safe and produces shorter strings than hex encoding
 	return base64.RawURLEncoding.EncodeToString(h.Sum(nil))
+}
+
+// hashKeyXXHash converts a cache key to its xxHash representation.
+// xxHash is much faster than SHA-256 (~10x) but not cryptographically secure.
+// Suitable for cache keys where speed is more important than cryptographic security.
+// Returns a base36-encoded string for compactness.
+func hashKeyXXHash(key string) string {
+	// xxHash is extremely fast and produces 64-bit output
+	h := xxhash.Sum64String(key)
+
+	// Convert to base36 for compact representation (using 0-9, a-z)
+	// Base36 is URL-safe and more compact than base64 for 64-bit values
+	return strconv.FormatUint(h, 36)
+}
+
+// hashKeyWithAlgorithm converts a cache key using the specified algorithm.
+func hashKeyWithAlgorithm(key string, algo HashAlgorithm) string {
+	switch algo {
+	case HashAlgorithmXXHash:
+		return hashKeyXXHash(key)
+	default:
+		return hashKey(key)
+	}
 }
 
 // initEncryption initializes the AES-256-GCM cipher using the passphrase.

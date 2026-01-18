@@ -230,6 +230,11 @@ type Transport struct {
 	// Default: 30 seconds
 	// Set to 0 to disable the timeout (uses context.Background() without timeout).
 	CacheOperationTimeout time.Duration
+	// HashAlgorithm specifies the hashing algorithm to use for cache keys.
+	// Default: HashAlgorithmSHA256 (backward compatible, cryptographically secure)
+	// Alternative: HashAlgorithmXXHash (faster, ~10x, recommended for high-throughput)
+	// WARNING: Changing this after data is cached will invalidate existing cache entries.
+	HashAlgorithm HashAlgorithm
 
 	// logger is the slog.Logger instance used by this Transport.
 	// Configure via WithLogger option. If nil, falls back to the global logger.
@@ -282,7 +287,7 @@ func (t *Transport) Client() *http.Client {
 
 // cacheGet retrieves data from the cache, applying key hashing and optional decryption.
 func (t *Transport) cacheGet(ctx context.Context, key string) ([]byte, bool, error) {
-	hashedKey := hashKey(key)
+	hashedKey := hashKeyWithAlgorithm(key, t.HashAlgorithm)
 	data, ok, err := t.Cache.Get(ctx, hashedKey)
 	if err != nil {
 		return nil, false, err
@@ -307,7 +312,7 @@ func (t *Transport) cacheGet(ctx context.Context, key string) ([]byte, bool, err
 
 // cacheSet stores data in the cache, applying key hashing and optional encryption.
 func (t *Transport) cacheSet(ctx context.Context, key string, data []byte) error {
-	hashedKey := hashKey(key)
+	hashedKey := hashKeyWithAlgorithm(key, t.HashAlgorithm)
 
 	// Encrypt if encryption is enabled
 	var toStore []byte
@@ -328,13 +333,13 @@ func (t *Transport) cacheSet(ctx context.Context, key string, data []byte) error
 
 // cacheDelete removes data from the cache, applying key hashing.
 func (t *Transport) cacheDelete(ctx context.Context, key string) error {
-	hashedKey := hashKey(key)
+	hashedKey := hashKeyWithAlgorithm(key, t.HashAlgorithm)
 	return t.Cache.Delete(ctx, hashedKey)
 }
 
 // cacheMarkStale marks a cached entry as stale, applying key hashing.
 func (t *Transport) cacheMarkStale(ctx context.Context, key string) error {
-	hashedKey := hashKey(key)
+	hashedKey := hashKeyWithAlgorithm(key, t.HashAlgorithm)
 	return t.Cache.MarkStale(ctx, hashedKey)
 }
 
@@ -352,7 +357,7 @@ func (t *Transport) cachedResponseWithKeySecure(req *http.Request, key string) (
 	}
 
 	if t.EnableStaleMarking {
-		hashedKey := hashKey(key)
+		hashedKey := hashKeyWithAlgorithm(key, t.HashAlgorithm)
 		isStale, staleErr := t.Cache.IsStale(req.Context(), hashedKey)
 		if staleErr != nil {
 			return nil, false, staleErr

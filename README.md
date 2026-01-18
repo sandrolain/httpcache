@@ -67,7 +67,8 @@
 - ✅ **Multi-Tier Caching** - Combine multiple backends with automatic fallback and promotion
 - ✅ **Compression Wrapper** - Automatic Gzip, Brotli, or Snappy compression for cached data
 - ✅ **Resilience Features** - Retry policies and circuit breakers using [failsafe-go](https://failsafe-go.dev/)
-- ✅ **Built-in Security** - SHA-256 key hashing (always enabled) and optional AES-256-GCM encryption with fixed or random salts
+- ✅ **Built-in Security** - Key hashing (SHA-256 or xxHash) and optional AES-256-GCM encryption with fixed or random salts
+- ✅ **High-Performance Hashing** - Configurable hash algorithms: SHA-256 (default, cryptographically secure) or xxHash (~2.7x faster for high-throughput)
 - ✅ **Enhanced Encryption** - Random salt mode for improved security (NIST/OWASP compliant) or fixed salt mode for backward compatibility
 - ✅ **Options Pattern** - Clean configuration via `TransportOption` functions (`WithEncryption`, `WithRandomSaltEncryption`, `WithPublicCache`, etc.)
 - ✅ **Thread-Safe** - Safe for concurrent use
@@ -158,13 +159,20 @@ transport := httpcache.NewTransport(cache,
     httpcache.WithCacheKeyHeaders([]string{"Accept-Language"}), // Include headers in key
     httpcache.WithMaxCacheableResponseSize(5*1024*1024),   // Limit cacheable size to 5MB (default: 10MB)
     httpcache.WithCacheOperationTimeout(60*time.Second),   // Cache write timeout (default: 30s)
+    httpcache.WithHashAlgorithm(httpcache.HashAlgorithmXXHash), // Use xxHash for 2.7x faster hashing (default: SHA256)
 )
 
 // Enable request deduplication for high-traffic scenarios
 transport.EnableDeduplication = true  // Coalesce parallel requests to same resource
 ```
 
-> **Note**: All cache keys are automatically hashed with SHA-256 before storage, protecting sensitive data in URLs.
+> **Note**: All cache keys are automatically hashed before storage, protecting sensitive data in URLs. Default algorithm is SHA-256 (cryptographically secure). For high-throughput scenarios, xxHash can provide ~2.7x faster performance with 72% smaller keys.
+
+> **Hash Algorithm**: Two algorithms available:
+>
+> - **SHA-256** (default): Cryptographically secure, backward compatible
+> - **xxHash**: ~2.7x faster, 72% smaller output, recommended for high-throughput scenarios
+> ⚠️ **Warning**: Changing algorithms invalidates existing cache entries.
 
 > **Cache Operation Timeout**: By default, cache write operations have a **30-second timeout** to prevent indefinite operations after request completion. The cache operation uses an independent context to allow completing writes even if the client disconnects, but with this reasonable timeout. Set to 0 to disable (not recommended for production).
 
@@ -229,6 +237,7 @@ See the [`examples/`](./examples) directory for complete, runnable examples:
 - **[Security Best Practices](./examples/security-best-practices/)** - Secure cache with encryption and key hashing
 - **[Compress Cache](./examples/compresscache/)** - Automatic Gzip/Brotli/Snappy compression
 - **[Encryption Security](./examples/encryption-security/)** - Fixed vs Random salt encryption comparison and migration guide
+- **[XXHash Performance](./examples/xxhash-performance/)** - High-performance hashing for throughput-critical scenarios
 - **[Multi-Tier Cache](./examples/multicache/)** - Multi-tiered caching with automatic fallback and promotion
 - **[Custom Backend](./examples/custom-backend/)** - Build your own cache backend
 - **[Prometheus Metrics](./examples/prometheus/)** - Monitoring cache performance

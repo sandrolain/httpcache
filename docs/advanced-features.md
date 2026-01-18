@@ -34,6 +34,97 @@ transport.MaxCacheableResponseSize = 5 * 1024 * 1024  // 5MB (default: 10MB, 0 =
 transport.CacheOperationTimeout = 60 * time.Second  // 60 seconds (default: 30s, 0 = no timeout)
 ```
 
+## Hash Algorithm Selection
+
+httpcache provides two hashing algorithms for cache keys, allowing you to choose between cryptographic security and performance:
+
+### SHA-256 (Default)
+
+Use SHA-256 for backward compatibility and cryptographic security:
+
+```go
+cache := diskcache.New("/tmp/cache")
+transport := httpcache.NewTransport(cache)
+// SHA-256 is used by default, no configuration needed
+```
+
+**Characteristics:**
+
+- Cryptographically secure hash function
+- 256-bit output (43 characters in base64)
+- Backward compatible with existing deployments
+- Suitable for distributed caches and security-sensitive scenarios
+- Performance: ~149 ns/op
+
+### xxHash (High Performance)
+
+Use xxHash for high-throughput, performance-critical scenarios:
+
+```go
+cache := diskcache.New("/tmp/cache")
+transport := httpcache.NewTransport(cache,
+    httpcache.WithHashAlgorithm(httpcache.HashAlgorithmXXHash),
+)
+```
+
+**Characteristics:**
+
+- **~2.7x faster** than SHA-256 (~54 ns/op vs ~149 ns/op)
+- 64-bit output (12 characters in base36)
+- **72% smaller** keys than SHA-256
+- **91% less memory** allocated per operation
+- Not cryptographically secure (but suitable for cache keys)
+- Recommended for high-throughput scenarios (>10K req/sec)
+
+### Choosing the Right Algorithm
+
+| Use Case | Recommended Algorithm |
+|----------|----------------------|
+| Existing deployments (backward compatibility) | SHA-256 (default) |
+| Distributed caches across trust boundaries | SHA-256 |
+| Security-sensitive applications | SHA-256 |
+| High-throughput scenarios (>10K req/sec) | xxHash |
+| In-memory caches with short TTL | xxHash |
+| Performance-critical microservices | xxHash |
+| Limited cache storage | xxHash (72% smaller keys) |
+
+**⚠️ Important Notes:**
+
+- **Changing algorithms invalidates existing cache entries** as keys hash to different values
+- Plan cache warming strategy when switching algorithms on existing systems
+- xxHash is **not suitable** for cryptographic operations, passwords, or security tokens
+- xxHash is **appropriate** for cache keys (internal use, not user-exposed)
+
+**Performance Comparison (Apple M2):**
+
+```
+SHA-256:  149 ns/op    215 B/op    11 allocs/op    43 chars output
+xxHash:    54 ns/op     18 B/op     3 allocs/op    12 chars output
+
+Speedup:   2.77x faster
+Memory:    91.6% reduction
+Output:    72.1% smaller
+```
+
+### Migration Example
+
+When migrating from SHA-256 to xxHash:
+
+```go
+// Strategy 1: Cache warming (recommended)
+// 1. Deploy new version with xxHash
+// 2. Allow cache to naturally warm up
+// 3. Old SHA-256 entries expire naturally
+
+transport := httpcache.NewTransport(cache,
+    httpcache.WithHashAlgorithm(httpcache.HashAlgorithmXXHash),
+)
+
+// Strategy 2: Cache flush (simplest, causes temporary cache miss spike)
+// cache.Flush() // Clear all entries
+// Then deploy with new algorithm
+```
+
 ## Encryption Options
 
 httpcache provides two encryption modes for cached data, using AES-256-GCM with scrypt key derivation:

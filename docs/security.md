@@ -4,15 +4,72 @@
 
 httpcache v2.0 includes built-in security features:
 
-### SHA-256 Key Hashing (Always Enabled)
+### Key Hashing (Always Enabled)
 
-All cache keys are automatically hashed with SHA-256 before being passed to the backend. This provides:
+All cache keys are automatically hashed before being passed to the backend. Two algorithms are available:
 
-- **Privacy**: Original URLs/keys are not exposed in the cache backend
-- **Consistency**: Same input always produces the same hash
-- **Security**: Prevents enumeration of cached URLs
+#### SHA-256 (Default)
 
-No configuration required - this is always enabled by default.
+```go
+cache := diskcache.New("/tmp/cache")
+transport := httpcache.NewTransport(cache)
+// SHA-256 is used by default
+```
+
+**SHA-256 Characteristics:**
+
+- ✓ **Cryptographically Secure** - 256-bit hash function
+- ✓ **Privacy**: Original URLs/keys are not exposed in cache backend
+- ✓ **Consistency**: Same input always produces same hash
+- ✓ **Security**: Prevents enumeration of cached URLs
+- ✓ **Collision Resistance**: ~0% probability for practical purposes
+- ✓ **Backward Compatible**: Default algorithm
+- ⚠️ **Performance**: ~149 ns/op
+
+**Best For:** Security-sensitive applications, distributed caches across trust boundaries, existing deployments.
+
+#### xxHash (High Performance)
+
+```go
+cache := diskcache.New("/tmp/cache")
+transport := httpcache.NewTransport(cache,
+    httpcache.WithHashAlgorithm(httpcache.HashAlgorithmXXHash),
+)
+```
+
+**xxHash Characteristics:**
+
+- ✓ **High Performance** - ~2.7x faster than SHA-256 (~54 ns/op)
+- ✓ **Small Output** - 72% smaller keys (12 chars vs 43 chars)
+- ✓ **Low Memory** - 91% less memory allocated
+- ✓ **Fast Lookups** - Smaller keys improve cache efficiency
+- ⚠️ **Not Cryptographically Secure** - 64-bit non-cryptographic hash
+- ⚠️ **Collision Probability** - Negligible for cache keys (~2^32 operations)
+
+**Suitable For:** Cache key generation (internal, not user-exposed), high-throughput scenarios, in-memory caches with short TTL.
+
+**Not Suitable For:** Cryptographic signatures, password hashing, security tokens, data integrity in adversarial environments.
+
+#### Hash Algorithm Comparison
+
+| Aspect | SHA-256 | xxHash |
+|--------|---------|--------|
+| **Speed** | 149 ns/op | 54 ns/op (2.7x faster) |
+| **Output Size** | 43 chars | 12 chars (72% smaller) |
+| **Memory** | 215 B/op | 18 B/op (91% less) |
+| **Cryptographic Security** | ✅ Yes | ❌ No |
+| **Cache Key Suitability** | ✅ Yes | ✅ Yes |
+| **Password Hashing** | ⚠️ Not recommended | ❌ Never |
+| **Backward Compatible** | ✅ Default | ⚠️ Opt-in |
+
+**Recommendation:**
+
+- Use **SHA-256** (default) for distributed caches and security-sensitive scenarios
+- Use **xxHash** for high-throughput, performance-critical applications where cache keys are internal
+
+⚠️ **Warning:** Changing hash algorithms invalidates existing cache entries. Plan cache warming strategy.
+
+See [Advanced Features - Hash Algorithm Selection](./advanced-features.md#hash-algorithm-selection) for detailed configuration.
 
 ### Optional AES-256-GCM Encryption
 
