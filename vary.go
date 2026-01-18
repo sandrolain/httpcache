@@ -13,24 +13,30 @@ import (
 func varyMatches(cachedResp *http.Response, req *http.Request) bool {
 	varyHeaders := headerAllCommaSepValues(cachedResp.Header, "vary")
 
-	// RFC 9111 Section 4.1: A stored response with "Vary: *" always fails to match
-	for _, header := range varyHeaders {
-		if strings.TrimSpace(header) == "*" {
-			return false
-		}
+	// Fast path: no vary headers
+	if len(varyHeaders) == 0 {
+		return true
 	}
 
-	// Check each varied header for matching
+	// Single pass through vary headers: check for "*" and match values simultaneously
 	for _, header := range varyHeaders {
-		header = http.CanonicalHeaderKey(strings.TrimSpace(header))
-		if header == "" || header == "*" {
+		header = strings.TrimSpace(header)
+
+		// RFC 9111 Section 4.1: A stored response with "Vary: *" always fails to match
+		if header == "*" {
+			return false
+		}
+
+		if header == "" {
 			continue
 		}
 
+		canonicalHeader := http.CanonicalHeaderKey(header)
+
 		// Get the current request header value
-		reqValue := req.Header.Get(header)
+		reqValue := req.Header.Get(canonicalHeader)
 		// Get the stored request header value from X-Varied-* headers
-		storedValue := cachedResp.Header.Get(headerXVariedPrefix + header)
+		storedValue := cachedResp.Header.Get(headerXVariedPrefix + canonicalHeader)
 
 		// RFC 9111 Section 4.1: If header is absent from request, it matches if also absent in stored request
 		// Both empty: match
@@ -65,30 +71,59 @@ func normalizedHeaderValuesMatch(value1, value2 string) bool {
 
 // normalizeHeaderValue normalizes a header value according to RFC 9111 Section 4.1.
 // This handles common whitespace variations while preserving semantics.
+// Optimized for single-pass processing with minimal allocations.
 func normalizeHeaderValue(value string) string {
 	// Trim leading/trailing whitespace
 	value = strings.TrimSpace(value)
+	if value == "" {
+		return value
+	}
 
-	// First, normalize all whitespace characters (space, tab, newline) to single space
+	// Single pass: normalize whitespace and handle comma-space inline
 	var normalized strings.Builder
+	normalized.Grow(len(value)) // Pre-allocate capacity
+
 	prevSpace := false
-	for _, r := range value {
-		if r == ' ' || r == '\t' || r == '\n' || r == '\r' {
+	lastWasComma := false
+
+	for i := 0; i < len(value); i++ {
+		c := value[i]
+
+		// Handle whitespace characters
+		if c == ' ' || c == '\t' || c == '\n' || c == '\r' {
+			// Skip spaces after comma
+			if lastWasComma {
+				continue
+			}
+			// Skip multiple consecutive spaces
 			if !prevSpace {
-				normalized.WriteRune(' ')
-				prevSpace = true
+				// Skip space before comma
+				if !hasCommaAhead(value, i) {
+					normalized.WriteByte(' ')
+					prevSpace = true
+				}
 			}
 		} else {
-			normalized.WriteRune(r)
+			normalized.WriteByte(c)
 			prevSpace = false
+			lastWasComma = (c == ',')
 		}
 	}
 
-	// Now normalize comma-separated lists: "en, fr" and "en,fr" should match
-	// Replace ", " with "," (all comma+space combinations already normalized to single space above)
-	result := strings.ReplaceAll(normalized.String(), ", ", ",")
+	return normalized.String()
+}
 
-	return result
+// hasCommaAhead checks if there's a comma ahead in the string, skipping whitespace.
+func hasCommaAhead(s string, pos int) bool {
+	for j := pos + 1; j < len(s); j++ {
+		if s[j] == ',' {
+			return true
+		}
+		if s[j] != ' ' && s[j] != '\t' && s[j] != '\n' && s[j] != '\r' {
+			return false
+		}
+	}
+	return false
 }
 
 // storeVaryHeaders stores the Vary header values in the response for future cache validation.
