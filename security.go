@@ -7,9 +7,11 @@ import (
 	"crypto/cipher"
 	"crypto/rand"
 	"crypto/sha256"
-	"encoding/hex"
+	"encoding/base64"
 	"fmt"
+	"hash"
 	"io"
+	"sync"
 
 	"golang.org/x/crypto/scrypt"
 )
@@ -31,6 +33,13 @@ const (
 	versionByte byte = 0x01
 )
 
+// hashPool is a sync.Pool for reusing hash.Hash instances to reduce allocations.
+var hashPool = sync.Pool{
+	New: func() interface{} {
+		return sha256.New()
+	},
+}
+
 // securityConfig holds the security configuration for the Transport.
 type securityConfig struct {
 	gcm           cipher.AEAD
@@ -41,9 +50,25 @@ type securityConfig struct {
 
 // hashKey converts a cache key to its SHA-256 hash representation.
 // This is always applied to cache keys before passing to the backend.
+// Uses sync.Pool to reduce allocations and base64 for more compact output.
 func hashKey(key string) string {
-	hash := sha256.Sum256([]byte(key))
-	return hex.EncodeToString(hash[:])
+	// Get hash instance from pool
+	h, ok := hashPool.Get().(hash.Hash)
+	if !ok {
+		// Fallback to creating new hash if pool returns wrong type
+		h = sha256.New()
+	}
+	defer func() {
+		h.Reset()
+		hashPool.Put(h)
+	}()
+
+	// Write key to hash
+	_, _ = h.Write([]byte(key)) // hash.Hash.Write never returns an error
+
+	// Use base64.RawURLEncoding (no padding) for more compact and faster encoding
+	// RawURLEncoding is URL-safe and produces shorter strings than hex encoding
+	return base64.RawURLEncoding.EncodeToString(h.Sum(nil))
 }
 
 // initEncryption initializes the AES-256-GCM cipher using the passphrase.

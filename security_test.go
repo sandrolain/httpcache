@@ -68,9 +68,10 @@ func TestHashKey(t *testing.T) {
 		t.Errorf("hashKey should produce consistent results: %s != %s", hash1, hash2)
 	}
 
-	// Test that hashKey produces 64 character hex string (SHA-256)
-	if len(hash1) != 64 {
-		t.Errorf("hashKey should produce 64 character hex string, got %d", len(hash1))
+	// Test that hashKey produces 43 character base64 string (SHA-256 without padding)
+	// SHA-256 produces 32 bytes, base64 encoding without padding = 43 chars
+	if len(hash1) != 43 {
+		t.Errorf("hashKey should produce 43 character base64 string, got %d", len(hash1))
 	}
 
 	// Test that different keys produce different hashes
@@ -78,6 +79,77 @@ func TestHashKey(t *testing.T) {
 	hash3 := hashKey(key2)
 	if hash1 == hash3 {
 		t.Error("hashKey should produce different hashes for different keys")
+	}
+
+	// Test that hash is URL-safe (no special characters that need encoding)
+	for _, c := range hash1 {
+		isValidChar := (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' || c == '_'
+		if !isValidChar {
+			t.Errorf("hashKey should produce URL-safe base64: found character %c", c)
+		}
+	}
+}
+
+func TestHashKeyDeterministic(t *testing.T) {
+	// Test that the same key always produces the same hash
+	key := "GET:https://api.example.com/users?page=1"
+
+	hashes := make(map[string]int)
+	for i := 0; i < 1000; i++ {
+		hash := hashKey(key)
+		hashes[hash]++
+	}
+
+	if len(hashes) != 1 {
+		t.Errorf("hashKey should be deterministic, got %d different hashes for same key", len(hashes))
+	}
+}
+
+func TestHashKeyUniqueness(t *testing.T) {
+	// Test that different keys produce different hashes
+	testCases := []string{
+		"GET:https://example.com/api/users",
+		"GET:https://example.com/api/users?page=1",
+		"POST:https://example.com/api/users",
+		"GET:https://example.com/api/posts",
+		"GET:https://example.com/api/users/123",
+		"GET:https://example.com/api/users/456",
+	}
+
+	seen := make(map[string]string)
+	for _, key := range testCases {
+		hash := hashKey(key)
+		if existingKey, exists := seen[hash]; exists {
+			t.Errorf("Hash collision: keys '%s' and '%s' produced same hash: %s", key, existingKey, hash)
+		}
+		seen[hash] = key
+	}
+}
+
+func TestHashKeyConcurrent(t *testing.T) {
+	// Test that hashKey is safe for concurrent use
+	key := "GET:https://example.com/api/data"
+	expected := hashKey(key)
+
+	const numGoroutines = 100
+	const iterationsPerGoroutine = 100
+
+	done := make(chan bool, numGoroutines)
+
+	for i := 0; i < numGoroutines; i++ {
+		go func() {
+			for j := 0; j < iterationsPerGoroutine; j++ {
+				hash := hashKey(key)
+				if hash != expected {
+					t.Errorf("Concurrent hashKey produced different result: expected %s, got %s", expected, hash)
+				}
+			}
+			done <- true
+		}()
+	}
+
+	for i := 0; i < numGoroutines; i++ {
+		<-done
 	}
 }
 
