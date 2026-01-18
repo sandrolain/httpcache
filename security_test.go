@@ -83,7 +83,7 @@ func TestHashKey(t *testing.T) {
 
 func TestEncryptDecrypt(t *testing.T) {
 	passphrase := "test-passphrase-12345"
-	gcm, err := initEncryption(passphrase)
+	cfg, err := initEncryption(passphrase, false)
 	if err != nil {
 		t.Fatalf("failed to init encryption: %v", err)
 	}
@@ -91,7 +91,7 @@ func TestEncryptDecrypt(t *testing.T) {
 	plaintext := []byte("Hello, World! This is a test message for encryption.")
 
 	// Encrypt
-	ciphertext, err := encrypt(gcm, plaintext)
+	ciphertext, err := encrypt(cfg, plaintext)
 	if err != nil {
 		t.Fatalf("failed to encrypt: %v", err)
 	}
@@ -102,7 +102,7 @@ func TestEncryptDecrypt(t *testing.T) {
 	}
 
 	// Decrypt
-	decrypted, err := decrypt(gcm, ciphertext)
+	decrypted, err := decrypt(cfg, ciphertext)
 	if err != nil {
 		t.Fatalf("failed to decrypt: %v", err)
 	}
@@ -135,14 +135,14 @@ func TestEncryptDecryptWithNilGCM(t *testing.T) {
 
 func TestDecryptWithShortCiphertext(t *testing.T) {
 	passphrase := "test-passphrase-12345"
-	gcm, err := initEncryption(passphrase)
+	cfg, err := initEncryption(passphrase, false)
 	if err != nil {
 		t.Fatalf("failed to init encryption: %v", err)
 	}
 
 	// Try to decrypt data shorter than nonce size
 	shortData := []byte("short")
-	_, err = decrypt(gcm, shortData)
+	_, err = decrypt(cfg, shortData)
 	if err == nil {
 		t.Error("decrypt should fail with short ciphertext")
 	}

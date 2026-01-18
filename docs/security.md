@@ -16,7 +16,9 @@ No configuration required - this is always enabled by default.
 
 ### Optional AES-256-GCM Encryption
 
-Enable encryption of cached data using `WithEncryption`:
+Enable encryption of cached data with two modes available:
+
+#### Fixed Salt Encryption (Default)
 
 ```go
 import "github.com/sandrolain/httpcache"
@@ -28,12 +30,58 @@ transport := httpcache.NewTransport(cache,
 client := transport.Client()
 ```
 
-**Security Features:**
+**Fixed Salt Characteristics:**
 
 - ✓ **AES-256-GCM Encryption** - Industry-standard authenticated encryption
 - ✓ **scrypt Key Derivation** - Strong passphrase protection (N=32768, r=8, p=1)
+- ✓ **Fixed Salt** - Same salt for all values (faster, backward compatible)
 - ✓ **Unique Nonce per Value** - Prevents IV reuse attacks
 - ✓ **Authentication Tag** - Prevents tampering with cached data
+- ✓ **Faster Performance** - Single key derivation at initialization
+- ✓ **Smaller Overhead** - Only 1 byte format indicator
+
+**Best For:** Existing deployments, performance-critical applications, high-throughput caching.
+
+#### Random Salt Encryption (Enhanced Security)
+
+```go
+import "github.com/sandrolain/httpcache"
+
+cache := diskcache.New("/tmp/cache")
+transport := httpcache.NewTransport(cache,
+    httpcache.WithRandomSaltEncryption("your-secret-passphrase"),
+)
+client := transport.Client()
+```
+
+**Random Salt Characteristics:**
+
+- ✓ **Unique 32-byte Salt per Value** - Maximum security against rainbow table attacks
+- ✓ **Per-Value Key Derivation** - Independent encryption keys for each cache entry
+- ✓ **Pattern Protection** - Identical plaintexts produce different ciphertexts
+- ✓ **NIST SP 800-132 Compliant** - Follows government security standards
+- ✓ **OWASP Recommended** - Industry best practices for encryption
+- ✓ **Format Versioning** - Future-proof design for algorithm upgrades
+- ✓ **Backward Compatible Decryption** - Can read fixed salt encrypted data
+- ⚠️ **Slower Performance** - Key derivation per encryption (~500ms)
+- ⚠️ **Larger Overhead** - 33 bytes per value (1 version + 32 salt)
+
+**Best For:** New deployments, security-critical applications (financial, healthcare, PII), compliance requirements (SOC 2, HIPAA, PCI DSS), long-term storage.
+
+#### Security Comparison
+
+| Security Aspect | Fixed Salt | Random Salt |
+|----------------|------------|-------------|
+| **Rainbow Table Protection** | ❌ Vulnerable | ✅ Protected |
+| **Pattern Analysis** | ❌ Reveals patterns | ✅ No patterns |
+| **Key Compromise Impact** | ❌ All data exposed | ✅ Single value only |
+| **NIST/OWASP Compliance** | ❌ Non-compliant | ✅ Compliant |
+| **Performance** | ✅ Fast (~1µs) | ⚠️ Slower (~500ms) |
+| **Storage Overhead** | ✅ +1 byte | ⚠️ +33 bytes |
+
+**Recommendation:** Use `WithRandomSaltEncryption()` for new deployments and security-critical applications. Use `WithEncryption()` for backward compatibility and performance-focused scenarios.
+
+See the [Encryption Security Example](../examples/encryption-security/) for detailed comparison, migration strategies, and compliance information.
 
 ### Check Encryption Status
 

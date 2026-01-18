@@ -191,21 +191,49 @@ func WithTransport(rt http.RoundTripper) TransportOption {
 // The passphrase is used to derive an encryption key using scrypt.
 // When enabled, all cached data is encrypted before storage and decrypted on retrieval.
 // The passphrase must be kept secret and consistent across application restarts.
+// By default, uses a fixed salt for backward compatibility.
+// For improved security, use WithRandomSaltEncryption() instead.
 // Returns an error if the passphrase is empty or encryption initialization fails.
 func WithEncryption(passphrase string) TransportOption {
 	return func(t *Transport) error {
 		if passphrase == "" {
 			return fmt.Errorf("encryption passphrase cannot be empty")
 		}
-		gcm, err := initEncryption(passphrase)
+		cfg, err := initEncryption(passphrase, false)
 		if err != nil {
 			return err
 		}
-		if t.security == nil {
-			t.security = &securityConfig{}
+		t.security = cfg
+		return nil
+	}
+}
+
+// WithRandomSaltEncryption enables AES-256-GCM encryption with random salts.
+// This provides improved security compared to WithEncryption() by using a unique
+// random salt for each encrypted value. The salt is stored with the encrypted data.
+//
+// Benefits:
+// - Each encrypted value has a unique salt, preventing rainbow table attacks
+// - Better security practices alignment
+// - Protection against cross-value pattern analysis
+//
+// Trade-offs:
+// - Slightly larger encrypted data (33 bytes overhead vs 1 byte)
+// - Slightly slower encryption/decryption due to per-value key derivation
+// - Not backward compatible with data encrypted using WithEncryption()
+//
+// Use this for new deployments or when security is a higher priority than
+// backward compatibility with existing cached data.
+func WithRandomSaltEncryption(passphrase string) TransportOption {
+	return func(t *Transport) error {
+		if passphrase == "" {
+			return fmt.Errorf("encryption passphrase cannot be empty")
 		}
-		t.security.gcm = gcm
-		t.security.passphrase = passphrase
+		cfg, err := initEncryption(passphrase, true)
+		if err != nil {
+			return err
+		}
+		t.security = cfg
 		return nil
 	}
 }

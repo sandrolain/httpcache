@@ -15,6 +15,33 @@ This is a **major breaking release** that adds `context.Context` support and err
 - **Memory Protection**: New `MaxCacheableResponseSize` field and `WithMaxCacheableResponseSize()` option protect against memory exhaustion from large response bodies. Default limit of **10MB** prevents caching responses that could cause OOM errors. Large responses exceeding the limit are served normally but bypass the cache. Set to 0 to disable the limit.
 - **Cache Operation Timeout**: New `CacheOperationTimeout` field and `WithCacheOperationTimeout()` option prevent cache write operations from running indefinitely. Default timeout of **30 seconds** ensures cache operations complete within a reasonable time even if the original request context is cancelled. Cache operations use an independent context to allow completing writes after client disconnection, but with this timeout protection. Set to 0 to disable (not recommended for production).
 
+### Security
+
+- **Random Salt Encryption**: New `WithRandomSaltEncryption()` option provides improved encryption security by generating a unique random salt for each encrypted value. This protects against rainbow table attacks and cross-value pattern analysis. Benefits:
+  - **Per-value unique salt** (32 bytes) prevents rainbow table attacks
+  - **Enhanced key derivation** using scrypt with individual salts
+  - **Backward compatible** - can still decrypt data encrypted with fixed salt
+  - **Format versioning** enables future encryption scheme upgrades
+  - Trade-off: Slightly larger encrypted data (33 bytes overhead vs 1 byte) and slower encryption/decryption due to per-value key derivation
+  - Use `WithEncryption()` for backward compatibility (fixed salt, default) or `WithRandomSaltEncryption()` for new deployments requiring enhanced security
+
+### Performance
+
+- **Cache-Control Parsing Optimization**: Implemented `sync.Map`-based caching for parsed Cache-Control headers, eliminating redundant parsing of the same header values. This optimization delivers:
+  - **3x faster parsing** for cached headers (from ~304 ns/op to ~32 ns/op)
+  - **Zero allocations** for cache hits (from 4 allocs/op to 0 allocs/op)
+  - **Thread-safe concurrent access** with minimal contention
+  - Particularly beneficial for applications processing many requests with similar caching policies (e.g., CDN configurations, API responses)
+  - Benchmark results show consistent sub-10ns latency under high parallelism (6.3 ns/op concurrent)
+
+- **Vary Header Matching Optimization**: Refactored `varyMatches()` and `normalizeHeaderValue()` for single-pass processing, significantly reducing CPU overhead and memory allocations:
+  - **Single-pass algorithm** eliminates duplicate iteration over vary headers
+  - **Inline comma-space normalization** removes need for secondary string replacement pass
+  - **Pre-allocated buffers** with `strings.Builder.Grow()` reduce allocations
+  - **Fast paths** for common cases (no vary headers, exact match, Vary: *)
+  - Optimized for typical HTTP header patterns (Accept-Encoding, Accept-Language, User-Agent)
+  - Lower cognitive complexity through helper function extraction
+
 ### Breaking Changes
 
 **Cache Interface Signature Changes**

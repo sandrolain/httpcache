@@ -67,8 +67,9 @@
 - ✅ **Multi-Tier Caching** - Combine multiple backends with automatic fallback and promotion
 - ✅ **Compression Wrapper** - Automatic Gzip, Brotli, or Snappy compression for cached data
 - ✅ **Resilience Features** - Retry policies and circuit breakers using [failsafe-go](https://failsafe-go.dev/)
-- ✅ **Built-in Security** - SHA-256 key hashing (always enabled) and optional AES-256-GCM encryption via `WithEncryption`
-- ✅ **Options Pattern** - Clean configuration via `TransportOption` functions (`WithEncryption`, `WithPublicCache`, etc.)
+- ✅ **Built-in Security** - SHA-256 key hashing (always enabled) and optional AES-256-GCM encryption with fixed or random salts
+- ✅ **Enhanced Encryption** - Random salt mode for improved security (NIST/OWASP compliant) or fixed salt mode for backward compatibility
+- ✅ **Options Pattern** - Clean configuration via `TransportOption` functions (`WithEncryption`, `WithRandomSaltEncryption`, `WithPublicCache`, etc.)
 - ✅ **Thread-Safe** - Safe for concurrent use
 - ✅ **Zero Dependencies** - Core package uses only Go standard library
 - ✅ **Easy Integration** - Drop-in replacement for `http.Client`
@@ -119,11 +120,32 @@ func main() {
 ### With Encryption (Optional)
 
 ```go
-// Enable AES-256-GCM encryption for cached data
+// Enable AES-256-GCM encryption for cached data (fixed salt - backward compatible)
 transport := httpcache.NewTransport(cache,
     httpcache.WithEncryption("my-secret-passphrase"),
 )
+
+// Enable enhanced encryption with random salts (recommended for new deployments)
+transport := httpcache.NewTransport(cache,
+    httpcache.WithRandomSaltEncryption("my-secret-passphrase"),
+)
 ```
+
+**Encryption Modes:**
+
+- **`WithEncryption()`** - Fixed salt mode (default)
+  - Faster encryption/decryption
+  - Smaller encrypted data size
+  - Backward compatible with existing deployments
+  - Suitable for performance-critical scenarios
+
+- **`WithRandomSaltEncryption()`** - Random salt mode (enhanced security)
+  - Unique 32-byte salt per encrypted value
+  - Protection against rainbow table attacks
+  - NIST SP 800-132 and OWASP compliant
+  - Recommended for security-critical applications
+
+See [Encryption Security Example](./examples/encryption-security/) for detailed comparison and migration guide.
 
 ### Transport Options
 
@@ -206,6 +228,7 @@ See the [`examples/`](./examples) directory for complete, runnable examples:
 - **[FreeCache](./examples/freecache/)** - High-performance in-memory with zero GC
 - **[Security Best Practices](./examples/security-best-practices/)** - Secure cache with encryption and key hashing
 - **[Compress Cache](./examples/compresscache/)** - Automatic Gzip/Brotli/Snappy compression
+- **[Encryption Security](./examples/encryption-security/)** - Fixed vs Random salt encryption comparison and migration guide
 - **[Multi-Tier Cache](./examples/multicache/)** - Multi-tiered caching with automatic fallback and promotion
 - **[Custom Backend](./examples/custom-backend/)** - Build your own cache backend
 - **[Prometheus Metrics](./examples/prometheus/)** - Monitoring cache performance

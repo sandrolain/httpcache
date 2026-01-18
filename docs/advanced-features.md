@@ -34,6 +34,61 @@ transport.MaxCacheableResponseSize = 5 * 1024 * 1024  // 5MB (default: 10MB, 0 =
 transport.CacheOperationTimeout = 60 * time.Second  // 60 seconds (default: 30s, 0 = no timeout)
 ```
 
+## Encryption Options
+
+httpcache provides two encryption modes for cached data, using AES-256-GCM with scrypt key derivation:
+
+### Fixed Salt Encryption (Default)
+
+Use `WithEncryption()` for backward-compatible encryption with a fixed salt:
+
+```go
+cache := diskcache.New("/tmp/cache")
+transport := httpcache.NewTransport(cache,
+    httpcache.WithEncryption("your-secret-passphrase"),
+)
+```
+
+**Characteristics:**
+
+- Faster encryption/decryption (single key derivation at init)
+- Smaller encrypted data size (+1 byte overhead)
+- Backward compatible with existing deployments
+- Suitable for performance-critical applications
+
+### Random Salt Encryption (Enhanced Security)
+
+Use `WithRandomSaltEncryption()` for enhanced security with unique salts per value:
+
+```go
+cache := diskcache.New("/tmp/cache")
+transport := httpcache.NewTransport(cache,
+    httpcache.WithRandomSaltEncryption("your-secret-passphrase"),
+)
+```
+
+**Characteristics:**
+
+- Unique 32-byte salt per encrypted value
+- Protection against rainbow table attacks
+- NIST SP 800-132 and OWASP compliant
+- Recommended for security-critical applications
+- Slower encryption/decryption (~500ms per operation)
+- Larger encrypted data (+33 bytes overhead)
+
+### Choosing the Right Mode
+
+| Use Case | Recommended Mode |
+|----------|------------------|
+| Existing deployments (backward compatibility) | `WithEncryption()` |
+| Performance-critical applications | `WithEncryption()` |
+| New security-focused deployments | `WithRandomSaltEncryption()` |
+| Financial/healthcare/PII data | `WithRandomSaltEncryption()` |
+| Compliance requirements (SOC 2, HIPAA, PCI DSS) | `WithRandomSaltEncryption()` |
+| Long-term cache storage | `WithRandomSaltEncryption()` |
+
+See [Security Considerations](./security.md) and the [Encryption Security Example](../examples/encryption-security/) for detailed comparison and migration strategies.
+
 ### Disabling Warning Headers (RFC 9111)
 
 **RFC 9111** has obsoleted the `Warning` header field that was defined in RFC 7234. To comply with the latest HTTP caching specification, you can disable the automatic addition of Warning headers:

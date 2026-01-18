@@ -293,7 +293,7 @@ func (t *Transport) cacheGet(ctx context.Context, key string) ([]byte, bool, err
 
 	// Decrypt if encryption is enabled
 	if t.security != nil && t.security.gcm != nil {
-		plaintext, decryptErr := decrypt(t.security.gcm, data)
+		plaintext, decryptErr := decrypt(t.security, data)
 		if decryptErr != nil {
 			t.log().Warn("failed to decrypt cached data", "key", hashedKey, "error", decryptErr)
 			return nil, false, decryptErr
@@ -312,7 +312,7 @@ func (t *Transport) cacheSet(ctx context.Context, key string, data []byte) error
 	// Encrypt if encryption is enabled
 	var toStore []byte
 	if t.security != nil && t.security.gcm != nil {
-		encrypted, encryptErr := encrypt(t.security.gcm, data)
+		encrypted, encryptErr := encrypt(t.security, data)
 		if encryptErr != nil {
 			t.log().Warn("failed to encrypt data", "key", hashedKey, "error", encryptErr)
 			return encryptErr
