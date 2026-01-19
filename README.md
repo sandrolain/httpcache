@@ -70,7 +70,8 @@
 - ✅ **Built-in Security** - Key hashing (SHA-256 or xxHash) and optional AES-256-GCM encryption with fixed or random salts
 - ✅ **High-Performance Hashing** - Configurable hash algorithms: SHA-256 (default, cryptographically secure) or xxHash (~2.7x faster for high-throughput)
 - ✅ **Enhanced Encryption** - Random salt mode for improved security (NIST/OWASP compliant) or fixed salt mode for backward compatibility
-- ✅ **Options Pattern** - Clean configuration via `TransportOption` functions (`WithEncryption`, `WithRandomSaltEncryption`, `WithPublicCache`, etc.)
+- ✅ **Internal Metrics** - Zero-dependency metrics collection with optional Prometheus export (hit rate, latency histogram, errors, stale served, deduplication)
+- ✅ **Options Pattern** - Clean configuration via `TransportOption` functions (`WithEncryption`, `WithRandomSaltEncryption`, `WithPublicCache`, `WithMetrics`, etc.)
 - ✅ **Thread-Safe** - Safe for concurrent use
 - ✅ **Zero Dependencies** - Core package uses only Go standard library
 - ✅ **Easy Integration** - Drop-in replacement for `http.Client`
@@ -160,10 +161,25 @@ transport := httpcache.NewTransport(cache,
     httpcache.WithMaxCacheableResponseSize(5*1024*1024),   // Limit cacheable size to 5MB (default: 10MB)
     httpcache.WithCacheOperationTimeout(60*time.Second),   // Cache write timeout (default: 30s)
     httpcache.WithHashAlgorithm(httpcache.HashAlgorithmXXHash), // Use xxHash for 2.7x faster hashing (default: SHA256)
+    httpcache.WithMetrics(metrics),                        // Enable metrics collection (optional)
 )
 
 // Enable request deduplication for high-traffic scenarios
 transport.EnableDeduplication = true  // Coalesce parallel requests to same resource
+
+// Create and enable metrics (optional)
+metrics := httpcache.NewTransportMetrics()
+transport := httpcache.NewTransport(cache, httpcache.WithMetrics(metrics))
+
+// Read metrics
+fmt.Printf("Hit rate: %.2f%%\n", metrics.HitRate()*100)
+fmt.Printf("Total requests: %d\n", metrics.TotalRequests())
+
+// Export to Prometheus (optional - requires separate package)
+import prommetrics "github.com/sandrolain/httpcache/wrapper/metrics/prometheus"
+collector := prommetrics.NewCollector(prommetrics.CollectorConfig{Metrics: metrics})
+stop := collector.Start(context.Background())
+defer stop()
 ```
 
 > **Note**: All cache keys are automatically hashed before storage, protecting sensitive data in URLs. Default algorithm is SHA-256 (cryptographically secure). For high-throughput scenarios, xxHash can provide ~2.7x faster performance with 72% smaller keys.

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"log"
@@ -25,27 +26,28 @@ func main() {
 	}
 	defer os.RemoveAll(tmpDir) // Clean up when done
 
-	// Create Prometheus collector
-	collector := prommetrics.NewCollector()
-
 	// Create base cache
-	baseCache := diskcache.New(tmpDir)
+	cache := diskcache.New(tmpDir)
 
-	// Wrap cache with instrumentation
-	instrumentedCache := prommetrics.NewInstrumentedCache(
-		baseCache,
-		"disk", // backend name for metrics labels
-		collector,
-	)
+	// Create internal metrics
+	metrics := httpcache.NewTransportMetrics()
 
-	// Create transport with instrumented cache
-	transport := httpcache.NewTransport(instrumentedCache)
+	// Create transport with metrics enabled
+	transport := httpcache.NewTransport(cache, httpcache.WithMetrics(metrics))
 
-	// Wrap transport with instrumentation
-	instrumentedTransport := prommetrics.NewInstrumentedTransport(transport, collector)
+	// Create Prometheus collector that exports the internal metrics
+	collector := prommetrics.NewCollector(prommetrics.CollectorConfig{
+		Metrics: metrics,
+	})
+
+	// Start periodic metric updates
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	stop := collector.Start(ctx)
+	defer stop()
 
 	// Create HTTP client
-	client := instrumentedTransport.Client()
+	client := &http.Client{Transport: transport}
 
 	// Start metrics server in background
 	fmt.Println("Starting metrics server on http://localhost:9090/metrics")
@@ -126,18 +128,19 @@ func main() {
 	fmt.Println("\nExample PromQL queries:")
 	fmt.Println("=======================")
 	fmt.Println("1. Cache hit rate:")
-	fmt.Println("   rate(httpcache_cache_requests_total{result=\"hit\"}[5m]) /")
-	fmt.Println("   rate(httpcache_cache_requests_total{operation=\"get\"}[5m]) * 100")
+	fmt.Println("   httpcache_cache_hit_rate")
 	fmt.Println()
-	fmt.Println("2. P95 cache latency:")
-	fmt.Println("   histogram_quantile(0.95,")
-	fmt.Println("     rate(httpcache_cache_operation_duration_seconds_bucket[5m]))")
+	fmt.Println("2. Total requests:")
+	fmt.Println("   httpcache_total_requests")
 	fmt.Println()
-	fmt.Println("3. HTTP requests by cache status:")
-	fmt.Println("   sum by (cache_status) (httpcache_http_requests_total)")
+	fmt.Println("3. Cache hits over time:")
+	fmt.Println("   rate(httpcache_cache_hits_total[5m])")
 	fmt.Println()
-	fmt.Println("4. Total bandwidth saved:")
-	fmt.Println("   httpcache_http_response_size_bytes_total{cache_status=\"hit\"}")
+	fmt.Println("4. Stale responses served:")
+	fmt.Println("   httpcache_stale_served_total")
+	fmt.Println()
+	fmt.Println("5. Deduplication effectiveness:")
+	fmt.Println("   httpcache_deduplication_total")
 
 	fmt.Println("\n\nPress Ctrl+C to exit (server will keep running)")
 

@@ -2,326 +2,322 @@ package prometheus
 
 import (
 	"context"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/prometheus/client_golang/prometheus/testutil"
+	"github.com/sandrolain/httpcache"
+	"github.com/sandrolain/httpcache/diskcache"
 )
 
-// mockCache is a simple in-memory cache for testing
-type mockCache struct {
-	mu     sync.RWMutex
-	data   map[string][]byte
-	stales map[string]bool
-}
+func TestCollector_BasicMetrics(t *testing.T) {
+	// Create a new registry for isolation
+	reg := prometheus.NewRegistry()
 
-func newMockCache() *mockCache {
-	return &mockCache{
-		data:   make(map[string][]byte),
-		stales: make(map[string]bool),
-	}
-}
+	// Create internal metrics
+	metrics := httpcache.NewTransportMetrics()
 
-func (m *mockCache) Get(_ context.Context, key string) ([]byte, bool, error) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	val, ok := m.data[key]
-	return val, ok, nil
-}
+	// Simulate some activity
+	metrics.CacheHits.Add(10)
+	metrics.CacheMisses.Add(5)
+	metrics.CacheErrors.Add(2)
+	metrics.StaleServed.Add(1)
+	metrics.Deduplication.Add(3)
+	metrics.CachedBytes.Add(1024)
 
-func (m *mockCache) Set(_ context.Context, key string, value []byte) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.data[key] = value
-	delete(m.stales, key)
-	return nil
-}
-
-func (m *mockCache) Delete(_ context.Context, key string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	delete(m.data, key)
-	delete(m.stales, key)
-	return nil
-}
-
-func (m *mockCache) MarkStale(_ context.Context, key string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if _, exists := m.data[key]; exists {
-		m.stales[key] = true
-	}
-	return nil
-}
-
-func (m *mockCache) IsStale(_ context.Context, key string) (bool, error) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.stales[key], nil
-}
-
-func (m *mockCache) GetStale(_ context.Context, key string) ([]byte, bool, error) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	if !m.stales[key] {
-		return nil, false, nil
-	}
-	val, ok := m.data[key]
-	return val, ok, nil
-}
-
-func TestPrometheusCollector(t *testing.T) {
-	// Create collector with custom registry for testing
-	registry := prometheus.NewRegistry()
-	collector := NewCollectorWithRegistry(registry)
-
-	// Test cache operation recording
-	collector.RecordCacheOperation("get", "memory", "hit", 1*time.Millisecond)
-	collector.RecordCacheOperation("get", "memory", "miss", 2*time.Millisecond)
-	collector.RecordCacheOperation("set", "memory", "success", 500*time.Microsecond)
-
-	// Verify counter metrics
-	expected := `
-		# HELP httpcache_cache_requests_total Total number of cache operations
-		# TYPE httpcache_cache_requests_total counter
-		httpcache_cache_requests_total{cache_backend="memory",operation="get",result="hit"} 1
-		httpcache_cache_requests_total{cache_backend="memory",operation="get",result="miss"} 1
-		httpcache_cache_requests_total{cache_backend="memory",operation="set",result="success"} 1
-	`
-
-	if err := testutil.CollectAndCompare(collector.cacheRequests, strings.NewReader(expected)); err != nil {
-		t.Errorf("unexpected metrics: %v", err)
-	}
-
-	// Verify histogram recorded operations
-	count := testutil.CollectAndCount(collector.cacheOpDuration)
-	// 2 distinct combinations: (get,memory) and (set,memory)
-	if count < 2 {
-		t.Errorf("expected at least 2 histogram series, got %d", count)
-	}
-}
-
-func TestPrometheusCollectorWithConfig(t *testing.T) {
-	registry := prometheus.NewRegistry()
-
-	collector := NewCollectorWithConfig(CollectorConfig{
-		Registry:  registry,
-		Namespace: "custom",
-		Subsystem: "test",
-		ConstLabels: prometheus.Labels{
-			"service": "test-service",
-			"region":  "us-west",
-		},
+	// Create Prometheus collector
+	collector := NewCollector(CollectorConfig{
+		Metrics:  metrics,
+		Registry: reg,
 	})
 
-	collector.RecordCacheOperation("get", "redis", "hit", 1*time.Millisecond)
+	// Verify metrics are exported
+	expectedMetrics := `
+# HELP httpcache_cache_errors_total Total number of cache operation errors
+# TYPE httpcache_cache_errors_total gauge
+httpcache_cache_errors_total 2
+# HELP httpcache_cache_hit_rate Cache hit rate (0-1)
+# TYPE httpcache_cache_hit_rate gauge
+httpcache_cache_hit_rate 0.6666666666666666
+# HELP httpcache_cache_hits_total Total number of cache hits
+# TYPE httpcache_cache_hits_total gauge
+httpcache_cache_hits_total 10
+# HELP httpcache_cache_misses_total Total number of cache misses
+# TYPE httpcache_cache_misses_total gauge
+httpcache_cache_misses_total 5
+# HELP httpcache_cached_bytes Approximate number of bytes currently cached
+# TYPE httpcache_cached_bytes gauge
+httpcache_cached_bytes 1024
+# HELP httpcache_deduplication_total Total number of requests deduplicated via singleflight
+# TYPE httpcache_deduplication_total gauge
+httpcache_deduplication_total 3
+# HELP httpcache_stale_served_total Total number of stale responses served
+# TYPE httpcache_stale_served_total gauge
+httpcache_stale_served_total 1
+# HELP httpcache_total_requests Total number of cache requests (hits + misses)
+# TYPE httpcache_total_requests gauge
+httpcache_total_requests 15
+`
 
-	// Verify custom namespace and const labels
-	metrics, err := registry.Gather()
+	if err := testutil.GatherAndCompare(reg, strings.NewReader(expectedMetrics)); err != nil {
+		t.Errorf("Metrics mismatch: %v", err)
+	}
+
+	// Test Update method
+	metrics.CacheHits.Add(5)
+	collector.Update()
+
+	if count := testutil.CollectAndCount(reg, "httpcache_cache_hits_total"); count != 1 {
+		t.Errorf("Expected 1 httpcache_cache_hits_total metric, got %d", count)
+	}
+}
+
+func TestCollector_AutoUpdate(t *testing.T) {
+	reg := prometheus.NewRegistry()
+	metrics := httpcache.NewTransportMetrics()
+
+	collector := NewCollector(CollectorConfig{
+		Metrics:        metrics,
+		Registry:       reg,
+		UpdateInterval: 100 * time.Millisecond,
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	stop := collector.Start(ctx)
+	defer stop()
+
+	// Add metrics after start
+	metrics.CacheHits.Add(5)
+
+	// Wait for update
+	time.Sleep(150 * time.Millisecond)
+
+	// Check if metrics were updated
+	metricFamilies, err := reg.Gather()
 	if err != nil {
-		t.Fatalf("failed to gather metrics: %v", err)
+		t.Fatalf("Failed to gather metrics: %v", err)
 	}
 
 	found := false
-	for _, m := range metrics {
-		if *m.Name == "custom_test_cache_requests_total" {
+	for _, mf := range metricFamilies {
+		if mf.GetName() == "httpcache_cache_hits_total" {
 			found = true
-			// Verify const labels are present
-			for _, metric := range m.Metric {
-				labels := make(map[string]string)
-				for _, label := range metric.Label {
-					labels[*label.Name] = *label.Value
-				}
-				if labels["service"] != "test-service" || labels["region"] != "us-west" {
-					t.Errorf("const labels not found or incorrect: %v", labels)
+			if len(mf.GetMetric()) > 0 {
+				value := mf.GetMetric()[0].GetGauge().GetValue()
+				if value != 5 {
+					t.Errorf("Expected cache_hits_total = 5, got %v", value)
 				}
 			}
 		}
 	}
 
 	if !found {
-		t.Error("custom metric name not found")
+		t.Error("httpcache_cache_hits_total metric not found")
 	}
 }
 
-func TestInstrumentedCache(t *testing.T) {
-	ctx := context.Background()
-	registry := prometheus.NewRegistry()
-	collector := NewCollectorWithRegistry(registry)
+func TestCollector_Integration(t *testing.T) {
+	tmpDir := t.TempDir()
+	cache := diskcache.New(tmpDir)
 
-	baseCache := newMockCache()
-	cache := NewInstrumentedCache(baseCache, "memory", collector)
+	// Create internal metrics
+	metrics := httpcache.NewTransportMetrics()
 
-	// Test Set operation
-	if err := cache.Set(ctx, "key1", []byte("value1")); err != nil {
-		t.Fatalf("Set failed: %v", err)
-	}
+	// Create transport with metrics
+	transport := httpcache.NewTransport(cache, httpcache.WithMetrics(metrics))
 
-	// Test Get operation (hit)
-	value, ok, err := cache.Get(ctx, "key1")
+	// Create test server
+	requestCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestCount++
+		w.Header().Set("Cache-Control", "max-age=3600")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("test response"))
+	}))
+	defer server.Close()
+
+	client := &http.Client{Transport: transport}
+
+	// Make first request (cache miss)
+	resp, err := client.Get(server.URL)
 	if err != nil {
-		t.Fatalf("Get failed: %v", err)
+		t.Fatalf("First request failed: %v", err)
 	}
-	if !ok || string(value) != "value1" {
-		t.Errorf("cache Get failed: ok=%v, value=%s", ok, string(value))
-	}
+	_, _ = io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
 
-	// Test Get operation (miss)
-	_, ok, err = cache.Get(ctx, "nonexistent")
+	// Make second request (cache hit)
+	resp2, err := client.Get(server.URL)
 	if err != nil {
-		t.Fatalf("Get failed: %v", err)
+		t.Fatalf("Second request failed: %v", err)
 	}
-	if ok {
-		t.Error("expected cache miss for nonexistent key")
+	_, _ = io.ReadAll(resp2.Body)
+	_ = resp2.Body.Close()
+
+	// Verify backend was called only once
+	if requestCount != 1 {
+		t.Errorf("Expected 1 backend request, got %d", requestCount)
 	}
 
-	// Test Delete operation
-	if err := cache.Delete(ctx, "key1"); err != nil {
-		t.Fatalf("Delete failed: %v", err)
-	}
+	// Create Prometheus collector and verify metrics
+	reg := prometheus.NewRegistry()
+	collector := NewCollector(CollectorConfig{
+		Metrics:  metrics,
+		Registry: reg,
+	})
+	collector.Update()
 
-	// Verify metrics were recorded
-	expected := `
-		# HELP httpcache_cache_requests_total Total number of cache operations
-		# TYPE httpcache_cache_requests_total counter
-		httpcache_cache_requests_total{cache_backend="memory",operation="delete",result="success"} 1
-		httpcache_cache_requests_total{cache_backend="memory",operation="get",result="hit"} 1
-		httpcache_cache_requests_total{cache_backend="memory",operation="get",result="miss"} 1
-		httpcache_cache_requests_total{cache_backend="memory",operation="set",result="success"} 1
-	`
-
-	if err := testutil.CollectAndCompare(collector.cacheRequests, strings.NewReader(expected)); err != nil {
-		t.Errorf("unexpected metrics: %v", err)
-	}
-}
-
-func TestInstrumentedCacheWithNilCollector(t *testing.T) {
-	ctx := context.Background()
-	baseCache := newMockCache()
-
-	// Should use NoOpCollector when nil is passed
-	cache := NewInstrumentedCache(baseCache, "memory", nil)
-
-	// Should not panic and should work normally
-	if err := cache.Set(ctx, "key1", []byte("value1")); err != nil {
-		t.Fatalf("Set failed: %v", err)
-	}
-	value, ok, err := cache.Get(ctx, "key1")
+	// Verify cache hit and miss counters
+	metricFamilies, err := reg.Gather()
 	if err != nil {
-		t.Fatalf("Get failed: %v", err)
+		t.Fatalf("Failed to gather metrics: %v", err)
 	}
-	if !ok || string(value) != "value1" {
-		t.Errorf("cache operations failed with nil collector")
+
+	metricsMap := make(map[string]float64)
+	for _, mf := range metricFamilies {
+		if len(mf.GetMetric()) > 0 {
+			metricsMap[mf.GetName()] = mf.GetMetric()[0].GetGauge().GetValue()
+		}
 	}
-	if err := cache.Delete(ctx, "key1"); err != nil {
-		t.Fatalf("Delete failed: %v", err)
+
+	if hits := metricsMap["httpcache_cache_hits_total"]; hits != 1 {
+		t.Errorf("Expected cache_hits_total = 1, got %v", hits)
 	}
-}
-
-func TestRecordCacheSize(t *testing.T) {
-	registry := prometheus.NewRegistry()
-	collector := NewCollectorWithRegistry(registry)
-
-	collector.RecordCacheSize("memory", 1024000)
-	collector.RecordCacheSize("redis", 2048000)
-
-	// Verify gauge metrics
-	expected := `
-		# HELP httpcache_cache_size_bytes Current size of cache in bytes
-		# TYPE httpcache_cache_size_bytes gauge
-		httpcache_cache_size_bytes{cache_backend="memory"} 1.024e+06
-		httpcache_cache_size_bytes{cache_backend="redis"} 2.048e+06
-	`
-
-	if err := testutil.CollectAndCompare(collector.cacheSize, strings.NewReader(expected)); err != nil {
-		t.Errorf("unexpected metrics: %v", err)
+	if misses := metricsMap["httpcache_cache_misses_total"]; misses != 1 {
+		t.Errorf("Expected cache_misses_total = 1, got %v", misses)
+	}
+	if hitRate := metricsMap["httpcache_cache_hit_rate"]; hitRate != 0.5 {
+		t.Errorf("Expected cache_hit_rate = 0.5, got %v", hitRate)
 	}
 }
 
-func TestRecordCacheEntries(t *testing.T) {
-	registry := prometheus.NewRegistry()
-	collector := NewCollectorWithRegistry(registry)
+func TestCollector_HTTPEndpoint(t *testing.T) {
+	reg := prometheus.NewRegistry()
+	metrics := httpcache.NewTransportMetrics()
 
-	collector.RecordCacheEntries("memory", 150)
-	collector.RecordCacheEntries("redis", 300)
+	// Populate some metrics
+	metrics.CacheHits.Add(100)
+	metrics.CacheMisses.Add(50)
 
-	// Verify gauge metrics
-	expected := `
-		# HELP httpcache_cache_entries_total Current number of entries in cache
-		# TYPE httpcache_cache_entries_total gauge
-		httpcache_cache_entries_total{cache_backend="memory"} 150
-		httpcache_cache_entries_total{cache_backend="redis"} 300
-	`
+	NewCollector(CollectorConfig{
+		Metrics:  metrics,
+		Registry: reg,
+	})
 
-	if err := testutil.CollectAndCompare(collector.cacheEntries, strings.NewReader(expected)); err != nil {
-		t.Errorf("unexpected metrics: %v", err)
+	// Create HTTP handler for metrics endpoint
+	handler := promhttp.HandlerFor(reg, promhttp.HandlerOpts{})
+
+	// Test metrics endpoint
+	req := httptest.NewRequest("GET", "/metrics", nil)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	resp := w.Result()
+	body, _ := io.ReadAll(resp.Body)
+
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("Expected status 200, got %d", resp.StatusCode)
+	}
+
+	bodyStr := string(body)
+	if !strings.Contains(bodyStr, "httpcache_cache_hits_total") {
+		t.Error("Metrics endpoint doesn't contain cache_hits_total")
+	}
+	if !strings.Contains(bodyStr, "httpcache_cache_misses_total") {
+		t.Error("Metrics endpoint doesn't contain cache_misses_total")
 	}
 }
 
-func TestRecordHTTPRequest(t *testing.T) {
-	registry := prometheus.NewRegistry()
-	collector := NewCollectorWithRegistry(registry)
+func TestCollector_CustomNamespace(t *testing.T) {
+	reg := prometheus.NewRegistry()
+	metrics := httpcache.NewTransportMetrics()
+	metrics.CacheHits.Add(5)
 
-	collector.RecordHTTPRequest("GET", "hit", 200, 50*time.Millisecond)
-	collector.RecordHTTPRequest("GET", "miss", 200, 200*time.Millisecond)
-	collector.RecordHTTPRequest("POST", "bypass", 201, 100*time.Millisecond)
+	NewCollector(CollectorConfig{
+		Metrics:   metrics,
+		Registry:  reg,
+		Namespace: "myapp",
+		Subsystem: "cache",
+	})
 
-	// Verify counter metrics
-	expected := `
-		# HELP httpcache_http_requests_total Total number of HTTP requests
-		# TYPE httpcache_http_requests_total counter
-		httpcache_http_requests_total{cache_status="bypass",method="POST",status_code="201"} 1
-		httpcache_http_requests_total{cache_status="hit",method="GET",status_code="200"} 1
-		httpcache_http_requests_total{cache_status="miss",method="GET",status_code="200"} 1
-	`
+	// Verify custom namespace is used
+	metricFamilies, err := reg.Gather()
+	if err != nil {
+		t.Fatalf("Failed to gather metrics: %v", err)
+	}
 
-	if err := testutil.CollectAndCompare(collector.httpRequests, strings.NewReader(expected)); err != nil {
-		t.Errorf("unexpected metrics: %v", err)
+	found := false
+	for _, mf := range metricFamilies {
+		if mf.GetName() == "myapp_cache_cache_hits_total" {
+			found = true
+		}
+	}
+
+	if !found {
+		t.Error("Expected metric with custom namespace 'myapp_cache_cache_hits_total' not found")
 	}
 }
 
-func TestRecordHTTPResponseSize(t *testing.T) {
-	registry := prometheus.NewRegistry()
-	collector := NewCollectorWithRegistry(registry)
+func TestCollector_ContextCancellation(t *testing.T) {
+	reg := prometheus.NewRegistry()
+	metrics := httpcache.NewTransportMetrics()
 
-	collector.RecordHTTPResponseSize("hit", 1024)
-	collector.RecordHTTPResponseSize("hit", 2048)
-	collector.RecordHTTPResponseSize("miss", 4096)
+	collector := NewCollector(CollectorConfig{
+		Metrics:        metrics,
+		Registry:       reg,
+		UpdateInterval: 50 * time.Millisecond,
+	})
 
-	// Verify counter metrics (should accumulate)
-	expected := `
-		# HELP httpcache_http_response_size_bytes_total Total size of HTTP responses in bytes
-		# TYPE httpcache_http_response_size_bytes_total counter
-		httpcache_http_response_size_bytes_total{cache_status="hit"} 3072
-		httpcache_http_response_size_bytes_total{cache_status="miss"} 4096
-	`
+	ctx, cancel := context.WithCancel(context.Background())
 
-	if err := testutil.CollectAndCompare(collector.httpResponseSize, strings.NewReader(expected)); err != nil {
-		t.Errorf("unexpected metrics: %v", err)
+	stop := collector.Start(ctx)
+
+	// Wait a bit for the goroutine to start
+	time.Sleep(10 * time.Millisecond)
+
+	// Cancel context
+	cancel()
+
+	// Wait for goroutine to stop
+	time.Sleep(100 * time.Millisecond)
+
+	// Verify we can still call stop without panic
+	stop()
+}
+
+func TestNewCollectorWithRegistry(t *testing.T) {
+	reg := prometheus.NewRegistry()
+	metrics := httpcache.NewTransportMetrics()
+	metrics.CacheHits.Add(1)
+
+	collector := NewCollectorWithRegistry(reg, metrics)
+
+	if collector == nil {
+		t.Fatal("Expected non-nil collector")
+	}
+
+	// Verify metrics are registered
+	if count := testutil.CollectAndCount(reg, "httpcache_cache_hits_total"); count != 1 {
+		t.Errorf("Expected 1 metric, got %d", count)
 	}
 }
 
-func TestRecordStaleResponse(t *testing.T) {
-	registry := prometheus.NewRegistry()
-	collector := NewCollectorWithRegistry(registry)
+func TestCollector_PanicOnNilMetrics(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("Expected panic when Metrics is nil")
+		}
+	}()
 
-	collector.RecordStaleResponse("network")
-	collector.RecordStaleResponse("server_error")
-	collector.RecordStaleResponse("timeout")
-
-	// Verify counter metrics
-	expected := `
-		# HELP httpcache_stale_responses_served_total Total number of stale responses served on error
-		# TYPE httpcache_stale_responses_served_total counter
-		httpcache_stale_responses_served_total{error_type="network"} 1
-		httpcache_stale_responses_served_total{error_type="server_error"} 1
-		httpcache_stale_responses_served_total{error_type="timeout"} 1
-	`
-
-	if err := testutil.CollectAndCompare(collector.staleResponses, strings.NewReader(expected)); err != nil {
-		t.Errorf("unexpected metrics: %v", err)
-	}
+	NewCollector(CollectorConfig{
+		Metrics: nil,
+	})
 }
