@@ -317,3 +317,28 @@ func WithClock(clock timer) TransportOption {
 		return nil
 	}
 }
+
+// WithMetrics enables metrics collection for cache operations.
+// Pass nil to disable metrics (default), or pass a *TransportMetrics instance
+// to enable collection. You can use NewTransportMetrics() to create a new instance,
+// or reuse an existing instance across multiple Transports.
+//
+// Example - enable metrics:
+//
+//	metrics := httpcache.NewTransportMetrics()
+//	transport := httpcache.NewTransport(cache, httpcache.WithMetrics(metrics))
+//	// ... use transport ...
+//	fmt.Printf("Hit rate: %.2f%%\n", metrics.HitRate() * 100)
+//	fmt.Printf("Total requests: %d\n", metrics.TotalRequests())
+//
+// Example - share metrics across multiple transports:
+//
+//	metrics := httpcache.NewTransportMetrics()
+//	transport1 := httpcache.NewTransport(cache1, httpcache.WithMetrics(metrics))
+//	transport2 := httpcache.NewTransport(cache2, httpcache.WithMetrics(metrics))
+func WithMetrics(metrics *TransportMetrics) TransportOption {
+	return func(t *Transport) error {
+		t.Metrics = metrics
+		return nil
+	}
+}

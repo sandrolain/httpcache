@@ -256,6 +256,11 @@ type Transport struct {
 	// Defaults to realClock (time.Since) but can be set to a custom implementation for testing.
 	// Configure via WithClock option.
 	clock timer
+
+	// Metrics collects statistics about cache operations.
+	// If nil, metrics collection is disabled.
+	// Configure via WithMetrics option or set directly.
+	Metrics *TransportMetrics
 }
 
 // NewTransport returns a new Transport with the
@@ -287,8 +292,27 @@ func (t *Transport) Client() *http.Client {
 
 // cacheGet retrieves data from the cache, applying key hashing and optional decryption.
 func (t *Transport) cacheGet(ctx context.Context, key string) ([]byte, bool, error) {
+	var start time.Time
+	if t.Metrics != nil {
+		start = time.Now()
+	}
+
 	hashedKey := hashKeyWithAlgorithm(key, t.HashAlgorithm)
 	data, ok, err := t.Cache.Get(ctx, hashedKey)
+
+	// Record metrics
+	if t.Metrics != nil {
+		t.Metrics.recordLatency(time.Since(start))
+		if err != nil {
+			t.Metrics.CacheErrors.Add(1)
+		} else if ok {
+			t.Metrics.CacheHits.Add(1)
+			t.Metrics.CachedBytes.Add(int64(len(data)))
+		} else {
+			t.Metrics.CacheMisses.Add(1)
+		}
+	}
+
 	if err != nil {
 		return nil, false, err
 	}
@@ -312,6 +336,11 @@ func (t *Transport) cacheGet(ctx context.Context, key string) ([]byte, bool, err
 
 // cacheSet stores data in the cache, applying key hashing and optional encryption.
 func (t *Transport) cacheSet(ctx context.Context, key string, data []byte) error {
+	var start time.Time
+	if t.Metrics != nil {
+		start = time.Now()
+	}
+
 	hashedKey := hashKeyWithAlgorithm(key, t.HashAlgorithm)
 
 	// Encrypt if encryption is enabled
@@ -328,7 +357,17 @@ func (t *Transport) cacheSet(ctx context.Context, key string, data []byte) error
 		toStore = data
 	}
 
-	return t.Cache.Set(ctx, hashedKey, toStore)
+	err := t.Cache.Set(ctx, hashedKey, toStore)
+
+	// Record metrics
+	if t.Metrics != nil {
+		t.Metrics.recordLatency(time.Since(start))
+		if err != nil {
+			t.Metrics.CacheErrors.Add(1)
+		}
+	}
+
+	return err
 }
 
 // cacheDelete removes data from the cache, applying key hashing.
@@ -676,6 +715,12 @@ func (t *Transport) handleCachedNotModified(cachedResp *http.Response, notModifi
 
 func (t *Transport) serveStaleCachedResponseOnError(cachedResp *http.Response, originResp *http.Response, req *http.Request) *http.Response {
 	t.log().Info("returning stale cached response due to error", "url", req.URL.String())
+
+	// Track stale served metrics
+	if t.Metrics != nil {
+		t.Metrics.StaleServed.Add(1)
+	}
+
 	if originResp != nil {
 		if drainErr := drainDiscardedBody(originResp.Body); drainErr != nil {
 			t.log().Warn("error draining stale response body", "error", drainErr)
@@ -779,6 +824,12 @@ func (t *Transport) performCacheableRequestOnce(transport http.RoundTripper, req
 
 	// Subsequent goroutines: return a reusable clone
 	t.log().Debug("request deduplicated via singleflight", "url", req.URL.String())
+
+	// Track deduplication metrics
+	if t.Metrics != nil {
+		t.Metrics.Deduplication.Add(1)
+	}
+
 	return resp.GetReusableResponse(), nil
 }
 
