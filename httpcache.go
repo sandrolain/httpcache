@@ -17,6 +17,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httputil"
+	"runtime/debug"
 	"time"
 
 	"golang.org/x/sync/singleflight"
@@ -449,6 +450,16 @@ func (t *Transport) asyncRevalidate(req *http.Request) {
 	noCacheRequest.Header.Set("cache-control", cacheControlNoCache)
 
 	go func() {
+		// Panic recovery to prevent crashes in background goroutine
+		defer func() {
+			if r := recover(); r != nil {
+				t.log().Error("panic in async revalidation",
+					"url", req.URL.String(),
+					"panic", r,
+					"stack", string(debug.Stack()))
+			}
+		}()
+
 		if cancelContext != nil {
 			defer cancelContext()
 		}
