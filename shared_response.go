@@ -19,6 +19,7 @@ type readerResult struct {
 type shareableResponse struct {
 	resp           *http.Response
 	readBodyResult func() readerResult // sync.OnceValue to read body only once
+	mu             sync.RWMutex        // Protects concurrent access to resp.Header during cloning
 }
 
 // shareHttpResponse creates a shareableResponse from an http.Response.
@@ -52,7 +53,12 @@ func (r *shareableResponse) GetUnsharedResponse() *http.Response {
 // GetReusableResponse returns a clone of the original response with a new body that can be read independently.
 // This is used for goroutines that receive a shared response from singleflight.
 // Each clone gets its own lazy reader that reads from the buffered content.
+// Thread-safe: uses RWMutex to protect concurrent access to the original response headers.
 func (r *shareableResponse) GetReusableResponse() *http.Response {
+	// Lock for reading to prevent concurrent modifications during header copy
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
 	// Create a shallow copy of the response
 	clone := new(http.Response)
 	*clone = *r.resp
