@@ -82,6 +82,18 @@
 - ✅ **Request Deduplication** - Coalesce concurrent requests to the same resource (optional `EnableDeduplication` flag)
 - ✅ **Memory Protection** - Configurable max cacheable response size (default: 10MB) prevents memory exhaustion from large responses
 
+## Thread-Safety
+
+**The httpcache package is fully thread-safe** and designed for concurrent use across multiple goroutines. All core operations (`Transport.RoundTrip()`, `Transport.Client()`, metrics) are safe for concurrent access.
+
+**Key Points:**
+
+- ✅ Safe to use from multiple goroutines simultaneously
+- ✅ All cache backends are thread-safe
+- ⚠️ Configure `Transport` fields **before** use (use `WithXxx()` options)
+
+For detailed information including usage examples, best practices, and troubleshooting, see the **[Thread-Safety Guide](./docs/thread-safety.md)**.
+
 ## Quick Start
 
 ```go
