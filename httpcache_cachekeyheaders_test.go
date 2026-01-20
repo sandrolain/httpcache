@@ -378,7 +378,7 @@ func TestCacheKeyFormat(t *testing.T) {
 				"Authorization": "Bearer token1",
 			},
 			cacheKeyHeaders: []string{"Authorization"},
-			expectedKey:     "http://example.com/test|Authorization:Bearer token1",
+			expectedKey:     "http://example.com/test|Authorization:Bearer+token1",
 		},
 		{
 			name:   "GET with multiple cache key headers",
@@ -389,7 +389,7 @@ func TestCacheKeyFormat(t *testing.T) {
 				"Accept-Language": "en",
 			},
 			cacheKeyHeaders: []string{"Authorization", "Accept-Language"},
-			expectedKey:     "http://example.com/test|Accept-Language:en|Authorization:Bearer token1",
+			expectedKey:     "http://example.com/test|Accept-Language:en|Authorization:Bearer+token1",
 		},
 		{
 			name:            "POST without cache key headers",
@@ -406,7 +406,7 @@ func TestCacheKeyFormat(t *testing.T) {
 				"Authorization": "Bearer token1",
 			},
 			cacheKeyHeaders: []string{"Authorization"},
-			expectedKey:     "POST http://example.com/test|Authorization:Bearer token1",
+			expectedKey:     "POST http://example.com/test|Authorization:Bearer+token1",
 		},
 		{
 			name:   "GET with cache key header but header not present in request",

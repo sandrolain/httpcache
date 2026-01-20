@@ -4,6 +4,7 @@ package httpcache
 
 import (
 	"net/http"
+	"net/url"
 	"sort"
 	"strings"
 )
@@ -20,6 +21,7 @@ func cacheKey(req *http.Request) string {
 // cacheKeyWithHeaders returns the cache key for req, including specified header values.
 // This is used when CacheKeyHeaders is configured to differentiate cache entries
 // based on request header values.
+// Header values are URL-encoded to prevent collision when values contain the pipe separator.
 func cacheKeyWithHeaders(req *http.Request, headers []string) string {
 	key := cacheKey(req)
 
@@ -30,7 +32,9 @@ func cacheKeyWithHeaders(req *http.Request, headers []string) string {
 			canonicalHeader := http.CanonicalHeaderKey(header)
 			value := req.Header.Get(canonicalHeader)
 			if value != "" {
-				headerParts = append(headerParts, canonicalHeader+":"+value)
+				// URL-encode the value to prevent collisions when values contain pipe separator
+				encodedValue := url.QueryEscape(value)
+				headerParts = append(headerParts, canonicalHeader+":"+encodedValue)
 			}
 		}
 		if len(headerParts) > 0 {
