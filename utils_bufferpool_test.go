@@ -53,15 +53,15 @@ func TestBufferPoolLargeBufferNotPooled(t *testing.T) {
 	// Create a buffer and grow it beyond the pool threshold
 	buf := getBuffer()
 
-	// Write data to make it larger than maxPooledBufferSize
-	largeData := make([]byte, maxPooledBufferSize+1024)
+	// Write data to make it larger than defaultMaxPooledBufferSize
+	largeData := make([]byte, defaultMaxPooledBufferSize+1024)
 	for i := range largeData {
 		largeData[i] = byte(i % 256)
 	}
 	buf.Write(largeData)
 
-	if buf.Cap() <= maxPooledBufferSize {
-		t.Fatalf("buffer capacity %d should be larger than maxPooledBufferSize %d", buf.Cap(), maxPooledBufferSize)
+	if buf.Cap() <= int(defaultMaxPooledBufferSize) {
+		t.Fatalf("buffer capacity %d should be larger than defaultMaxPooledBufferSize %d", buf.Cap(), defaultMaxPooledBufferSize)
 	}
 
 	// Return to pool (should not actually be pooled due to size)
@@ -69,7 +69,7 @@ func TestBufferPoolLargeBufferNotPooled(t *testing.T) {
 
 	// Get a new buffer - should be a fresh small one, not the large one
 	buf2 := getBuffer()
-	if buf2.Cap() > maxPooledBufferSize {
+	if buf2.Cap() > int(defaultMaxPooledBufferSize) {
 		t.Errorf("expected small buffer from pool, got capacity %d", buf2.Cap())
 	}
 
@@ -161,10 +161,10 @@ func TestGetBufferReturnsSameUnderlyingBuffer(t *testing.T) {
 // TestBufferPoolMultipleSizes tests that the pool handles various buffer sizes
 func TestBufferPoolMultipleSizes(t *testing.T) {
 	sizes := []int{
-		10,                         // Small
-		1024,                       // 1KB
-		32 * 1024,                  // 32KB
-		maxPooledBufferSize - 1024, // Just under limit
+		10,                                     // Small
+		1024,                                   // 1KB
+		32 * 1024,                              // 32KB
+		int(defaultMaxPooledBufferSize) - 1024, // Just under limit
 	}
 
 	for _, size := range sizes {

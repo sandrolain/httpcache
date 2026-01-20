@@ -29,6 +29,7 @@
   - [Use Cases](#use-cases)
   - [Table of Contents](#table-of-contents)
   - [Features](#features)
+  - [Thread-Safety](#thread-safety)
   - [Quick Start](#quick-start)
     - [With Encryption (Optional)](#with-encryption-optional)
     - [Transport Options](#transport-options)
@@ -81,6 +82,7 @@
 - ✅ **Configurable Cache Mode** - Use as private cache (default) or shared/public cache
 - ✅ **Request Deduplication** - Coalesce concurrent requests to the same resource (optional `EnableDeduplication` flag)
 - ✅ **Memory Protection** - Configurable max cacheable response size (default: 10MB) prevents memory exhaustion from large responses
+- ✅ **Buffer Pool Configuration** - Configurable buffer pool size (default: 64KB) for optimal memory/performance trade-off
 
 ## Thread-Safety
 
@@ -171,6 +173,7 @@ transport := httpcache.NewTransport(cache,
     httpcache.WithVarySeparation(true),                    // RFC 9111 Vary handling
     httpcache.WithCacheKeyHeaders([]string{"Accept-Language"}), // Include headers in key
     httpcache.WithMaxCacheableResponseSize(5*1024*1024),   // Limit cacheable size to 5MB (default: 10MB)
+    httpcache.WithMaxPooledBufferSize(128*1024),           // Buffer pool size 128KB (default: 64KB)
     httpcache.WithCacheOperationTimeout(60*time.Second),   // Cache write timeout (default: 30s)
     httpcache.WithHashAlgorithm(httpcache.HashAlgorithmXXHash), // Use xxHash for 2.7x faster hashing (default: SHA256)
     httpcache.WithMetrics(metrics),                        // Enable metrics collection (optional)

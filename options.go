@@ -122,6 +122,33 @@ func WithHashAlgorithm(algo HashAlgorithm) TransportOption {
 	}
 }
 
+// WithMaxPooledBufferSize sets the maximum buffer size (in bytes) to pool for reuse.
+// Buffers larger than this size will not be returned to the pool to prevent memory bloat.
+// This affects the internal buffer pool used for reading response bodies.
+// Default: 64KB (64 * 1024)
+// Set to a larger value if your application frequently handles large responses that should be pooled.
+// Note: Larger values increase memory pool size - balance between performance and memory usage.
+//
+// Example:
+//
+//	// Pool buffers up to 128KB for applications with larger typical responses
+//	transport := httpcache.NewTransport(
+//	    cache,
+//	    httpcache.WithMaxPooledBufferSize(128 * 1024), // 128KB
+//	)
+func WithMaxPooledBufferSize(size int64) TransportOption {
+	return func(t *Transport) error {
+		if size < 0 {
+			return fmt.Errorf("max pooled buffer size cannot be negative: %d", size)
+		}
+		if size > 0 && size < 1024 {
+			return fmt.Errorf("max pooled buffer size must be at least 1KB or 0 (disable pooling): %d", size)
+		}
+		t.MaxPooledBufferSize = size
+		return nil
+	}
+}
+
 // WithAsyncRevalidateTimeout sets the context timeout for async requests
 // triggered by stale-while-revalidate.
 // If zero, no timeout is applied to async revalidation requests.

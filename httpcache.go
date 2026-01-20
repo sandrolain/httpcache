@@ -236,6 +236,12 @@ type Transport struct {
 	// Alternative: HashAlgorithmXXHash (faster, ~10x, recommended for high-throughput)
 	// WARNING: Changing this after data is cached will invalidate existing cache entries.
 	HashAlgorithm HashAlgorithm
+	// MaxPooledBufferSize specifies the maximum buffer size (in bytes) to pool for reuse.
+	// Buffers larger than this size will not be returned to the pool to prevent memory bloat.
+	// Default: 64KB (64 * 1024)
+	// Set to a larger value if your application frequently handles large responses.
+	// Note: This affects memory usage - larger values increase memory pool size.
+	MaxPooledBufferSize int64
 
 	// logger is the slog.Logger instance used by this Transport.
 	// Configure via WithLogger option. If nil, falls back to the global logger.
@@ -275,6 +281,7 @@ func NewTransport(c Cache, opts ...TransportOption) *Transport {
 		MarkCachedResponses:      true,
 		MaxCacheableResponseSize: 10 * 1024 * 1024, // Default: 10MB
 		CacheOperationTimeout:    30 * time.Second, // Default: 30 seconds
+		MaxPooledBufferSize:      64 * 1024,        // Default: 64KB
 		clock:                    &realClock{},     // Default: real clock
 	}
 	for _, opt := range opts {
@@ -289,6 +296,16 @@ func NewTransport(c Cache, opts ...TransportOption) *Transport {
 // Client returns an *http.Client that caches responses.
 func (t *Transport) Client() *http.Client {
 	return &http.Client{Transport: t}
+}
+
+// putBuffer returns a buffer to the pool for reuse, respecting MaxPooledBufferSize.
+// This is an internal helper method that uses the configured buffer size limit.
+func (t *Transport) putBuffer(buf *bytes.Buffer) {
+	maxSize := t.MaxPooledBufferSize
+	if maxSize == 0 {
+		maxSize = defaultMaxPooledBufferSize
+	}
+	putBufferWithLimit(buf, maxSize)
 }
 
 // cacheGet retrieves data from the cache, applying key hashing and optional decryption.
@@ -407,7 +424,7 @@ func (t *Transport) cachedResponseWithKeySecure(req *http.Request, key string) (
 
 	// Use buffer pool to reduce allocations
 	b := getBuffer()
-	defer putBuffer(b)
+	defer t.putBuffer(b)
 	b.Write(cachedVal)
 	resp, err = http.ReadResponse(bufio.NewReader(b), req)
 	return resp, markedStale, err

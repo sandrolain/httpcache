@@ -21,7 +21,9 @@ var bufferPool = sync.Pool{
 	},
 }
 
-const maxPooledBufferSize = 64 * 1024 // 64KB - maximum buffer size to pool
+// defaultMaxPooledBufferSize is the default maximum buffer size to pool.
+// This can be overridden per-Transport via MaxPooledBufferSize field.
+const defaultMaxPooledBufferSize = 64 * 1024 // 64KB
 
 // getBuffer retrieves a buffer from the pool and resets it for use.
 // The returned buffer is ready to use and must be returned to the pool
@@ -33,12 +35,19 @@ func getBuffer() *bytes.Buffer {
 	return buf
 }
 
-// putBuffer returns a buffer to the pool for reuse.
-// Large buffers (>maxPooledBufferSize) are not pooled to avoid memory bloat.
+// putBuffer returns a buffer to the pool for reuse with the default size limit.
+// Large buffers (>defaultMaxPooledBufferSize) are not pooled to avoid memory bloat.
 // Always call this with defer after getting a buffer to ensure it's returned.
 func putBuffer(buf *bytes.Buffer) {
+	putBufferWithLimit(buf, defaultMaxPooledBufferSize)
+}
+
+// putBufferWithLimit returns a buffer to the pool for reuse with a custom size limit.
+// Large buffers (>maxSize) are not pooled to avoid memory bloat.
+// This is used internally by Transport to respect the MaxPooledBufferSize configuration.
+func putBufferWithLimit(buf *bytes.Buffer, maxSize int64) {
 	// Only pool buffers that are not too large
-	if buf.Cap() <= maxPooledBufferSize {
+	if buf.Cap() <= int(maxSize) {
 		bufferPool.Put(buf)
 	}
 }
