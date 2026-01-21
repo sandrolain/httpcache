@@ -54,7 +54,7 @@ func TestAsyncRevalidatePanicRecovery(t *testing.T) {
 	transport := NewTransport(cache,
 		WithLogger(logger),
 	)
-	transport.Transport = panicTransport
+	transport.SetTransport(panicTransport)
 	transport.AsyncRevalidateTimeout = 2 * time.Second
 
 	// Create a test server to generate the initial cached response
@@ -67,7 +67,7 @@ func TestAsyncRevalidatePanicRecovery(t *testing.T) {
 
 	// First request: cache the response using a working transport
 	workingTransport := http.DefaultTransport
-	transport.Transport = workingTransport
+	transport.SetTransport(workingTransport)
 
 	req1, _ := http.NewRequest("GET", ts.URL, nil)
 	resp1, err := transport.RoundTrip(req1)
@@ -81,7 +81,7 @@ func TestAsyncRevalidatePanicRecovery(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	// Switch to panic transport
-	transport.Transport = panicTransport
+	transport.SetTransport(panicTransport)
 
 	// Wait for response to become stale
 	time.Sleep(1500 * time.Millisecond)
@@ -153,7 +153,7 @@ func TestAsyncRevalidatePanicRecoveryMultipleCalls(t *testing.T) {
 	defer ts.Close()
 
 	// Cache initial response with working transport
-	transport.Transport = http.DefaultTransport
+	transport.SetTransport(http.DefaultTransport)
 	req1, _ := http.NewRequest("GET", ts.URL, nil)
 	resp1, err := transport.RoundTrip(req1)
 	if err != nil {
@@ -165,7 +165,7 @@ func TestAsyncRevalidatePanicRecoveryMultipleCalls(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	// Switch to panic transport
-	transport.Transport = panicTransport
+	transport.SetTransport(panicTransport)
 
 	// Wait for staleness
 	time.Sleep(1500 * time.Millisecond)
@@ -338,7 +338,7 @@ func TestAsyncRevalidateWithErrors(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	// Switch to error transport
-	transport.Transport = &errorRoundTripper{}
+	transport.SetTransport(&errorRoundTripper{})
 
 	// Wait for staleness
 	time.Sleep(1500 * time.Millisecond)

@@ -230,7 +230,7 @@ func WithDisableWarningHeader(disable bool) TransportOption {
 // If nil, http.DefaultTransport is used.
 func WithTransport(rt http.RoundTripper) TransportOption {
 	return func(t *Transport) error {
-		t.Transport = rt
+		t.SetTransport(rt)
 		return nil
 	}
 }

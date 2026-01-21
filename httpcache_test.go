@@ -1376,7 +1376,7 @@ func TestStaleIfErrorRequest(t *testing.T) {
 		err: nil,
 	}
 	tp := newMockCacheTransport()
-	tp.Transport = &tmock
+	tp.SetTransport(&tmock)
 
 	// First time, response is cached on success
 	r, _ := http.NewRequest(methodGET, "http://somewhere.com/", nil)
@@ -1425,7 +1425,7 @@ func TestStaleIfErrorRequestLifetime(t *testing.T) {
 		err: nil,
 	}
 	tp := newMockCacheTransportWithClock(fakeClock)
-	tp.Transport = &tmock
+	tp.SetTransport(&tmock)
 
 	// First time, response is cached on success
 	r, _ := http.NewRequest(methodGET, "http://somewhere.com/", nil)
@@ -1494,7 +1494,7 @@ func TestStaleIfErrorResponse(t *testing.T) {
 		err: nil,
 	}
 	tp := newMockCacheTransport()
-	tp.Transport = &tmock
+	tp.SetTransport(&tmock)
 
 	// First time, response is cached on success
 	r, _ := http.NewRequest(methodGET, "http://somewhere.com/", nil)
@@ -1542,7 +1542,7 @@ func TestStaleIfErrorResponseLifetime(t *testing.T) {
 		err: nil,
 	}
 	tp := newMockCacheTransportWithClock(fakeClock)
-	tp.Transport = &tmock
+	tp.SetTransport(&tmock)
 
 	// First time, response is cached on success
 	r, _ := http.NewRequest(methodGET, "http://somewhere.com/", nil)
@@ -1599,7 +1599,7 @@ func TestStaleIfErrorKeepsStatus(t *testing.T) {
 		err: nil,
 	}
 	tp := newMockCacheTransport()
-	tp.Transport = &tmock
+	tp.SetTransport(&tmock)
 
 	// First time, response is cached on success
 	r, _ := http.NewRequest(methodGET, "http://somewhere.com/", nil)

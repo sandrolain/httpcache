@@ -18,6 +18,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"runtime/debug"
+	"sync"
 	"time"
 
 	"golang.org/x/sync/singleflight"
@@ -157,9 +158,12 @@ func CachedResponse(c Cache, req *http.Request) (resp *http.Response, err error)
 // where possible (avoiding a network request) and will additionally add validators (etag/if-modified-since)
 // to repeated requests allowing servers to return 304 / Not Modified
 type Transport struct {
-	// The RoundTripper interface actually used to make requests
+	// mu protects concurrent access to the transport field
+	mu sync.RWMutex
+	// transport is the RoundTripper interface actually used to make requests
 	// If nil, http.DefaultTransport is used
-	Transport http.RoundTripper
+	// Use GetTransport/SetTransport methods for thread-safe access
+	transport http.RoundTripper
 	Cache     Cache
 	// If true, responses returned from the cache will be given an extra header, X-From-Cache
 	MarkCachedResponses bool
@@ -268,6 +272,34 @@ type Transport struct {
 	// If nil, metrics collection is disabled.
 	// Configure via WithMetrics option or set directly.
 	Metrics *TransportMetrics
+}
+
+// GetTransport returns the underlying RoundTripper in a thread-safe manner.
+// If the Transport has not been set, it returns http.DefaultTransport.
+func (t *Transport) GetTransport() http.RoundTripper {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	if t.transport == nil {
+		return http.DefaultTransport
+	}
+	return t.transport
+}
+
+// SetTransport sets the underlying RoundTripper in a thread-safe manner.
+// This method can be safely called concurrently with requests in flight.
+func (t *Transport) SetTransport(rt http.RoundTripper) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.transport = rt
+}
+
+// getTransport is an internal method that returns the transport without acquiring the lock.
+// It should only be called when the lock is already held or during initialization.
+func (t *Transport) getTransport() http.RoundTripper {
+	if t.transport == nil {
+		return http.DefaultTransport
+	}
+	return t.transport
 }
 
 // NewTransport returns a new Transport with the
@@ -1000,10 +1032,8 @@ func (t *Transport) RoundTrip(req *http.Request) (resp *http.Response, err error
 		}
 	}
 
-	transport := t.Transport
-	if transport == nil {
-		transport = http.DefaultTransport
-	}
+	// Get the underlying transport in a thread-safe manner
+	transport := t.GetTransport()
 
 	// Wrap the actual request logic for resilience support (retry + circuit breaker)
 	doRequest := func() (*http.Response, error) {
