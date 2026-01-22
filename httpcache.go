@@ -293,15 +293,6 @@ func (t *Transport) SetTransport(rt http.RoundTripper) {
 	t.transport = rt
 }
 
-// getTransport is an internal method that returns the transport without acquiring the lock.
-// It should only be called when the lock is already held or during initialization.
-func (t *Transport) getTransport() http.RoundTripper {
-	if t.transport == nil {
-		return http.DefaultTransport
-	}
-	return t.transport
-}
-
 // NewTransport returns a new Transport with the
 // provided Cache implementation and MarkCachedResponses set to true.
 // Options can be provided to customize the Transport behavior.

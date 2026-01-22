@@ -12,6 +12,36 @@ import (
 	"time"
 )
 
+// syncWriter wraps a writer with mutex protection for thread-safe access
+type syncWriter struct {
+	w  io.Writer
+	mu *sync.Mutex
+}
+
+func (sw syncWriter) Write(p []byte) (n int, err error) {
+	sw.mu.Lock()
+	defer sw.mu.Unlock()
+	return sw.w.Write(p)
+}
+
+// waitForCondition polls a condition function until it returns true or timeout
+func waitForCondition(t *testing.T, timeout time.Duration, condition func() bool) bool {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		if condition() {
+			return true
+		}
+		if time.Now().After(deadline) {
+			return false
+		}
+		<-ticker.C
+	}
+}
+
 // panicRoundTripper is a mock RoundTripper that panics on RoundTrip
 type panicRoundTripper struct {
 	panicMessage string
@@ -42,7 +72,8 @@ func TestAsyncRevalidatePanicRecovery(t *testing.T) {
 
 	// Capture log output to verify panic was logged
 	var logBuffer bytes.Buffer
-	logger := slog.New(slog.NewTextHandler(&logBuffer, &slog.HandlerOptions{
+	var logMu sync.Mutex
+	logger := slog.New(slog.NewTextHandler(syncWriter{w: &logBuffer, mu: &logMu}, &slog.HandlerOptions{
 		Level: slog.LevelDebug,
 	}))
 
@@ -55,7 +86,7 @@ func TestAsyncRevalidatePanicRecovery(t *testing.T) {
 		WithLogger(logger),
 	)
 	transport.SetTransport(panicTransport)
-	transport.AsyncRevalidateTimeout = 2 * time.Second
+	transport.AsyncRevalidateTimeout = 5 * time.Second
 
 	// Create a test server to generate the initial cached response
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -77,14 +108,14 @@ func TestAsyncRevalidatePanicRecovery(t *testing.T) {
 	_, _ = io.Copy(io.Discard, resp1.Body)
 	resp1.Body.Close()
 
-	// Wait for response to be cached
-	time.Sleep(100 * time.Millisecond)
+	// Wait for response to be cached (cache operations are synchronous)
+	time.Sleep(200 * time.Millisecond)
 
 	// Switch to panic transport
 	transport.SetTransport(panicTransport)
 
-	// Wait for response to become stale
-	time.Sleep(1500 * time.Millisecond)
+	// Wait for response to become stale (max-age=1)
+	time.Sleep(1200 * time.Millisecond)
 
 	// Second request: should trigger async revalidation which will panic
 	req2, _ := http.NewRequest("GET", ts.URL, nil)
@@ -95,19 +126,23 @@ func TestAsyncRevalidatePanicRecovery(t *testing.T) {
 	_, _ = io.Copy(io.Discard, resp2.Body)
 	resp2.Body.Close()
 
-	// Wait for async revalidation goroutine to panic and recover
-	time.Sleep(500 * time.Millisecond)
+	// Wait for panic to be triggered and logged (max 3 seconds)
+	if !waitForCondition(t, 3*time.Second, func() bool {
+		return panicTransport.didPanic()
+	}) {
+		t.Fatal("timeout waiting for panic to occur")
+	}
 
 	// Verify that the application is still running (we got here without crashing)
 	t.Log("Application survived the panic - recovery worked!")
 
-	// Verify that panic was triggered
-	if !panicTransport.didPanic() {
-		t.Error("expected panic transport to be called")
-	}
+	// Wait a bit more for log to be written
+	time.Sleep(200 * time.Millisecond)
 
-	// Copy log output before checking it (to avoid races with async goroutines)
+	// Copy log output safely
+	logMu.Lock()
 	logOutput := logBuffer.String()
+	logMu.Unlock()
 
 	// Verify that panic was logged
 	if logOutput == "" {
@@ -131,7 +166,8 @@ func TestAsyncRevalidatePanicRecoveryMultipleCalls(t *testing.T) {
 	cache := &mockCache{items: make(map[string][]byte)}
 
 	var logBuffer bytes.Buffer
-	logger := slog.New(slog.NewTextHandler(&logBuffer, &slog.HandlerOptions{
+	var logMu sync.Mutex
+	logger := slog.New(slog.NewTextHandler(syncWriter{w: &logBuffer, mu: &logMu}, &slog.HandlerOptions{
 		Level: slog.LevelError,
 	}))
 
@@ -142,7 +178,7 @@ func TestAsyncRevalidatePanicRecoveryMultipleCalls(t *testing.T) {
 	transport := NewTransport(cache,
 		WithLogger(logger),
 	)
-	transport.AsyncRevalidateTimeout = 1 * time.Second
+	transport.AsyncRevalidateTimeout = 3 * time.Second
 
 	// Create a test server for initial caching
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -162,13 +198,14 @@ func TestAsyncRevalidatePanicRecoveryMultipleCalls(t *testing.T) {
 	_, _ = io.Copy(io.Discard, resp1.Body)
 	resp1.Body.Close()
 
-	time.Sleep(100 * time.Millisecond)
+	// Wait for response to be cached (cache operations are synchronous)
+	time.Sleep(200 * time.Millisecond)
 
 	// Switch to panic transport
 	transport.SetTransport(panicTransport)
 
 	// Wait for staleness
-	time.Sleep(1500 * time.Millisecond)
+	time.Sleep(1200 * time.Millisecond)
 
 	// Trigger multiple concurrent requests that will cause async revalidations
 	const numRequests = 10
@@ -198,14 +235,23 @@ func TestAsyncRevalidatePanicRecoveryMultipleCalls(t *testing.T) {
 		t.Errorf("request failed: %v", err)
 	}
 
-	// Wait for all async revalidations to complete
-	time.Sleep(2 * time.Second)
+	// Wait for panic to occur
+	if !waitForCondition(t, 4*time.Second, func() bool {
+		return panicTransport.didPanic()
+	}) {
+		t.Fatal("timeout waiting for panic to occur")
+	}
 
 	// Verify application is still running
 	t.Log("Application survived multiple concurrent panics!")
 
-	// Copy log output before checking (to avoid races)
+	// Wait a bit for all logs to be written
+	time.Sleep(200 * time.Millisecond)
+
+	// Copy log output safely
+	logMu.Lock()
 	logOutput := logBuffer.String()
+	logMu.Unlock()
 
 	// Verify panics were logged (should see multiple panic logs)
 	if logOutput == "" {
@@ -221,22 +267,27 @@ func TestAsyncRevalidateNoPanic(t *testing.T) {
 	cache := &mockCache{items: make(map[string][]byte)}
 
 	var logBuffer bytes.Buffer
-	logger := slog.New(slog.NewTextHandler(&logBuffer, &slog.HandlerOptions{
+	var logMu sync.Mutex
+	logger := slog.New(slog.NewTextHandler(syncWriter{w: &logBuffer, mu: &logMu}, &slog.HandlerOptions{
 		Level: slog.LevelDebug,
 	}))
 
 	transport := NewTransport(cache,
 		WithLogger(logger),
 	)
-	transport.AsyncRevalidateTimeout = 2 * time.Second
+	transport.AsyncRevalidateTimeout = 5 * time.Second
 
 	// Create a test server that returns different content on revalidation
 	callCount := 0
+	var callMu sync.Mutex
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		callMu.Lock()
 		callCount++
+		count := callCount
+		callMu.Unlock()
 		w.Header().Set("Cache-Control", "max-age=1, stale-while-revalidate=10")
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("response " + string(rune('0'+callCount))))
+		_, _ = w.Write([]byte("response " + string(rune('0'+count))))
 	}))
 	defer ts.Close()
 
@@ -249,10 +300,11 @@ func TestAsyncRevalidateNoPanic(t *testing.T) {
 	_, _ = io.Copy(io.Discard, resp1.Body)
 	resp1.Body.Close()
 
-	time.Sleep(100 * time.Millisecond)
+	// Wait for response to be cached (cache operations are synchronous)
+	time.Sleep(200 * time.Millisecond)
 
 	// Wait for staleness
-	time.Sleep(1500 * time.Millisecond)
+	time.Sleep(1200 * time.Millisecond)
 
 	// Second request: should serve stale and trigger async revalidation
 	req2, _ := http.NewRequest("GET", ts.URL, nil)
@@ -263,11 +315,23 @@ func TestAsyncRevalidateNoPanic(t *testing.T) {
 	_, _ = io.Copy(io.Discard, resp2.Body)
 	resp2.Body.Close()
 
-	// Wait for async revalidation to complete
-	time.Sleep(1 * time.Second)
+	// Wait for async revalidation to complete (poll for log message)
+	if !waitForCondition(t, 4*time.Second, func() bool {
+		logMu.Lock()
+		defer logMu.Unlock()
+		logBytes := logBuffer.Bytes()
+		return containsSubstring(logBytes, "async revalidation completed")
+	}) {
+		logMu.Lock()
+		logOutput := logBuffer.String()
+		logMu.Unlock()
+		t.Fatalf("timeout waiting for async revalidation, log: %s", logOutput)
+	}
 
-	// Copy log output before checking (to avoid races)
+	// Copy log output safely
+	logMu.Lock()
 	logOutput := logBuffer.String()
+	logMu.Unlock()
 
 	// Verify that async revalidation completed successfully
 	logBytes := []byte(logOutput)
@@ -281,8 +345,11 @@ func TestAsyncRevalidateNoPanic(t *testing.T) {
 	}
 
 	// Verify server was called at least twice (initial + revalidation)
-	if callCount < 2 {
-		t.Errorf("expected at least 2 server calls, got %d", callCount)
+	callMu.Lock()
+	count := callCount
+	callMu.Unlock()
+	if count < 2 {
+		t.Errorf("expected at least 2 server calls, got %d", count)
 	}
 }
 
@@ -309,14 +376,15 @@ func TestAsyncRevalidateWithErrors(t *testing.T) {
 	cache := &mockCache{items: make(map[string][]byte)}
 
 	var logBuffer bytes.Buffer
-	logger := slog.New(slog.NewTextHandler(&logBuffer, &slog.HandlerOptions{
+	var logMu sync.Mutex
+	logger := slog.New(slog.NewTextHandler(syncWriter{w: &logBuffer, mu: &logMu}, &slog.HandlerOptions{
 		Level: slog.LevelDebug,
 	}))
 
 	transport := NewTransport(cache,
 		WithLogger(logger),
 	)
-	transport.AsyncRevalidateTimeout = 1 * time.Second
+	transport.AsyncRevalidateTimeout = 3 * time.Second
 
 	// Create test server
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -335,13 +403,14 @@ func TestAsyncRevalidateWithErrors(t *testing.T) {
 	_, _ = io.Copy(io.Discard, resp1.Body)
 	resp1.Body.Close()
 
-	time.Sleep(100 * time.Millisecond)
+	// Wait for response to be cached (cache operations are synchronous)
+	time.Sleep(200 * time.Millisecond)
 
 	// Switch to error transport
 	transport.SetTransport(&errorRoundTripper{})
 
 	// Wait for staleness
-	time.Sleep(1500 * time.Millisecond)
+	time.Sleep(1200 * time.Millisecond)
 
 	// Trigger request that will cause async revalidation with error
 	req2, _ := http.NewRequest("GET", ts.URL, nil)
@@ -352,11 +421,23 @@ func TestAsyncRevalidateWithErrors(t *testing.T) {
 	_, _ = io.Copy(io.Discard, resp2.Body)
 	resp2.Body.Close()
 
-	// Wait for async revalidation
-	time.Sleep(500 * time.Millisecond)
+	// Wait for async revalidation to fail (poll for log message)
+	if !waitForCondition(t, 3*time.Second, func() bool {
+		logMu.Lock()
+		defer logMu.Unlock()
+		logBytes := logBuffer.Bytes()
+		return containsSubstring(logBytes, "async revalidation failed")
+	}) {
+		logMu.Lock()
+		logOutput := logBuffer.String()
+		logMu.Unlock()
+		t.Fatalf("timeout waiting for async revalidation failure, log: %s", logOutput)
+	}
 
-	// Copy log output before checking (to avoid races)
+	// Copy log output safely
+	logMu.Lock()
 	logOutput := logBuffer.String()
+	logMu.Unlock()
 	logBytes := []byte(logOutput)
 
 	// Verify error was logged (not panic)
