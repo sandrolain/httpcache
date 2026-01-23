@@ -999,7 +999,8 @@ func (t *Transport) storeResponseInCache(resp *http.Response, req *http.Request,
 // to give the server a chance to respond with NotModified. If this happens, then the cached Response
 // will be returned.
 func (t *Transport) RoundTrip(req *http.Request) (resp *http.Response, err error) {
-	cacheKey := cacheKeyWithHeaders(req, t.CacheKeyHeaders)
+	// Get cache key (computed once and memoized in context)
+	cacheKey, req := t.getCacheKey(req)
 	cacheable := (req.Method == methodGET || req.Method == methodHEAD) && req.Header.Get("range") == ""
 
 	t.log().Debug("RoundTrip started", "method", req.Method, "url", req.URL.String(), "cacheable", cacheable)
