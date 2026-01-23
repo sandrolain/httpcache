@@ -512,16 +512,20 @@ func (t *Transport) asyncRevalidate(req *http.Request) {
 			return
 		}
 		defer func() {
-			if closeErr := resp.Body.Close(); closeErr != nil {
-				t.log().Warn("failed to close async revalidation response body", "url", req.URL.String(), "error", closeErr)
+			if resp.Body != nil {
+				if closeErr := resp.Body.Close(); closeErr != nil {
+					t.log().Warn("failed to close async revalidation response body", "url", req.URL.String(), "error", closeErr)
+				}
 			}
 		}()
 
 		// Drain the response body to complete the request and allow caching
-		if _, err := io.Copy(io.Discard, resp.Body); err != nil {
-			t.log().Warn("failed to drain async revalidation response", "url", req.URL.String(), "error", err)
-		} else {
-			t.log().Debug("async revalidation completed", "url", req.URL.String(), "status", resp.StatusCode)
+		if resp.Body != nil {
+			if _, err := io.Copy(io.Discard, resp.Body); err != nil {
+				t.log().Warn("failed to drain async revalidation response", "url", req.URL.String(), "error", err)
+			} else {
+				t.log().Debug("async revalidation completed", "url", req.URL.String(), "status", resp.StatusCode)
+			}
 		}
 	}()
 }
@@ -658,6 +662,11 @@ func performRequest(transport http.RoundTripper, req *http.Request, onlyIfCached
 // indefinite cache operations.
 // Respects MaxCacheableResponseSize to prevent memory exhaustion.
 func (t *Transport) setupCachingBody(resp *http.Response, cacheKey string) {
+	if resp.Body == nil {
+		resp.Body = http.NoBody
+		return
+	}
+
 	resp.Body = &cachingReadCloser{
 		R:       resp.Body,
 		maxSize: t.MaxCacheableResponseSize,
@@ -701,6 +710,11 @@ func (t *Transport) setupCachingBody(resp *http.Response, cacheKey string) {
 // indefinite cache operations.
 // Respects MaxCacheableResponseSize to prevent memory exhaustion.
 func (t *Transport) setupCachingBodyMultiple(resp *http.Response, cacheKeys []string) {
+	if resp.Body == nil {
+		resp.Body = http.NoBody
+		return
+	}
+
 	resp.Body = &cachingReadCloser{
 		R:       resp.Body,
 		maxSize: t.MaxCacheableResponseSize,
