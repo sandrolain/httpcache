@@ -186,9 +186,14 @@ transport.EnableDeduplication = true  // Coalesce parallel requests to same reso
 metrics := httpcache.NewTransportMetrics()
 transport := httpcache.NewTransport(cache, httpcache.WithMetrics(metrics))
 
-// Read metrics
+// Read cache metrics
 fmt.Printf("Hit rate: %.2f%%\n", metrics.HitRate()*100)
 fmt.Printf("Total requests: %d\n", metrics.TotalRequests())
+
+// Read buffer pool metrics (global, always available)
+bufferMetrics := httpcache.GetBufferPoolMetrics()
+fmt.Printf("Buffer pool hit rate: %.2f%%\n", bufferMetrics.PoolHitRate())
+fmt.Printf("Buffer pool discard rate: %.2f%%\n", bufferMetrics.DiscardRate())
 
 // Export to Prometheus (optional - requires separate package)
 import prommetrics "github.com/sandrolain/httpcache/wrapper/metrics/prometheus"

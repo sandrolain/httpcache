@@ -96,6 +96,53 @@ func main() {
 | `CachedBytes` | Gauge | Approximate bytes in cache |
 | `CacheLatencyBuckets` | Histogram | Latency distribution (10 buckets) |
 
+### Buffer Pool Metrics
+
+`httpcache` also provides **buffer pool metrics** to monitor internal memory management:
+
+```go
+// Get current buffer pool metrics
+metrics := httpcache.GetBufferPoolMetrics()
+
+fmt.Printf("Buffer Pool Statistics:\n")
+fmt.Printf("  Gets: %d\n", metrics.Gets)
+fmt.Printf("  Puts: %d\n", metrics.Puts)
+fmt.Printf("  Pool Hits: %d\n", metrics.PoolHits)
+fmt.Printf("  Pool Miss: %d\n", metrics.PoolMiss)
+fmt.Printf("  Discarded: %d\n", metrics.Discarded)
+fmt.Printf("  Hit Rate: %.2f%%\n", metrics.PoolHitRate())
+fmt.Printf("  Discard Rate: %.2f%%\n", metrics.DiscardRate())
+```
+
+**Buffer Pool Metrics:**
+
+| Field | Description |
+|-------|-------------|
+| `Gets` | Total buffer retrievals from pool |
+| `Puts` | Total buffers returned to pool |
+| `PoolHits` | Buffers reused from pool (efficient) |
+| `PoolMiss` | New buffers allocated (cache miss) |
+| `Discarded` | Buffers too large to pool (> maxPooledBufferSize) |
+
+**Helper Methods:**
+
+- `PoolHitRate()` - Returns pool efficiency as percentage (0-100%)
+- `DiscardRate()` - Returns discard rate as percentage of total Puts (0-100%)
+
+**Use Cases:**
+
+- **Monitor memory efficiency**: High pool hit rate = good reuse
+- **Optimize buffer size**: High discard rate → increase `maxPooledBufferSize`
+- **Identify memory pressure**: Track allocation patterns over time
+- **Performance tuning**: Correlate with cache performance metrics
+
+**Reset for Testing:**
+
+```go
+// Reset buffer pool metrics (useful for testing)
+httpcache.ResetBufferPoolMetrics()
+```
+
 ### Latency Histogram Buckets
 
 Latency is tracked in 10 buckets:
@@ -211,16 +258,25 @@ httpcache_cached_bytes / 1024 / 1024
 
 ### With Metrics Enabled
 
+**Cache Metrics:**
+
 - **Cache hit**: ~20ns overhead (2 atomic loads + 1 add + 1 time.Since)
 - **Cache miss**: ~20ns overhead (2 atomic loads + 1 add + 1 time.Since)
 - **Cache error**: ~15ns overhead (3 atomic operations)
+- **Total overhead**: < 0.1% on typical cache operations (100-1000µs)
 
-**Total overhead**: < 0.1% on typical cache operations (100-1000µs)
+**Buffer Pool Metrics:**
+
+- **getBuffer()**: ~2-4ns overhead (2 atomic.Add operations)
+- **putBuffer()**: ~2-4ns overhead (1-2 atomic.Add operations)
+- **GetBufferPoolMetrics()**: ~5-10ns overhead (5 atomic.Load operations)
+- **Total overhead**: < 0.1% on buffer pool operations
 
 ### With Metrics Disabled
 
 - **Zero overhead**: Only a nil check (`if t.Metrics != nil`)
 - Compiler optimizes the branch away
+- **Note**: Buffer pool metrics are always active (global, minimal overhead)
 
 ## Thread-Safety
 
@@ -252,7 +308,7 @@ log.Printf("Hits: %d, Misses: %d, Rate: %.2f%%",
 ### 1. Alert on Low Hit Rate
 
 ```yaml
-# Prometheus alert
+# Prometheus alert for cache hit rate
 - alert: LowCacheHitRate
   expr: httpcache_cache_hit_rate < 0.5
   for: 5m
@@ -293,6 +349,44 @@ httpcache_deduplication_total
   annotations:
     summary: "Cache size exceeds 1GB"
 ```
+
+### 6. Buffer Pool Monitoring
+
+Monitor buffer pool efficiency to optimize memory usage:
+
+```go
+// Periodic monitoring
+go func() {
+    ticker := time.NewTicker(30 * time.Second)
+    defer ticker.Stop()
+    
+    for range ticker.C {
+        metrics := httpcache.GetBufferPoolMetrics()
+        
+        log.Printf("Buffer Pool: hits=%d miss=%d rate=%.1f%% discarded=%d",
+            metrics.PoolHits,
+            metrics.PoolMiss,
+            metrics.PoolHitRate(),
+            metrics.Discarded)
+        
+        // Alert if pool efficiency is low
+        if metrics.PoolHitRate() < 80.0 {
+            log.Warn("Low buffer pool hit rate - consider tuning")
+        }
+        
+        // Alert if discard rate is high
+        if metrics.DiscardRate() > 10.0 {
+            log.Warn("High buffer discard rate - increase maxPooledBufferSize")
+        }
+    }
+}()
+```
+
+**Buffer Pool Alerts:**
+
+- **Low hit rate** (< 80%): Pool not reusing buffers efficiently
+- **High discard rate** (> 10%): Consider increasing `maxPooledBufferSize` with `WithMaxPooledBufferSize()` option
+- **High allocation rate**: May indicate memory pressure
 
 ## Grafana Dashboard
 

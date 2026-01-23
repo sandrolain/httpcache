@@ -31,6 +31,15 @@ const defaultMaxPooledBufferSize = 64 * 1024 // 64KB
 func getBuffer() *bytes.Buffer {
 	//nolint:errcheck // sync.Pool.Get() does not return an error; this is a type assertion
 	buf := bufferPool.Get().(*bytes.Buffer)
+
+	// Track metrics
+	bufferPoolMetrics.gets.Add(1)
+	if buf.Cap() > 0 {
+		bufferPoolMetrics.poolHits.Add(1)
+	} else {
+		bufferPoolMetrics.poolMiss.Add(1)
+	}
+
 	buf.Reset()
 	return buf
 }
@@ -46,9 +55,14 @@ func putBuffer(buf *bytes.Buffer) {
 // Large buffers (>maxSize) are not pooled to avoid memory bloat.
 // This is used internally by Transport to respect the MaxPooledBufferSize configuration.
 func putBufferWithLimit(buf *bytes.Buffer, maxSize int64) {
+	// Track metrics
+	bufferPoolMetrics.puts.Add(1)
+
 	// Only pool buffers that are not too large
 	if buf.Cap() <= int(maxSize) {
 		bufferPool.Put(buf)
+	} else {
+		bufferPoolMetrics.discarded.Add(1)
 	}
 }
 
