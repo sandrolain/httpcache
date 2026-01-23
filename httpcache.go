@@ -306,6 +306,7 @@ func NewTransport(c Cache, opts ...TransportOption) *Transport {
 		CacheOperationTimeout:    30 * time.Second, // Default: 30 seconds
 		MaxPooledBufferSize:      64 * 1024,        // Default: 64KB
 		clock:                    &realClock{},     // Default: real clock
+		logger:                   slog.Default(),   // Default: slog.Default()
 	}
 	for _, opt := range opts {
 		if err := opt(t); err != nil {
