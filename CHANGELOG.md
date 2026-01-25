@@ -27,6 +27,25 @@ This is a **major breaking release** that adds `context.Context` support and err
 
 ### Performance
 
+- **Buffer Pooling**: Implemented `sync.Pool` for `bytes.Buffer` to reduce memory allocations and GC pressure during cache operations:
+  - **5-7x faster** buffer allocation (from ~52 ns/op to ~10 ns/op)
+  - **Zero allocations** in common path (from 2 allocs/op to 0 allocs/op)
+  - **Configurable pool size** via `WithMaxPooledBufferSize()` option (default: 64KB)
+  - **Automatic discard** of oversized buffers to prevent memory bloat
+  - **Dedicated metrics** for monitoring pool efficiency (`GetBufferPoolMetrics()`)
+  - Particularly beneficial for high-throughput scenarios with frequent cache reads/writes
+
+- **Cache Key Memoization**: Cache key stored in request context to eliminate redundant calculations:
+  - **Saves ~300ns per request** with multiple cache operations
+  - **Zero overhead** for single-use cache keys
+  - **Context-based caching** ensures key consistency across request lifecycle
+  - Particularly beneficial when using `CacheKeyHeaders` or Vary header processing
+
+- **Logger Optimization**: Logger now initialized with `slog.Default()` in `NewTransport`:
+  - **Eliminates nil checks** in hot path log calls
+  - **More robust** - logger always available for transports created via `NewTransport()`
+  - **Backward compatible** - `WithLogger()` option still works as expected
+
 - **Cache-Control Parsing Optimization**: Implemented `sync.Map`-based caching for parsed Cache-Control headers, eliminating redundant parsing of the same header values. This optimization delivers:
   - **3x faster parsing** for cached headers (from ~304 ns/op to ~32 ns/op)
   - **Zero allocations** for cache hits (from 4 allocs/op to 0 allocs/op)
@@ -86,6 +105,41 @@ client := redis.NewClient(&redis.Options{Addr: "localhost:6379"})
 cache := rediscache.NewWithClient(client)
 ```
 
+### Fixed
+
+**Critical Bug Fixes**
+
+- **Memory Leak in cachingReadCloser**: Fixed critical memory leak causing unlimited accumulation of response bodies in memory:
+  - Previously, large responses (>100MB) could cause memory exhaustion
+  - Now enforced via `MaxCacheableResponseSize` (default: 10MB)
+  - Responses exceeding limit are streamed without caching
+  - Configurable via `WithMaxCacheableResponseSize()` option
+
+- **Cache Key Collision**: Fixed cache poisoning vulnerability from header values containing pipe separator `|`:
+  - Header values in `CacheKeyHeaders` now URL-encoded to prevent collisions
+  - **Security fix**: Prevents authorization bypass when using Authorization header in cache key
+  - Example: `"value1|value2"` → `"value1%7Cvalue2"` (unambiguous)
+  - Deterministic encoding ensures consistent cache key generation
+
+- **Panic Recovery in Async Revalidation**: Added panic recovery in `asyncRevalidate` goroutine:
+  - Prevents application crash from panics during background revalidation
+  - Full stack trace logged for debugging
+  - Graceful degradation - client requests unaffected by revalidation failures
+
+**Thread-Safety Fixes**
+
+- **Transport Field Race Condition**: Fixed data race on `Transport` field access:
+  - Added `sync.RWMutex` protection for concurrent access
+  - New thread-safe methods: `GetTransport()` and `SetTransport()`
+  - Prevents race between async revalidation and transport modifications
+  - All tests updated to use new accessor methods
+
+- **Shared Response Header Cloning**: Fixed potential race in `GetReusableResponse()`:
+  - Added `sync.RWMutex` protection during header deep copy
+  - Prevents concurrent map iteration and write panics
+  - Allows multiple concurrent calls to `GetReusableResponse()`
+  - Particularly important with custom middleware modifying responses
+
 ### Changed
 
 - All 11 backend implementations updated with context and error support:
@@ -103,6 +157,23 @@ cache := rediscache.NewWithClient(client)
 
 ### Added
 
+- **Internal Metrics System**: Built-in thread-safe metrics collection for cache operations:
+  - **Counters**: Cache hits, misses, errors, stale served, deduplication
+  - **Gauge**: Approximate cached bytes
+  - **Latency histograms**: 10 buckets tracking operation latency (from <1ms to >1s)
+  - **Snapshot API**: Thread-safe `GetMetricsSnapshot()` for consistent reads
+  - **Zero overhead** when disabled (`Metrics == nil`)
+  - **Atomic operations** for lock-free performance
+  - Enable via `transport.Metrics = &httpcache.TransportMetrics{}`
+
+- **Buffer Pool Metrics**: Dedicated monitoring for internal buffer pool management:
+  - **Pool hit rate**: Percentage of buffer reuse from pool
+  - **Discard rate**: Percentage of buffers too large to pool
+  - **Gets/Puts tracking**: Total buffer allocation and return counts
+  - **Global metrics** always available via `httpcache.GetBufferPoolMetrics()`
+  - **Reset capability** for testing: `httpcache.ResetBufferPoolMetrics()`
+  - Thread-safe atomic counters with snapshot API
+
 - **Cache Prewarmer**: New `wrapper/prewarmer` package for prefetching and caching resources
   - Sequential and concurrent prewarming with configurable workers
   - XML sitemap support (including sitemap indexes)
@@ -115,6 +186,7 @@ cache := rediscache.NewWithClient(client)
   - Uses scrypt for secure key derivation from passphrase
 - **Options Pattern for Transport Configuration**: New `TransportOption` functional options for cleaner configuration:
   - `WithEncryption(passphrase)` - Enable AES-256-GCM encryption
+  - `WithRandomSaltEncryption(passphrase)` - Enable enhanced encryption with per-value random salt
   - `WithMarkCachedResponses(bool)` - Control X-From-Cache header
   - `WithSkipServerErrorsFromCache(bool)` - Skip 5xx responses from cache
   - `WithAsyncRevalidateTimeout(duration)` - Set timeout for async revalidation
@@ -126,16 +198,47 @@ cache := rediscache.NewWithClient(client)
   - `WithTransport(rt)` - Set underlying RoundTripper
   - `WithMaxCacheableResponseSize(bytes)` - Limit max cacheable response size (default: 10MB)
   - `WithCacheOperationTimeout(duration)` - Set timeout for cache write operations (default: 30s)
+  - `WithMaxPooledBufferSize(bytes)` - Set maximum buffer size for pooling (default: 64KB)
+  - `WithLogger(logger)` - Set custom slog.Logger for transport logging
 - `IsEncryptionEnabled() bool` method on Transport to check encryption status
 - Timeout and cancellation support for all cache operations
 - Error propagation from cache backends (no more silent failures)
 - Context value passing for tracing/logging integration
+
+### Testing
+
+- **Cache Backend Failure Tests**: Comprehensive test suite for graceful degradation:
+  - Tests for Get/Set/Delete failures with mock cache backend
+  - Verification of fallback behavior when cache operations fail
+  - Concurrent error handling tests (20 goroutines)
+  - Ensures no errors propagated to clients on cache failures
+
+- **Thread-Safety Tests**: Enhanced concurrent access testing:
+  - Transport field modification during active requests
+  - Shared response cloning under concurrent access
+  - Buffer pool concurrent access scenarios
+  - Metrics system concurrent updates
+
+- **Edge Case Coverage**: Additional tests for corner cases:
+  - Nil body handling in HTTP responses
+  - Panic recovery in async operations
+  - Cache key collision scenarios
+  - Large response streaming without caching
+
+- **Benchmark Suite**: Performance benchmarks for all optimizations:
+  - Buffer pool performance (various sizes, concurrent access)
+  - Cache key computation and memoization
+  - Vary header matching optimization
+  - Cache-Control parsing with sync.Map
 
 ### Documentation
 
 - Migration guide for v1.x → v2.0 (see TODO.md)
 - Updated examples demonstrating context usage
 - New prewarmer documentation and examples
+- Internal metrics system usage guide
+- Buffer pool configuration and monitoring guide
+- Thread-safety documentation for concurrent scenarios
 
 ### Reference
 
