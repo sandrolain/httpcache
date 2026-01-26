@@ -229,6 +229,7 @@ go get github.com/sandrolain/httpcache
 - **[Cache Backends](./docs/backends.md)** - Choose and configure storage backends (Memory, Redis, PostgreSQL, etc.)
 - **[How It Works](./docs/how-it-works.md)** - RFC 7234 implementation details, cache headers, and detecting cache hits
 - **[Advanced Features](./docs/advanced-features.md)** - Transport configuration, stale-if-error, cache key headers, custom cache control
+- **[Performance Optimization](./docs/performance-v2.md)** - v2 performance improvements, benchmark results, and optimization techniques
 - **[Resilience Features](./docs/resilience.md)** - Retry policies and circuit breakers for fault-tolerant HTTP clients
 - **[Security Considerations](./docs/security.md)** - Multi-user applications, secure cache wrapper, best practices
 - **[Monitoring with Prometheus](./docs/monitoring.md)** - Optional metrics integration for production monitoring
@@ -248,6 +249,7 @@ go get github.com/sandrolain/httpcache
 - [Authorization header handling](./docs/advanced-features.md#authorization-header-and-shared-caches)
 - [Securing sensitive data](./docs/security.md#secure-cache-wrapper)
 - [Monitoring performance](./docs/monitoring.md#quick-start)
+- [Performance optimization](./docs/performance.md#best-practices)
 
 **Advanced Topics:**
 
@@ -257,6 +259,7 @@ go get github.com/sandrolain/httpcache
 - [Compression wrapper](./wrapper/compresscache/README.md) - Gzip, Brotli, Snappy compression
 - [Custom cache implementation](./docs/how-it-works.md#custom-cache-implementation)
 - [Multi-user considerations](./docs/security.md#private-cache-and-multi-user-applications)
+- [Benchmark results and analysis](./docs/performance-v2.md#v1-vs-v2-performance-comparison)
 
 ## Practical Examples
 
@@ -322,12 +325,24 @@ See [Authorization Header and Shared Caches](./docs/advanced-features.md#authori
 
 ## Performance
 
-- **Memory cache**: ~100ns per operation
-- **Disk cache**: ~1-5ms per operation (depends on filesystem)
-- **Redis cache**: ~1-3ms per operation (network latency dependent)
+httpcache v2 is highly optimized for production use with minimal overhead:
+
+- **Memory cache**: ~12 ns/op for Get, ~29 ns/op for Set (0 allocations)
+- **Header normalization**: 36-273 ns/op depending on complexity (single-pass algorithm)
+- **Vary matching**: 33-712 ns/op depending on header count
 - **Overhead vs no-cache**: < 5% for cache hits
 
-Benchmarks are available in each backend's `*_bench_test.go` file.
+**v2 Key Optimizations:**
+
+- **xxHash implementation**: 63-85% faster than SHA-256, 90-95% less memory
+- **Buffer pooling**: 79-82% faster for large buffers, zero allocations
+- **Cache-Control parsing cache**: 67-94% faster for repeated parsing
+- **Cache key memoization**: 98.7% faster for repeated lookups
+- **Optimized header normalization**: 42-73% faster than v1
+
+For detailed benchmark results, v1 vs v2 comparisons, and optimization techniques, see the [Performance Documentation](./docs/performance-v2.md) and [Migration Guide](./docs/migration-v1-to-v2.md).
+
+Benchmarks are also available in each backend's `*_bench_test.go` file.
 
 ## Testing
 

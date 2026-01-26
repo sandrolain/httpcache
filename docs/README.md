@@ -13,6 +13,8 @@ Welcome to the httpcache documentation! This directory contains detailed guides 
 ### Configuration & Usage
 
 - **[Advanced Features](./advanced-features.md)** - Transport configuration, custom cache control, and advanced options
+- **[Performance Optimization](./performance-v2.md)** - v2 performance improvements and benchmark results
+- **[Migration Guide](./migration-v1-to-v2.md)** - Step-by-step guide for upgrading from v1 to v2
 - **[Security Considerations](./security.md)** - Multi-user applications and secure caching
 - **[Monitoring](./monitoring.md)** - Prometheus metrics integration
 
@@ -28,10 +30,12 @@ Welcome to the httpcache documentation! This directory contains detailed guides 
 **I want to...**
 
 - **Start quickly** → [Quick Start](../README.md#quick-start) + [Memory Cache Example](../examples/basic/)
+- **Upgrade from v1** → [Migration Guide](./migration-v1-to-v2.md) + [Performance Comparison](./performance-v2.md)
 - **Use Redis** → [Redis Backend](./backends.md#redis-cache) + [Redis Example](../examples/redis/)
 - **Cache per-user data** → [Cache Key Headers](./advanced-features.md#cache-key-headers) + [Security Guide](./security.md)
 - **Add encryption** → [Secure Cache Wrapper](./backends.md#secure-cache-wrapper) + [Security Example](../examples/security-best-practices/)
 - **Monitor performance** → [Monitoring Guide](./monitoring.md) + [Prometheus Example](../examples/prometheus/)
+- **Optimize performance** → [Performance Guide](./performance-v2.md) + [Benchmark Results](./performance-v2.md#benchmark-results)
 - **Handle stale content** → [Stale-If-Error](./advanced-features.md#stale-if-error-support) + [How It Works](./how-it-works.md)
 
 ### By Topic
@@ -60,6 +64,7 @@ Welcome to the httpcache documentation! This directory contains detailed guides 
 - [Stale-While-Revalidate](./advanced-features.md#stale-while-revalidate-support)
 - [Custom Cache Control](./advanced-features.md#custom-cache-control-with-shouldcache)
 - [Vary Header Limitations](./how-it-works.md#vary-header-support)
+- [Performance Benchmarks](./performance-v2.md#v1-vs-v2-performance-comparison)
 
 **Security:**
 
@@ -72,6 +77,7 @@ Welcome to the httpcache documentation! This directory contains detailed guides 
 - [Prometheus Metrics](./monitoring.md)
 - [PromQL Queries](./monitoring.md#example-promql-queries)
 - [Grafana Dashboards](./monitoring.md#grafana-dashboard)
+- [Performance Profiling](./performance-v2.md#profiling-and-monitoring)
 
 ## 📖 External Resources
 
