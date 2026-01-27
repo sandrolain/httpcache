@@ -81,30 +81,30 @@ Version 1 established a solid performance baseline with the following characteri
 
 ### Cache Operations
 
-| Operation | Time | Memory | Allocations |
-|-----------|------|--------|-------------|
-| Get | 11.82 ns/op | 0 B/op | 0 allocs/op |
-| Set | 29.09 ns/op | 0 B/op | 0 allocs/op |
-| Delete | 60.21 ns/op | 4 B/op | 1 allocs/op |
-| SetGet | 38.49 ns/op | 0 B/op | 0 allocs/op |
+| Operation    | Time        | Memory | Allocations |
+|--------------|-------------|--------|-------------|
+| Get          | 11.82 ns/op | 0 B/op | 0 allocs/op |
+| Set          | 29.09 ns/op | 0 B/op | 0 allocs/op |
+| Delete       | 60.21 ns/op | 4 B/op | 1 allocs/op |
+| SetGet       | 38.49 ns/op | 0 B/op | 0 allocs/op |
 | Parallel Get | 73.93 ns/op | 0 B/op | 0 allocs/op |
 | Parallel Set | 111.9 ns/op | 4 B/op | 1 allocs/op |
 
 ### Header Processing
 
-| Operation | Time | Memory | Allocations |
-|-----------|------|--------|-------------|
-| Simple normalization | 35.98 ns/op | 8 B/op | 1 allocs/op |
+| Operation             | Time          | Memory      | Allocations   |
+|-----------------------|---------------|-------------|---------------|
+| Simple normalization  | 35.98 ns/op   | 8 B/op      | 1 allocs/op   |
 | Complex normalization | 117-273 ns/op | 32-152 B/op | 3-5 allocs/op |
-| Exact match | 2.387 ns/op | 0 B/op | 0 allocs/op |
-| Normalized match | 79-320 ns/op | 16-136 B/op | 2-7 allocs/op |
+| Exact match           | 2.387 ns/op   | 0 B/op      | 0 allocs/op   |
+| Normalized match      | 79-320 ns/op  | 16-136 B/op | 2-7 allocs/op |
 
 ### Vary Matching
 
-| Scenario | Time | Memory | Allocations |
-|----------|------|--------|-------------|
-| No Vary header | 33.21 ns/op | 4 B/op | 1 allocs/op |
-| Single header | 185.1 ns/op | 36 B/op | 3 allocs/op |
+| Scenario         | Time        | Memory   | Allocations |
+|------------------|-------------|----------|-------------|
+| No Vary header   | 33.21 ns/op | 4 B/op   | 1 allocs/op |
+| Single header    | 185.1 ns/op | 36 B/op  | 3 allocs/op |
 | Multiple headers | 589.4 ns/op | 168 B/op | 8 allocs/op |
 
 ### Request Deduplication
@@ -206,10 +206,10 @@ transport := httpcache.NewTransport(cache,
 
 **Performance Comparison (v1):**
 
-| Algorithm | Speed | Memory | Output Size |
-|-----------|-------|--------|-------------|
-| SHA-256 | baseline | 176-320 B/op | 43 bytes (base64) |
-| xxHash | ~2.7x faster | 16 B/op | 12 bytes (base36) |
+| Algorithm | Speed        | Memory       | Output Size       |
+|-----------|--------------|--------------|-------------------|
+| SHA-256   | baseline     | 176-320 B/op | 43 bytes (base64) |
+| xxHash    | ~2.7x faster | 16 B/op      | 12 bytes (base36) |
 
 ### Buffer Pool Configuration
 
@@ -240,12 +240,12 @@ Version 2 implements sophisticated buffer pooling for HTTP response body handlin
 
 **Performance Impact:**
 
-| Buffer Size | v1 (WithoutPool) | v2 (WithPool) | Improvement |
-|-------------|------------------|---------------|-------------|
-| 1KB | 131.4 ns/op, 1024 B/op | 27.59 ns/op, 0 B/op | **79.0% faster, no allocations** |
-| 10KB | 988.6 ns/op, 10240 B/op | 184.1 ns/op, 0 B/op | **81.4% faster, no allocations** |
-| 32KB | 2685 ns/op, 32768 B/op | 483.0 ns/op, 0 B/op | **82.0% faster, no allocations** |
-| 64KB | 5408 ns/op, 65536 B/op | 950.6 ns/op, 0 B/op | **82.4% faster, no allocations** |
+| Buffer Size | v1 (WithoutPool)        | v2 (WithPool)       | Improvement                      |
+|-------------|-------------------------|---------------------|----------------------------------|
+| 1KB         | 131.4 ns/op, 1024 B/op  | 27.59 ns/op, 0 B/op | **79.0% faster, no allocations** |
+| 10KB        | 988.6 ns/op, 10240 B/op | 184.1 ns/op, 0 B/op | **81.4% faster, no allocations** |
+| 32KB        | 2685 ns/op, 32768 B/op  | 483.0 ns/op, 0 B/op | **82.0% faster, no allocations** |
+| 64KB        | 5408 ns/op, 65536 B/op  | 950.6 ns/op, 0 B/op | **82.4% faster, no allocations** |
 
 **Benefits:**
 
@@ -260,12 +260,12 @@ Version 2 provides an optimized xxHash implementation as a high-performance alte
 
 **Performance Comparison:**
 
-| Key Length | SHA-256 (v1) | xxHash (v2) | Improvement |
-|------------|--------------|-------------|-------------|
-| Short (~40 chars) | 121.5 ns/op, 176 B/op | 36.48 ns/op, 16 B/op | **70.0% faster, 90.9% less memory** |
+| Key Length         | SHA-256 (v1)          | xxHash (v2)          | Improvement                         |
+|--------------------|-----------------------|----------------------|-------------------------------------|
+| Short (~40 chars)  | 121.5 ns/op, 176 B/op | 36.48 ns/op, 16 B/op | **70.0% faster, 90.9% less memory** |
 | Medium (~65 chars) | 145.7 ns/op, 208 B/op | 53.20 ns/op, 16 B/op | **63.5% faster, 92.3% less memory** |
-| Long (~150 chars) | 207.4 ns/op, 320 B/op | 73.06 ns/op, 16 B/op | **64.8% faster, 95.0% less memory** |
-| Parallel | 80.17 ns/op, 192 B/op | 11.47 ns/op, 16 B/op | **85.7% faster, 91.7% less memory** |
+| Long (~150 chars)  | 207.4 ns/op, 320 B/op | 73.06 ns/op, 16 B/op | **64.8% faster, 95.0% less memory** |
+| Parallel           | 80.17 ns/op, 192 B/op | 11.47 ns/op, 16 B/op | **85.7% faster, 91.7% less memory** |
 
 **Hash Output Sizes:**
 
@@ -279,11 +279,11 @@ Version 2 implements intelligent caching for parsed Cache-Control headers, elimi
 
 **Performance Impact:**
 
-| Scenario | v1 (Uncached) | v2 (Cached) | Improvement |
-|----------|---------------|-------------|-------------|
-| Simple header | ~104 ns/op, 32 B/op | 31.61 ns/op, 0 B/op | **69.6% faster, no allocations** |
+| Scenario       | v1 (Uncached)       | v2 (Cached)         | Improvement                      |
+|----------------|---------------------|---------------------|----------------------------------|
+| Simple header  | ~104 ns/op, 32 B/op | 31.61 ns/op, 0 B/op | **69.6% faster, no allocations** |
 | Complex header | ~104 ns/op, 32 B/op | 33.99 ns/op, 0 B/op | **67.3% faster, no allocations** |
-| Concurrent | N/A | 6.423 ns/op, 0 B/op | **93.8% faster** |
+| Concurrent     | N/A                 | 6.423 ns/op, 0 B/op | **93.8% faster**                 |
 
 ### 4. Cache Key Memoization
 
@@ -291,8 +291,8 @@ Version 2 utilizes context-based cache key memoization to eliminate redundant ke
 
 **Performance Impact:**
 
-| Operation | v1 (Direct) | v2 (Memoized) | Improvement |
-|-----------|-------------|---------------|-------------|
+| Operation        | v1 (Direct)           | v2 (Memoized)       | Improvement                      |
+|------------------|-----------------------|---------------------|----------------------------------|
 | Cache key lookup | 309.8 ns/op, 216 B/op | 3.914 ns/op, 0 B/op | **98.7% faster, no allocations** |
 
 ### 5. Optimized Header Normalization
@@ -301,12 +301,12 @@ Version 2 features a highly optimized header normalization algorithm with signif
 
 **Performance Comparison:**
 
-| Scenario | v1 | v2 | Improvement |
-|----------|----|----|-------------|
-| Comma with spaces | 117.5 ns/op, 32 B/op | 31.27 ns/op, 16 B/op | **73.4% faster, 50% less memory** |
+| Scenario                | v1                    | v2                   | Improvement                         |
+|-------------------------|-----------------------|----------------------|-------------------------------------|
+| Comma with spaces       | 117.5 ns/op, 32 B/op  | 31.27 ns/op, 16 B/op | **73.4% faster, 50% less memory**   |
 | Complex Accept-Language | 272.6 ns/op, 152 B/op | 91.07 ns/op, 48 B/op | **66.6% faster, 68.4% less memory** |
-| Accept-Encoding | 229.4 ns/op, 88 B/op | 67.87 ns/op, 32 B/op | **70.4% faster, 63.6% less memory** |
-| With whitespace | 115.6 ns/op, 40 B/op | 39.39 ns/op, 16 B/op | **65.9% faster, 60% less memory** |
+| Accept-Encoding         | 229.4 ns/op, 88 B/op  | 67.87 ns/op, 32 B/op | **70.4% faster, 63.6% less memory** |
+| With whitespace         | 115.6 ns/op, 40 B/op  | 39.39 ns/op, 16 B/op | **65.9% faster, 60% less memory**   |
 
 ## v1 vs v2 Performance Comparison
 
@@ -322,40 +322,40 @@ Version 2 features a highly optimized header normalization algorithm with signif
 
 #### Get Operations
 
-| Benchmark | v1 | v2 | Change |
-|-----------|----|----|--------|
-| Basic Get | 11.82 ns/op, 0 B/op | 11.64 ns/op, 0 B/op | **1.5% faster** |
-| HTTP Response Get | 16.47 ns/op, 0 B/op | 20.70 ns/op, 0 B/op | 25.7% slower |
+| Benchmark          | v1                  | v2                  | Change          |
+|--------------------|---------------------|---------------------|-----------------|
+| Basic Get          | 11.82 ns/op, 0 B/op | 11.64 ns/op, 0 B/op | **1.5% faster** |
+| HTTP Response Get  | 16.47 ns/op, 0 B/op | 20.70 ns/op, 0 B/op | 25.7% slower    |
 | Large Response Get | 15.47 ns/op, 0 B/op | 15.19 ns/op, 0 B/op | **1.8% faster** |
-| Parallel Get | 73.93 ns/op, 0 B/op | 94.38 ns/op, 0 B/op | 27.6% slower |
+| Parallel Get       | 73.93 ns/op, 0 B/op | 94.38 ns/op, 0 B/op | 27.6% slower    |
 
 #### Set Operations
 
-| Benchmark | v1 | v2 | Change |
-|-----------|----|----|--------|
-| Basic Set | 29.09 ns/op, 0 B/op | 26.66 ns/op, 0 B/op | **8.4% faster** |
-| HTTP Response Set | 32.43 ns/op, 4 B/op | 29.34 ns/op, 4 B/op | **9.5% faster** |
-| Large Response Set | 30.11 ns/op, 4 B/op | 30.74 ns/op, 4 B/op | 2.1% slower |
-| Parallel Set | 111.9 ns/op, 4 B/op | 107.0 ns/op, 4 B/op | **4.4% faster** |
+| Benchmark          | v1                  | v2                  | Change          |
+|--------------------|---------------------|---------------------|-----------------|
+| Basic Set          | 29.09 ns/op, 0 B/op | 26.66 ns/op, 0 B/op | **8.4% faster** |
+| HTTP Response Set  | 32.43 ns/op, 4 B/op | 29.34 ns/op, 4 B/op | **9.5% faster** |
+| Large Response Set | 30.11 ns/op, 4 B/op | 30.74 ns/op, 4 B/op | 2.1% slower     |
+| Parallel Set       | 111.9 ns/op, 4 B/op | 107.0 ns/op, 4 B/op | **4.4% faster** |
 
 ### Header Normalization
 
-| Scenario | v1 | v2 | Improvement |
-|----------|----|----|-------------|
-| Simple | 35.98 ns/op, 8 B/op | 20.65 ns/op, 8 B/op | **42.6% faster** |
-| Comma (no spaces) | 55.63 ns/op, 8 B/op | 29.04 ns/op, 8 B/op | **47.8% faster** |
-| Comma (with spaces) | 117.5 ns/op, 32 B/op | 31.27 ns/op, 16 B/op | **73.4% faster, 50% less memory** |
+| Scenario                | v1                    | v2                   | Improvement                         |
+|-------------------------|-----------------------|----------------------|-------------------------------------|
+| Simple                  | 35.98 ns/op, 8 B/op   | 20.65 ns/op, 8 B/op  | **42.6% faster**                    |
+| Comma (no spaces)       | 55.63 ns/op, 8 B/op   | 29.04 ns/op, 8 B/op  | **47.8% faster**                    |
+| Comma (with spaces)     | 117.5 ns/op, 32 B/op  | 31.27 ns/op, 16 B/op | **73.4% faster, 50% less memory**   |
 | Complex Accept-Language | 272.6 ns/op, 152 B/op | 91.07 ns/op, 48 B/op | **66.6% faster, 68.4% less memory** |
-| Accept-Encoding | 229.4 ns/op, 88 B/op | 67.87 ns/op, 32 B/op | **70.4% faster, 63.6% less memory** |
+| Accept-Encoding         | 229.4 ns/op, 88 B/op  | 67.87 ns/op, 32 B/op | **70.4% faster, 63.6% less memory** |
 
 ### Vary Header Matching
 
-| Scenario | v1 | v2 | Improvement |
-|----------|----|----|-------------|
-| Matching headers | 711.8 ns/op, 200 B/op | 439.8 ns/op, 132 B/op | **38.2% faster, 34% less memory** |
-| Non-matching | 319.7 ns/op, 104 B/op | 250.9 ns/op, 96 B/op | **21.5% faster, 7.7% less memory** |
-| Exact match | 307.6 ns/op, 68 B/op | 304.6 ns/op, 68 B/op | **1.0% faster** |
-| No Vary | 33.21 ns/op, 4 B/op | 32.78 ns/op, 4 B/op | **1.3% faster** |
+| Scenario         | v1                    | v2                    | Improvement                        |
+|------------------|-----------------------|-----------------------|------------------------------------|
+| Matching headers | 711.8 ns/op, 200 B/op | 439.8 ns/op, 132 B/op | **38.2% faster, 34% less memory**  |
+| Non-matching     | 319.7 ns/op, 104 B/op | 250.9 ns/op, 96 B/op  | **21.5% faster, 7.7% less memory** |
+| Exact match      | 307.6 ns/op, 68 B/op  | 304.6 ns/op, 68 B/op  | **1.0% faster**                    |
+| No Vary          | 33.21 ns/op, 4 B/op   | 32.78 ns/op, 4 B/op   | **1.3% faster**                    |
 
 ## v2 Performance Tuning Options
 
