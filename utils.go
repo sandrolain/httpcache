@@ -210,6 +210,7 @@ func drainDiscardedBody(body io.ReadCloser) error {
 	// Drain the body to allow connection reuse
 	if _, err := io.Copy(io.Discard, io.LimitReader(body, bodyDrainSize)); err != nil {
 		// Still try to close even if drain failed
+		// #nosec G104 // best effort cleanup
 		body.Close() //nolint:errcheck // best effort cleanup
 		return fmt.Errorf("failed to drain response body: %w", err)
 	}

@@ -254,6 +254,7 @@ func New(ctx context.Context, config Config) (httpcache.Cache, error) {
 	defer pingCancel()
 
 	if err := client.Ping(pingCtx, nil); err != nil {
+		// #nosec G104 // best effort cleanup
 		client.Disconnect(ctx) //nolint:errcheck // best effort cleanup
 		return nil, fmt.Errorf("failed to ping MongoDB: %w", err)
 	}
@@ -270,6 +271,7 @@ func New(ctx context.Context, config Config) (httpcache.Cache, error) {
 	// Create TTL index if TTL is configured
 	if config.TTL > 0 {
 		if err := c.createTTLIndex(ctx, config.TTL); err != nil {
+			// #nosec G104 // best effort cleanup
 			client.Disconnect(ctx) //nolint:errcheck // best effort cleanup
 			return nil, fmt.Errorf("failed to create TTL index: %w", err)
 		}

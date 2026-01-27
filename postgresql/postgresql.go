@@ -266,6 +266,7 @@ func (c *Cache) Close() {
 	if c.pool != nil {
 		c.pool.Close()
 	} else if c.conn != nil {
+		// #nosec G104 // best effort cleanup
 		c.conn.Close(context.Background()) //nolint:errcheck // best effort cleanup
 	}
 }

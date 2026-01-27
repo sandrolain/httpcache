@@ -70,7 +70,7 @@ tasks:
         sh: command -v gosec || echo "not_found"
     cmds:
       - echo "Running gosec security scanner..."
-      - gosec -exclude-generated ./...
+      - gosec -exclude-generated -exclude-dir=examples -exclude-dir=test -tests=false ./...
 
   trivy:
     desc: Run Trivy filesystem scanner (vuln, secret, misconfig)
