@@ -12,3 +12,23 @@ trivy-results.json
 
 ## Examples
 examples/prometheus/prometheus
+examples/blobcache/blobcache
+examples/cachekeyheaders/cachekeyheaders
+examples/basic/basic
+examples/compresscache/compresscache
+examples/custom-backend/custom-backend
+examples/diskcache/diskcache
+examples/encryption-security/encryption-security
+examples/freecache/freecache
+examples/hazelcast/hazelcast
+examples/leveldb/leveldb
+examples/maxcacheablesize/maxcacheablesize
+examples/mongodb/mongodb
+examples/multicache/multicache
+examples/natskv/natskv
+examples/postgresql/postgresql
+examples/prewarmer/prewarmer
+examples/redis/redis
+examples/resilience/resilience
+examples/security-best-practices/security-best-practices
+examples/xxhash-performance/xxhash-performance
