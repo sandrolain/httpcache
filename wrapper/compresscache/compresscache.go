@@ -165,7 +165,7 @@ func (c *baseCompressCache) set(ctx context.Context, key string, value []byte, c
 
 	// Prefix with marker (algorithm + 1, so 0 means uncompressed)
 	data := make([]byte, len(compressed)+1)
-	data[0] = byte(c.algorithm + 1)
+	data[0] = byte(c.algorithm + 1) //nolint:gosec // algorithm is a small enum value (0-2), no overflow possible
 	copy(data[1:], compressed)
 
 	if setErr := c.cache.Set(ctx, key, data); setErr != nil {

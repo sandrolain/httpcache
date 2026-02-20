@@ -131,7 +131,7 @@ func demonstrateWithEncryption(serverURL string) {
 
 	// First request
 	fmt.Println("\nFirst request (should miss cache):")
-	resp1, err := client.Get(serverURL)
+	resp1, err := client.Get(serverURL) //nolint:gosec // example using a test server URL
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -142,7 +142,7 @@ func demonstrateWithEncryption(serverURL string) {
 
 	// Second request
 	fmt.Println("\nSecond request (should hit cache):")
-	resp2, err := client.Get(serverURL)
+	resp2, err := client.Get(serverURL) //nolint:gosec // example using a test server URL
 	if err != nil {
 		log.Fatal(err)
 	}

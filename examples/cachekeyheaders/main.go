@@ -78,7 +78,7 @@ func makeRequest(client *http.Client, url, authToken, language string) *http.Res
 	req.Header.Set("Authorization", authToken)
 	req.Header.Set("Accept-Language", language)
 
-	resp, err := client.Do(req)
+	resp, err := client.Do(req) //nolint:gosec // example uses a hardcoded demonstration URL
 	if err != nil {
 		panic(err)
 	}

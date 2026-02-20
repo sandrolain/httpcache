@@ -16,7 +16,7 @@ func main() {
 
 	// PostgreSQL connection string
 	// Format: postgres://username:password@host:port/database?sslmode=disable
-	connString := "postgres://postgres:postgres@localhost:5432/httpcache?sslmode=disable"
+	connString := "postgres://postgres:postgres@localhost:5432/httpcache?sslmode=disable" //nolint:gosec // example-only dev credentials
 
 	// Create cache with custom configuration
 	config := &postgresql.Config{
