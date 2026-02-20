@@ -35,7 +35,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.25"
+          go-version: "1.26"
 
       - name: Cache Go modules
         uses: actions/cache@v4
@@ -43,9 +43,9 @@ jobs:
           path: |
             ~/.cache/go-build
             ~/go/pkg/mod
-          key: ${{ runner.os }}-go-1.25-${{ hashFiles('**/go.sum') }}
+          key: ${{ runner.os }}-go-1.26-${{ hashFiles('**/go.sum') }}
           restore-keys: |
-            ${{ runner.os }}-go-1.25-
+            ${{ runner.os }}-go-1.26-
 
       - name: Download dependencies
         run: go mod download
@@ -77,7 +77,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.25"
+          go-version: "1.26"
 
       - name: Run golangci-lint
         uses: golangci/golangci-lint-action@v8
@@ -97,7 +97,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.25"
+          go-version: "1.26"
 
       - name: Check formatting
         run: |
@@ -118,7 +118,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.25"
+          go-version: "1.26"
 
       - name: Build basic example
         run: go build -o /tmp/basic ./examples/basic/main.go
@@ -157,7 +157,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.25"
+          go-version: "1.26"
 
       - name: Run Redis tests
         run: go test -v ./redis/...
@@ -181,7 +181,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.25"
+          go-version: "1.26"
 
       - name: Run Memcache tests
         run: go test -v ./memcache/...
