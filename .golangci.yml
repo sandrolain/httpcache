@@ -16,6 +16,8 @@ linters:
   settings:
     gosec:
       severity: medium
+      excludes: []
+      exclude-generated: true # equivalent to -exclude-generated
     # gocyclo:
     #   min-complexity: 20
     errcheck:
@@ -36,7 +38,17 @@ linters:
           - errcheck
           - goconst
           - gocognit
+      # equivalent to -tests=false: skip all gosec findings in test files
+      - path: "(.+)_test\\.go"
+        linters:
+          - gosec
+      # equivalent to -exclude-dir=examples
       - path: "examples/.+\\.go"
         linters:
           - errcheck
           - forbidigo
+          - gosec
+      # equivalent to -exclude-dir=test
+      - path: "^test/.+\\.go"
+        linters:
+          - gosec
