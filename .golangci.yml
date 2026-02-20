@@ -17,7 +17,7 @@ linters:
     gosec:
       severity: medium
       excludes: []
-      exclude-generated: true # equivalent to -exclude-generated
+      #exclude-generated: true # equivalent to -exclude-generated
     # gocyclo:
     #   min-complexity: 20
     errcheck:
