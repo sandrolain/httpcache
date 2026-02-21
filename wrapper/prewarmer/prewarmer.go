@@ -293,7 +293,7 @@ func (p *Prewarmer) fetchURL(ctx context.Context, url string) *Result {
 		req.Header.Set("Cache-Control", "no-cache")
 	}
 
-	resp, err := p.client.Do(req) //nolint:gosec // #nosec G704 -- URL is validated by caller before reaching this point
+	resp, err := p.client.Do(req) // #nosec G704 -- URL is validated by caller before reaching this point
 	if err != nil {
 		result.Error = fmt.Errorf("request failed: %w", err)
 		result.Duration = time.Since(startTime)
@@ -361,7 +361,7 @@ func (p *Prewarmer) parseSitemap(ctx context.Context, sitemapURL string) ([]stri
 
 	req.Header.Set("User-Agent", p.userAgent)
 
-	resp, err := p.client.Do(req) //nolint:gosec // #nosec G704 -- URL comes from validated sitemap entries
+	resp, err := p.client.Do(req) // #nosec G704 -- URL comes from validated sitemap entries
 	if err != nil {
 		return nil, err
 	}
