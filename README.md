@@ -4,7 +4,7 @@
 
 [![CI](https://github.com/sandrolain/httpcache/workflows/CI/badge.svg?branch=master)](https://github.com/sandrolain/httpcache/actions/workflows/ci.yml)
 [![Security](https://github.com/sandrolain/httpcache/workflows/Security/badge.svg?branch=master)](https://github.com/sandrolain/httpcache/actions/workflows/security.yml)
-[![Coverage](https://img.shields.io/badge/coverage-90.7%-brightgreen.svg)](https://github.com/sandrolain/httpcache)
+[![Coverage](https://img.shields.io/badge/coverage-90%25-brightgreen.svg)](https://github.com/sandrolain/httpcache)
 [![Go Report Card](https://goreportcard.com/badge/github.com/sandrolain/httpcache)](https://goreportcard.com/report/github.com/sandrolain/httpcache)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE.txt)
 [![GoDoc](https://godoc.org/github.com/sandrolain/httpcache?status.svg)](https://godoc.org/github.com/sandrolain/httpcache)
