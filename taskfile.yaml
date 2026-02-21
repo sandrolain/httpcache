@@ -12,10 +12,11 @@ tasks:
   install-tools-mac:
     desc: Install all required Go tools on macOS
     cmds:
+      - brew install trivy
       - go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
-      - brew install aquasecurity/trivy/trivy
-      - brew install govulncheck
+      - go install golang.org/x/vuln/cmd/govulncheck@latest
       - go install github.com/google/go-licenses/v2@latest
+      - asdf reshim golang
 
   fmt-check:
     desc: Check Go code formatting without making changes
@@ -52,6 +53,7 @@ tasks:
     cmds:
       - echo "Running tests with coverage (clean output)..."
       - go test -coverprofile=coverage.out -covermode=atomic $(go list ./... | grep -v '/examples/') 2>&1
+      - go tool cover -func=coverage.out
       - go tool cover -html=coverage.out -o coverage.html
       - echo "Coverage report generated at coverage.html"
 
