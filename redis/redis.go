@@ -18,7 +18,7 @@ type Config struct {
 
 	// Password is the Redis password for authentication.
 	// Optional - leave empty if no authentication is required.
-	Password string //nolint:gosec // configuration field, not a credential
+	Password string //nolint:gosec // #nosec G117 -- configuration field, not a credential
 
 	// Username is the Redis username for authentication (Redis 6.0+).
 	// Optional - leave empty if no authentication is required.
