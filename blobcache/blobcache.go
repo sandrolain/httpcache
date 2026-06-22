@@ -54,7 +54,7 @@ type Config struct {
 // DefaultConfig returns a Config with default values.
 func DefaultConfig() Config {
 	return Config{
-		KeyPrefix: "cache/",
+		KeyPrefix: defaultKeyPrefix,
 		Timeout:   30 * time.Second,
 	}
 }
@@ -67,7 +67,10 @@ type cache struct {
 	ownsBucket bool // true if we opened the bucket (should close it)
 }
 
-const stalePrefix = "stale_"
+const (
+	defaultKeyPrefix = "cache/"
+	stalePrefix      = "stale_"
+)
 
 // New creates a new blob cache with the given configuration.
 // The bucket is opened using the BucketURL.

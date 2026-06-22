@@ -9,6 +9,8 @@ import (
 	"github.com/sandrolain/httpcache/freecache"
 )
 
+const cache300URL = "https://httpbin.org/cache/300"
+
 func main() {
 	// Create a 100MB cache
 	// For large caches, reduce GC percentage for better performance
@@ -21,9 +23,9 @@ func main() {
 
 	// Make multiple requests to demonstrate caching
 	urls := []string{
-		"https://httpbin.org/cache/300", // Cacheable for 5 minutes
-		"https://httpbin.org/cache/300",
-		"https://httpbin.org/cache/300",
+		cache300URL, // Cacheable for 5 minutes
+		cache300URL,
+		cache300URL,
 	}
 
 	for i, url := range urls {
@@ -64,7 +66,7 @@ func main() {
 
 	// Final request after clear
 	fmt.Printf("\n--- Request after clear ---\n")
-	resp, err := client.Get("https://httpbin.org/cache/300")
+	resp, err := client.Get(cache300URL)
 	if err == nil {
 		resp.Body.Close()
 		fmt.Printf("From cache: %s\n", resp.Header.Get("X-From-Cache"))

@@ -59,6 +59,8 @@ type cache struct {
 	timeout    time.Duration
 }
 
+const mongoIDField = "_id"
+
 // cacheKey adds the configured prefix to the key.
 func (c cache) cacheKey(key string) string {
 	return c.keyPrefix + key
@@ -76,7 +78,7 @@ func (c cache) Get(ctx context.Context, key string) (resp []byte, ok bool, err e
 	}
 
 	var entry cacheEntry
-	err = c.collection.FindOne(ctx, bson.M{"_id": c.cacheKey(key)}).Decode(&entry)
+	err = c.collection.FindOne(ctx, bson.M{mongoIDField: c.cacheKey(key)}).Decode(&entry)
 	if err != nil {
 		if err == mongo.ErrNoDocuments {
 			return nil, false, nil
@@ -105,7 +107,7 @@ func (c cache) Set(ctx context.Context, key string, resp []byte) error {
 	}
 
 	opts := options.Replace().SetUpsert(true)
-	_, err := c.collection.ReplaceOne(ctx, bson.M{"_id": entry.Key}, entry, opts)
+	_, err := c.collection.ReplaceOne(ctx, bson.M{mongoIDField: entry.Key}, entry, opts)
 	if err != nil {
 		return fmt.Errorf("mongodb cache set failed for key %q: %w", key, err)
 	}
@@ -123,7 +125,7 @@ func (c cache) Delete(ctx context.Context, key string) error {
 		defer cancel()
 	}
 
-	_, err := c.collection.DeleteOne(ctx, bson.M{"_id": c.cacheKey(key)})
+	_, err := c.collection.DeleteOne(ctx, bson.M{mongoIDField: c.cacheKey(key)})
 	if err != nil {
 		return fmt.Errorf("mongodb cache delete failed for key %q: %w", key, err)
 	}
@@ -141,7 +143,7 @@ func (c cache) MarkStale(ctx context.Context, key string) error {
 	// Check if entry exists and mark it as stale
 	result, err := c.collection.UpdateOne(
 		ctx,
-		bson.M{"_id": c.cacheKey(key)},
+		bson.M{mongoIDField: c.cacheKey(key)},
 		bson.M{"$set": bson.M{"stale": true}},
 	)
 	if err != nil {
@@ -162,7 +164,7 @@ func (c cache) IsStale(ctx context.Context, key string) (bool, error) {
 	}
 
 	var entry cacheEntry
-	err := c.collection.FindOne(ctx, bson.M{"_id": c.cacheKey(key)}).Decode(&entry)
+	err := c.collection.FindOne(ctx, bson.M{mongoIDField: c.cacheKey(key)}).Decode(&entry)
 	if err != nil {
 		if err == mongo.ErrNoDocuments {
 			return false, nil
@@ -183,7 +185,7 @@ func (c cache) GetStale(ctx context.Context, key string) ([]byte, bool, error) {
 	// Find entry marked as stale
 	var entry cacheEntry
 	err := c.collection.FindOne(ctx, bson.M{
-		"_id":   c.cacheKey(key),
+		mongoIDField: c.cacheKey(key),
 		"stale": true,
 	}).Decode(&entry)
 	if err != nil {
