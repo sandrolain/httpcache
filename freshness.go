@@ -20,6 +20,14 @@ func (c *realClock) since(d time.Time) time.Duration {
 	return time.Since(d)
 }
 
+// clampedAge returns now-date clamped to >= 0 per RFC 9111 Section 4.2.3.
+func clampedAge(date time.Time, clock timer) time.Duration {
+	if age := clock.since(date); age > 0 {
+		return age
+	}
+	return 0
+}
+
 // getFreshness will return one of fresh/stale/transparent based on the cache-control
 // values of the request and the response
 //
@@ -44,7 +52,7 @@ func getFreshness(respHeaders, reqHeaders http.Header, clock timer, log *slog.Lo
 	if err != nil {
 		return stale
 	}
-	currentAge := clock.since(date)
+	currentAge := clampedAge(date, clock)
 
 	// Calculate response lifetime
 	lifetime := calculateLifetime(respCacheControl, respHeaders, date)
@@ -180,7 +188,7 @@ func isActuallyStale(respHeaders http.Header, clock timer, log *slog.Logger) boo
 		return true // No date means we can't determine freshness, treat as stale
 	}
 
-	currentAge := clock.since(date)
+	currentAge := clampedAge(date, clock)
 	lifetime := calculateLifetime(respCacheControl, respHeaders, date)
 
 	// Check if stale-while-revalidate extends freshness
@@ -237,7 +245,7 @@ func checkStaleIfErrorLifetime(respHeaders http.Header, lifetime time.Duration, 
 	if err != nil {
 		return false
 	}
-	currentAge := clock.since(date)
+	currentAge := clampedAge(date, clock)
 	return lifetime > currentAge
 }
 

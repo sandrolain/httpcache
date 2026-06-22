@@ -191,6 +191,15 @@ func TestGetFreshnessEdgeCases(t *testing.T) {
 			t.Errorf("getFreshness() = %v, want %v", got, stale)
 		}
 	})
+
+	t.Run("future Date with no freshness info is stale (RFC 9111 4.2.3)", func(t *testing.T) {
+		respHeaders := http.Header{}
+		respHeaders.Set("Date", time.Now().UTC().Add(5*time.Second).Format(time.RFC1123))
+
+		if got := getFreshness(respHeaders, http.Header{}, &realClock{}, slog.Default()); got == fresh {
+			t.Fatalf("future Date with no freshness info treated as fresh; want stale (RFC 9111 4.2.3); got %s", freshnessString(got))
+		}
+	})
 }
 
 // TestClientFunction tests the Client helper function
