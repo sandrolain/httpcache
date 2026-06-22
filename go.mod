@@ -1,6 +1,6 @@
 module github.com/sandrolain/httpcache
 
-go 1.25.7
+go 1.26.4
 
 require (
 	github.com/andybalholm/brotli v1.2.0
@@ -19,7 +19,7 @@ require (
 	github.com/nats-io/nats.go v1.48.0
 	github.com/peterbourgon/diskv v2.0.1+incompatible
 	github.com/prometheus/client_golang v1.23.2
-	github.com/redis/go-redis/v9 v9.18.0
+	github.com/redis/go-redis/v9 v9.21.0
 	github.com/stretchr/testify v1.11.1
 	github.com/syndtr/goleveldb v1.0.0
 	github.com/testcontainers/testcontainers-go v0.40.0
