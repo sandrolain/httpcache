@@ -23,7 +23,7 @@ The MongoDB cache backend provides persistent, distributed caching with automati
 
 - Go 1.21 or later
 - MongoDB 4.0 or later running locally or remotely
-- MongoDB Go driver (`go.mongodb.org/mongo-driver/mongo`)
+- MongoDB Go driver (`go.mongodb.org/mongo-driver/v2/mongo`)
 
 ## Setup MongoDB
 
@@ -242,8 +242,8 @@ Manage the MongoDB client yourself for fine-grained control:
 ```go
 import (
     "context"
-    "go.mongodb.org/mongo-driver/mongo"
-    "go.mongodb.org/mongo-driver/mongo/options"
+  "go.mongodb.org/mongo-driver/v2/mongo"
+  "go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 
 // Create custom MongoDB client

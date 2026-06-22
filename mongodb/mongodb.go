@@ -7,9 +7,9 @@ import (
 	"time"
 
 	"github.com/sandrolain/httpcache"
-	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
+	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 
 // Config holds the configuration for creating a MongoDB cache.
@@ -244,7 +244,7 @@ func New(ctx context.Context, config Config) (httpcache.Cache, error) {
 	}
 
 	// Connect to MongoDB
-	client, err := mongo.Connect(ctx, clientOpts)
+	client, err := mongo.Connect(clientOpts)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to MongoDB: %w", err)
 	}
