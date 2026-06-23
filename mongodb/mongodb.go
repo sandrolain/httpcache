@@ -186,7 +186,7 @@ func (c cache) GetStale(ctx context.Context, key string) ([]byte, bool, error) {
 	var entry cacheEntry
 	err := c.collection.FindOne(ctx, bson.M{
 		mongoIDField: c.cacheKey(key),
-		"stale": true,
+		"stale":      true,
 	}).Decode(&entry)
 	if err != nil {
 		if err == mongo.ErrNoDocuments {
