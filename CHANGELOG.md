@@ -249,6 +249,15 @@ cache := rediscache.NewWithClient(client)
 
 ---
 
+## [1.4.1] - 2026-06-22
+
+### Fixed
+
+- **RFC 9111 §4.2.3 Clock Skew Handling**: Fixed freshness calculation for responses with future Date headers. The `apparent_age` is now correctly clamped to `>= 0` using `max(0, response_time - date_value)`. This prevents responses with no freshness information (no Cache-Control/Expires) from being incorrectly marked as fresh when the server clock is ahead of the client clock. Applied fix to `isActuallyStale()`, `getFreshness()`, and `checkStaleIfErrorLifetime()` functions.
+- Added regression test `TestFreshnessFutureDateClockSkew` to verify proper handling of clock skew scenarios.
+
+---
+
 ## [1.4.0] - 2024-11-24
 
 This release updates all documentation to reference **RFC 9111** (HTTP Caching, June 2022) as the primary standard, which obsoletes RFC 7234 (2014). It also includes several RFC 9111 compliance improvements implemented in previous releases.
@@ -492,6 +501,7 @@ For the complete history of the original project, see the [archived repository](
 
 ---
 
+[1.4.1]: https://github.com/sandrolain/httpcache/compare/v1.4.0...v1.4.1
 [1.4.0]: https://github.com/sandrolain/httpcache/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/sandrolain/httpcache/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/sandrolain/httpcache/compare/v1.1.0...v1.2.0
