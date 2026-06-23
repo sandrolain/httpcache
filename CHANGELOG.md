@@ -74,6 +74,12 @@ This is a **major breaking release** that adds `context.Context` support and err
   - Full context support for proper cancellation and timeouts
   - Built-in connection pooling with better configuration
   - Support for Redis 6.0+ ACL authentication (Username field)
+- **MongoDB backend migrated** from deprecated driver v1 to official `go.mongodb.org/mongo-driver/v2`:
+  - Improved performance and security
+  - Full context support for proper cancellation and timeouts
+  - Better connection pool management
+- **Go Version**: Updated minimum Go version to 1.26.4 with latest dependency updates for improved performance and security patches
+- **Freshness Calculation**: Added `clampedAge()` function for more accurate cache age calculations according to RFC 9111
 
 ### Fixed
 
@@ -109,6 +115,8 @@ This is a **major breaking release** that adds `context.Context` support and err
   - Prevents concurrent map iteration and write panics
   - Allows multiple concurrent calls to `GetReusableResponse()`
   - Particularly important with custom middleware modifying responses
+
+- **Code Quality**: Resolved linting issues across the codebase for improved code quality and consistency
 
 ### Security
 
