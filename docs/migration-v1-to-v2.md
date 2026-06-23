@@ -5,8 +5,10 @@ This guide provides step-by-step instructions for upgrading from httpcache v1 to
 ## Table of Contents
 
 - [Overview](#overview)
+- [v1 (master) comparison](#v1-master-comparison)
 - [Breaking Changes](#breaking-changes)
 - [Step-by-Step Migration](#step-by-step-migration)
+- [Custom Cache Backend Migration](#custom-cache-backend-migration)
 - [Configuration Changes](#configuration-changes)
 - [Performance Considerations](#performance-considerations)
 - [Testing Your Migration](#testing-your-migration)
@@ -26,6 +28,23 @@ httpcache v2 is a major upgrade focusing on performance optimization while maint
 
 For detailed performance metrics, see [Performance Optimization](./performance-v2.md).
 
+## v1 (master) Comparison
+
+This section compares migration-relevant usage between v1 (`master` branch) and v2.
+
+| Area | v1 (master) | v2 | Migration action |
+|------|-------------|----|------------------|
+| Quick in-memory transport | `httpcache.NewMemoryCacheTransport()` | Removed | Create a backend explicitly, then use `httpcache.NewTransport(cache, ...)` |
+| Cache interface | `Get(key)`, `Set(key, value)`, `Delete(key)` | `Get(ctx, key)`, `Set(ctx, key, value) error`, `Delete(ctx, key) error`, plus stale methods | Update custom backends or use a temporary adapter |
+| Stored key format | Plain request-derived keys | Hashed keys before backend storage | Expect cache warm-up after upgrade for persistent stores |
+| Hash algorithm setting | Not exposed in v1 API | `WithHashAlgorithm(SHA256|XXHash)` | Keep SHA-256 when you need stable v2 behavior; use XXHash for throughput |
+
+Notes from the comparison:
+
+- `NewMemoryCacheTransport()` exists on v1 `master`, but not in v2.
+- v2 `Cache` interface is a breaking change for custom backend implementations.
+- Existing v1 persisted entries are not directly reusable in v2 because key storage format differs.
+
 ## Breaking Changes
 
 ### 1. Hash Algorithm Default
@@ -38,6 +57,9 @@ xxHash is the default hash algorithm for better performance.
 
 **Migration Impact:**  
 Existing cache entries with SHA-256 keys will miss after upgrading. The cache will rebuild naturally over time.
+
+**Compatibility note from v1 comparison:**  
+v1 `master` stores plain request-derived keys, while v2 stores hashed keys. Even when v2 uses SHA-256, persisted v1 entries are not read directly because the key format differs.
 
 **Options:**
 
@@ -102,6 +124,53 @@ None. Buffer pooling is automatic and transparent.
 **Memory Considerations:**  
 Buffer pools retain memory for reuse. In extremely memory-constrained environments, this may increase baseline memory usage slightly, but drastically reduces allocation overhead.
 
+### 4. `NewMemoryCacheTransport()` Removal
+
+**v1 Behavior:**  
+`httpcache.NewMemoryCacheTransport()` was available as a convenience constructor.
+
+**v2 Behavior:**  
+Use an explicit cache backend with `httpcache.NewTransport(cache, ...)`.
+
+**Migration Example:**
+
+```go
+// v1
+transport := httpcache.NewMemoryCacheTransport()
+
+// v2
+cache := freecache.New(100 * 1024 * 1024)
+transport := httpcache.NewTransport(cache)
+```
+
+### 5. Cache Interface Changes for Custom Backends
+
+**v1 Interface (master):**
+
+```go
+type Cache interface {
+    Get(key string) (responseBytes []byte, ok bool)
+    Set(key string, responseBytes []byte)
+    Delete(key string)
+}
+```
+
+**v2 Interface:**
+
+```go
+type Cache interface {
+    Get(ctx context.Context, key string) (responseBytes []byte, ok bool, err error)
+    Set(ctx context.Context, key string, responseBytes []byte) error
+    Delete(ctx context.Context, key string) error
+    MarkStale(ctx context.Context, key string) error
+    IsStale(ctx context.Context, key string) (bool, error)
+    GetStale(ctx context.Context, key string) (responseBytes []byte, ok bool, err error)
+}
+```
+
+**Migration Impact:**  
+Custom cache backend implementations from v1 must be updated.
+
 ## Step-by-Step Migration
 
 ### Step 1: Update Import Statement
@@ -138,6 +207,15 @@ transport := httpcache.NewTransport(cache,
 )
 ```
 
+### Step 2.1: Replace `NewMemoryCacheTransport()` (if used)
+
+If your v1 code uses `NewMemoryCacheTransport()`, migrate to explicit backend initialization:
+
+```go
+cache := freecache.New(100 * 1024 * 1024)
+transport := httpcache.NewTransport(cache)
+```
+
 ### Step 3: Update Monitoring/Metrics
 
 v2 includes enhanced debug headers for cache behavior inspection:
@@ -162,6 +240,50 @@ transport.MarkCachedResponses = true
 4. **Canary Deployment:** Roll out to small subset first
 5. **Monitor:** Watch cache hit rates and performance metrics
 6. **Full Deployment:** Roll out to all instances
+
+## Custom Cache Backend Migration
+
+If you implemented the v1 custom `Cache` interface, use this temporary adapter pattern to migrate incrementally.
+
+```go
+type LegacyCache interface {
+    Get(key string) ([]byte, bool)
+    Set(key string, value []byte)
+    Delete(key string)
+}
+
+type LegacyAdapter struct {
+    inner LegacyCache
+}
+
+func (a *LegacyAdapter) Get(_ context.Context, key string) ([]byte, bool, error) {
+    v, ok := a.inner.Get(key)
+    return v, ok, nil
+}
+
+func (a *LegacyAdapter) Set(_ context.Context, key string, value []byte) error {
+    a.inner.Set(key, value)
+    return nil
+}
+
+func (a *LegacyAdapter) Delete(_ context.Context, key string) error {
+    a.inner.Delete(key)
+    return nil
+}
+
+func (a *LegacyAdapter) MarkStale(ctx context.Context, key string) error {
+    // Fallback behavior for legacy backends without stale semantics.
+    return a.Delete(ctx, key)
+}
+
+func (a *LegacyAdapter) IsStale(_ context.Context, _ string) (bool, error) {
+    return false, nil
+}
+
+func (a *LegacyAdapter) GetStale(_ context.Context, _ string) ([]byte, bool, error) {
+    return nil, false, nil
+}
+```
 
 ## Configuration Changes
 
