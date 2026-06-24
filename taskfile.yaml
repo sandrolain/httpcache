@@ -45,7 +45,7 @@ tasks:
     desc: Run Go vulnerability check with govulncheck
     cmds:
       - echo "Running govulncheck..."
-      - govulncheck ./...
+      - govulncheck -scan=package ./...
 
   test:
     desc: Run tests with race detector and coverage (suppress linker warnings)

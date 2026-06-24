@@ -236,7 +236,7 @@ Contributions are welcome! Please:
 1. Fork the repository
 2. Create a feature branch (`git checkout -b feature/amazing-feature`)
 3. Make your changes with tests
-4. Run `golangci-lint run` and `govulncheck ./...`
+4. Run `golangci-lint run` and `govulncheck -scan=package ./...`
 5. Commit your changes (`git commit -m 'feat: add amazing feature'`)
 6. Push to the branch (`git push origin feature/amazing-feature`)
 7. Open a Pull Request
