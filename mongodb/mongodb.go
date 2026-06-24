@@ -13,6 +13,8 @@ import (
 	"github.com/sandrolain/httpcache"
 )
 
+const bsonIDField = "_id"
+
 // Config holds the configuration for creating a MongoDB cache.
 type Config struct {
 	// URI is the MongoDB connection URI (e.g., "mongodb://localhost:27017").
@@ -70,7 +72,7 @@ func (c cache) Get(key string) (resp []byte, ok bool) {
 	defer cancel()
 
 	var entry cacheEntry
-	err := c.collection.FindOne(ctx, bson.M{"_id": c.cacheKey(key)}).Decode(&entry)
+	err := c.collection.FindOne(ctx, bson.M{bsonIDField: c.cacheKey(key)}).Decode(&entry)
 	if err != nil {
 		return nil, false
 	}
@@ -90,7 +92,7 @@ func (c cache) Set(key string, resp []byte) {
 	}
 
 	opts := options.Replace().SetUpsert(true)
-	_, err := c.collection.ReplaceOne(ctx, bson.M{"_id": entry.Key}, entry, opts)
+	_, err := c.collection.ReplaceOne(ctx, bson.M{bsonIDField: entry.Key}, entry, opts)
 	if err != nil {
 		httpcache.GetLogger().Warn("failed to write to MongoDB cache", "key", key, "error", err)
 	}
@@ -101,7 +103,7 @@ func (c cache) Delete(key string) {
 	ctx, cancel := context.WithTimeout(context.Background(), c.timeout)
 	defer cancel()
 
-	_, err := c.collection.DeleteOne(ctx, bson.M{"_id": c.cacheKey(key)})
+	_, err := c.collection.DeleteOne(ctx, bson.M{bsonIDField: c.cacheKey(key)})
 	if err != nil {
 		httpcache.GetLogger().Warn("failed to delete from MongoDB cache", "key", key, "error", err)
 	}

@@ -48,9 +48,9 @@ func (c *InstrumentedCache) Get(key string) ([]byte, bool) {
 	value, ok := c.underlying.Get(key)
 	duration := time.Since(start)
 
-	result := "miss"
+	result := resultMiss
 	if ok {
-		result = "hit"
+		result = resultHit
 	}
 
 	c.collector.RecordCacheOperation("get", c.backend, result, duration)

@@ -16,8 +16,7 @@ func TestCacheKeyHeaders(t *testing.T) {
 	testServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requestCount++
 		w.Header().Set("Cache-Control", "max-age=3600")
-		auth := r.Header.Get("Authorization")
-		w.Write([]byte("Response for auth: " + auth))
+		w.Write([]byte("Response"))
 	}))
 	defer testServer.Close()
 
@@ -104,9 +103,7 @@ func TestCacheKeyHeadersMultipleHeaders(t *testing.T) {
 	testServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requestCount++
 		w.Header().Set("Cache-Control", "max-age=3600")
-		auth := r.Header.Get("Authorization")
-		lang := r.Header.Get("Accept-Language")
-		w.Write([]byte("Auth: " + auth + " Lang: " + lang))
+		w.Write([]byte("Response"))
 	}))
 	defer testServer.Close()
 
@@ -210,7 +207,7 @@ func TestCacheKeyHeadersWithoutHeader(t *testing.T) {
 		if auth == "" {
 			w.Write([]byte("No auth"))
 		} else {
-			w.Write([]byte("Auth: " + auth))
+			w.Write([]byte("With auth"))
 		}
 	}))
 	defer testServer.Close()
@@ -449,7 +446,11 @@ func TestCacheKeyHeadersRevalidation(t *testing.T) {
 		w.Header().Set("Cache-Control", "max-age=1") // Short cache
 		w.Header().Set("ETag", etag)
 		auth := r.Header.Get("Authorization")
-		w.Write([]byte("Auth: " + auth))
+		if auth == "" {
+			w.Write([]byte("No auth"))
+		} else {
+			w.Write([]byte("With auth"))
+		}
 	}))
 	defer testServer.Close()
 

@@ -10,10 +10,12 @@ import (
 	"github.com/sandrolain/httpcache/test"
 )
 
+const defaultPostgreSQLTestURL = "postgres://localhost:5432/httpcache_test?sslmode=disable"
+
 func getTestConnString() string {
 	connString := os.Getenv("POSTGRESQL_TEST_URL")
 	if connString == "" {
-		connString = "postgres://postgres:postgres@localhost:5432/httpcache_test?sslmode=disable"
+		connString = defaultPostgreSQLTestURL
 	}
 	return connString
 }

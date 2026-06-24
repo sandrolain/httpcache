@@ -23,7 +23,7 @@ func TestAuthorizationPrivateCache(t *testing.T) {
 		}
 		// Response without special Cache-Control directives
 		w.Header().Set("Cache-Control", "max-age=3600")
-		w.Write([]byte("Private response for: " + auth))
+		w.Write([]byte("Private response"))
 	}))
 	defer testServer.Close()
 
@@ -97,7 +97,7 @@ func TestAuthorizationSharedCacheNoDirective(t *testing.T) {
 		}
 		// Response WITHOUT public/must-revalidate/s-maxage
 		w.Header().Set("Cache-Control", "max-age=3600")
-		w.Write([]byte("Response for: " + auth))
+		w.Write([]byte("Shared cache response"))
 	}))
 	defer testServer.Close()
 
@@ -172,7 +172,7 @@ func TestAuthorizationSharedCacheWithPublic(t *testing.T) {
 		}
 		// Response WITH public directive
 		w.Header().Set("Cache-Control", "public, max-age=3600")
-		w.Write([]byte("Public response for: " + auth))
+		w.Write([]byte("Public response"))
 	}))
 	defer testServer.Close()
 
@@ -247,7 +247,7 @@ func TestAuthorizationSharedCacheWithMustRevalidate(t *testing.T) {
 		}
 		// Response WITH must-revalidate directive
 		w.Header().Set("Cache-Control", "must-revalidate, max-age=3600")
-		w.Write([]byte("Must-revalidate response for: " + auth))
+		w.Write([]byte("Must-revalidate response"))
 	}))
 	defer testServer.Close()
 
@@ -322,7 +322,7 @@ func TestAuthorizationSharedCacheWithSMaxAge(t *testing.T) {
 		}
 		// Response WITH s-maxage directive
 		w.Header().Set("Cache-Control", "s-maxage=3600, max-age=1800")
-		w.Write([]byte("S-maxage response for: " + auth))
+		w.Write([]byte("S-maxage response"))
 	}))
 	defer testServer.Close()
 
@@ -566,10 +566,9 @@ func TestAuthorizationSharedCacheWithCacheKeyHeaders(t *testing.T) {
 	requestCount := 0
 	testServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requestCount++
-		auth := r.Header.Get("Authorization")
 		// Response with public directive to allow shared cache
 		w.Header().Set("Cache-Control", "public, max-age=3600")
-		w.Write([]byte("Response for: " + auth))
+		w.Write([]byte("Response"))
 	}))
 	defer testServer.Close()
 

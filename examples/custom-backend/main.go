@@ -12,6 +12,8 @@ import (
 	"github.com/sandrolain/httpcache"
 )
 
+const cache300URL = "https://httpbin.org/cache/300"
+
 // StatsCache wraps any cache implementation and adds statistics
 type StatsCache struct {
 	underlying httpcache.Cache
@@ -177,10 +179,10 @@ func main() {
 	client1 := &http.Client{Transport: transport1}
 
 	urls := []string{
-		"https://httpbin.org/cache/300",
-		"https://httpbin.org/cache/300", // Same URL - should be cached
+		cache300URL,
+		cache300URL, // Same URL - should be cached
 		"https://httpbin.org/delay/1",
-		"https://httpbin.org/cache/300", // Same as first - should be cached
+		cache300URL, // Same as first - should be cached
 	}
 
 	for i, url := range urls {

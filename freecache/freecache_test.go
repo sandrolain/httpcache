@@ -1,6 +1,7 @@
 package freecache
 
 import (
+	"strconv"
 	"testing"
 
 	"github.com/sandrolain/httpcache"
@@ -143,7 +144,7 @@ func TestEviction(t *testing.T) {
 
 	// Fill the cache with data larger than cache size
 	for i := 0; i < 100; i++ {
-		key := string(rune('a'+i%26)) + string(rune('0'+i/26))
+		key := "key-" + strconv.Itoa(i)
 		value := make([]byte, 1024) // 1KB per entry
 		cache.Set(key, value)
 	}
@@ -174,7 +175,7 @@ func TestConcurrentAccess(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		go func(id int) {
 			for j := 0; j < 100; j++ {
-				key := string(rune('a' + id))
+				key := "key-" + strconv.Itoa(id)
 				cache.Set(key, []byte("value"))
 			}
 			done <- true
@@ -182,7 +183,7 @@ func TestConcurrentAccess(t *testing.T) {
 
 		go func(id int) {
 			for j := 0; j < 100; j++ {
-				key := string(rune('a' + id))
+				key := "key-" + strconv.Itoa(id)
 				cache.Get(key)
 			}
 			done <- true

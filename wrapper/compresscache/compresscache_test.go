@@ -3,6 +3,7 @@ package compresscache
 import (
 	"bytes"
 	"compress/gzip"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -586,7 +587,7 @@ func TestCompressionLevels(t *testing.T) {
 	testData := []byte(strings.Repeat("compression level test ", 50))
 
 	for _, level := range levels {
-		t.Run(string(rune('0'+level)), func(t *testing.T) {
+		t.Run(strconv.Itoa(level), func(t *testing.T) {
 			cache, err := NewGzip(GzipConfig{
 				Cache: newMockCache(),
 				Level: level,
@@ -613,7 +614,7 @@ func TestBrotliLevels(t *testing.T) {
 	testData := []byte(strings.Repeat("brotli level test ", 50))
 
 	for _, level := range levels {
-		t.Run(string(rune('0'+level)), func(t *testing.T) {
+		t.Run(strconv.Itoa(level), func(t *testing.T) {
 			cache, err := NewBrotli(BrotliConfig{
 				Cache: newMockCache(),
 				Level: level,

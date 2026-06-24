@@ -11,6 +11,13 @@ import (
 	"github.com/sandrolain/httpcache/wrapper/metrics"
 )
 
+const (
+	resultMiss        = "miss"
+	resultHit         = "hit"
+	cacheBackendLabel = "cache_backend"
+	cacheStatusLabel  = "cache_status"
+)
+
 // Collector implements metrics.Collector for Prometheus
 type Collector struct {
 	cacheRequests    *prometheus.CounterVec
@@ -71,7 +78,7 @@ func NewCollectorWithConfig(config CollectorConfig) *Collector {
 				Help:        "Total number of cache operations",
 				ConstLabels: config.ConstLabels,
 			},
-			[]string{"operation", "cache_backend", "result"},
+			[]string{"operation", cacheBackendLabel, "result"},
 		),
 		cacheOpDuration: factory.NewHistogramVec(
 			prometheus.HistogramOpts{
@@ -82,7 +89,7 @@ func NewCollectorWithConfig(config CollectorConfig) *Collector {
 				Buckets:     []float64{.0001, .0005, .001, .005, .01, .05, .1, .5, 1, 5},
 				ConstLabels: config.ConstLabels,
 			},
-			[]string{"operation", "cache_backend"},
+			[]string{"operation", cacheBackendLabel},
 		),
 		cacheSize: factory.NewGaugeVec(
 			prometheus.GaugeOpts{
@@ -92,7 +99,7 @@ func NewCollectorWithConfig(config CollectorConfig) *Collector {
 				Help:        "Current size of cache in bytes",
 				ConstLabels: config.ConstLabels,
 			},
-			[]string{"cache_backend"},
+			[]string{cacheBackendLabel},
 		),
 		cacheEntries: factory.NewGaugeVec(
 			prometheus.GaugeOpts{
@@ -102,7 +109,7 @@ func NewCollectorWithConfig(config CollectorConfig) *Collector {
 				Help:        "Current number of entries in cache",
 				ConstLabels: config.ConstLabels,
 			},
-			[]string{"cache_backend"},
+			[]string{cacheBackendLabel},
 		),
 		httpRequests: factory.NewCounterVec(
 			prometheus.CounterOpts{
@@ -112,7 +119,7 @@ func NewCollectorWithConfig(config CollectorConfig) *Collector {
 				Help:        "Total number of HTTP requests",
 				ConstLabels: config.ConstLabels,
 			},
-			[]string{"method", "cache_status", "status_code"},
+			[]string{"method", cacheStatusLabel, "status_code"},
 		),
 		httpDuration: factory.NewHistogramVec(
 			prometheus.HistogramOpts{
@@ -123,7 +130,7 @@ func NewCollectorWithConfig(config CollectorConfig) *Collector {
 				Buckets:     []float64{.01, .05, .1, .5, 1, 2, 5, 10, 30},
 				ConstLabels: config.ConstLabels,
 			},
-			[]string{"method", "cache_status"},
+			[]string{"method", cacheStatusLabel},
 		),
 		httpResponseSize: factory.NewCounterVec(
 			prometheus.CounterOpts{
@@ -133,7 +140,7 @@ func NewCollectorWithConfig(config CollectorConfig) *Collector {
 				Help:        "Total size of HTTP responses in bytes",
 				ConstLabels: config.ConstLabels,
 			},
-			[]string{"cache_status"},
+			[]string{cacheStatusLabel},
 		),
 		staleResponses: factory.NewCounterVec(
 			prometheus.CounterOpts{

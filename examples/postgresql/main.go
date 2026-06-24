@@ -5,18 +5,24 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"os"
 	"time"
 
 	"github.com/sandrolain/httpcache"
 	"github.com/sandrolain/httpcache/postgresql"
 )
 
+const defaultPostgresDSN = "postgres://localhost:5432/httpcache?sslmode=disable"
+
 func main() {
 	ctx := context.Background()
 
 	// PostgreSQL connection string
 	// Format: postgres://username:password@host:port/database?sslmode=disable
-	connString := "postgres://postgres:postgres@localhost:5432/httpcache?sslmode=disable"
+	connString := os.Getenv("HTTPCACHE_POSTGRES_DSN")
+	if connString == "" {
+		connString = defaultPostgresDSN
+	}
 
 	// Create cache with custom configuration
 	config := &postgresql.Config{

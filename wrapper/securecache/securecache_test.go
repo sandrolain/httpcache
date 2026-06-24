@@ -174,7 +174,7 @@ func TestMultipleKeysWithEncryption(t *testing.T) {
 	cache := newMockCache()
 	sc, err := New(Config{
 		Cache:      cache,
-		Passphrase: "multi-key-passphrase",
+		Passphrase: string(bytes.Repeat([]byte{'k'}, 32)),
 	})
 	if err != nil {
 		t.Fatalf("New() failed: %v", err)

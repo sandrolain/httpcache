@@ -29,8 +29,15 @@ func TestVarySeparation(t *testing.T) {
 
 		// Return different content based on Accept-Language
 		lang := r.Header.Get(acceptLanguageHeader)
+		safeLang := "other"
+		switch lang {
+		case "en":
+			safeLang = "en"
+		case "fr":
+			safeLang = "fr"
+		}
 		w.WriteHeader(http.StatusOK)
-		fmt.Fprintf(w, "content-for-%s-%d", lang, requestCount)
+		fmt.Fprintf(w, "content-for-%s-%d", safeLang, requestCount)
 	}))
 	defer ts.Close()
 
@@ -105,8 +112,22 @@ func TestVarySeparationMultipleHeaders(t *testing.T) {
 
 		accept := r.Header.Get("Accept")
 		lang := r.Header.Get(acceptLanguageHeader)
+		safeAccept := "other"
+		switch accept {
+		case "text/html":
+			safeAccept = "text/html"
+		case "application/json":
+			safeAccept = "application/json"
+		}
+		safeLang := "other"
+		switch lang {
+		case "en":
+			safeLang = "en"
+		case "fr":
+			safeLang = "fr"
+		}
 		w.WriteHeader(http.StatusOK)
-		fmt.Fprintf(w, "content-%s-%s-%d", accept, lang, requestCount)
+		fmt.Fprintf(w, "content-%s-%s-%d", safeAccept, safeLang, requestCount)
 	}))
 	defer ts.Close()
 
@@ -167,8 +188,12 @@ func TestVarySeparationWithEmptyHeader(t *testing.T) {
 		w.Header().Set(varyHeader, acceptLanguageHeader)
 
 		lang := r.Header.Get(acceptLanguageHeader)
+		safeLang := ""
+		if lang == "en" {
+			safeLang = "en"
+		}
 		w.WriteHeader(http.StatusOK)
-		fmt.Fprintf(w, "content-%s-%d", lang, requestCount)
+		fmt.Fprintf(w, "content-%s-%d", safeLang, requestCount)
 	}))
 	defer ts.Close()
 

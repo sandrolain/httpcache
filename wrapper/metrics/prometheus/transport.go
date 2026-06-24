@@ -55,9 +55,9 @@ func (t *InstrumentedTransport) RoundTrip(req *http.Request) (*http.Response, er
 	}
 
 	// Determine cache status
-	cacheStatus := "miss"
+	cacheStatus := resultMiss
 	if resp.Header.Get(httpcache.XFromCache) == "1" {
-		cacheStatus = "hit"
+		cacheStatus = resultHit
 	} else if resp.StatusCode == http.StatusNotModified {
 		cacheStatus = "revalidated"
 	}

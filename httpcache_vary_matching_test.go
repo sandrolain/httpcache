@@ -335,7 +335,7 @@ func TestVaryIntegrationWithCaching(t *testing.T) {
 		lang := r.Header.Get(acceptLanguageHeader)
 		t.Logf("Server request %d: Accept-Language=%q", requestCount, lang)
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("content-" + lang + "-" + string(rune('0'+requestCount))))
+		w.Write([]byte("content"))
 	}))
 	defer ts.Close()
 

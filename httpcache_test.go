@@ -54,7 +54,16 @@ func setup() {
 
 	mux.HandleFunc("/method", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "max-age=3600")
-		_, _ = w.Write([]byte(r.Method))
+		body := "OTHER"
+		switch r.Method {
+		case http.MethodGet:
+			body = http.MethodGet
+		case http.MethodPost:
+			body = http.MethodPost
+		case http.MethodHead:
+			body = http.MethodHead
+		}
+		_, _ = w.Write([]byte(body))
 	}))
 
 	mux.HandleFunc("/range", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

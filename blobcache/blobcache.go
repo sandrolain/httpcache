@@ -37,6 +37,8 @@ import (
 	"github.com/sandrolain/httpcache"
 )
 
+const defaultKeyPrefix = "cache/"
+
 // Config holds the configuration for the blob cache.
 type Config struct {
 	// BucketURL is the Go Cloud blob URL (e.g., "s3://bucket?region=us-west-2")
@@ -55,7 +57,7 @@ type Config struct {
 // DefaultConfig returns a Config with default values.
 func DefaultConfig() Config {
 	return Config{
-		KeyPrefix: "cache/",
+		KeyPrefix: defaultKeyPrefix,
 		Timeout:   30 * time.Second,
 	}
 }

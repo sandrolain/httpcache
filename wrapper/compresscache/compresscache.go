@@ -165,7 +165,21 @@ func (c *baseCompressCache) set(key string, value []byte, compressFn compressFun
 
 	// Prefix with marker (algorithm + 1, so 0 means uncompressed)
 	data := make([]byte, len(compressed)+1)
-	data[0] = byte(c.algorithm + 1)
+	marker := c.algorithm + 1
+	if marker > 0 && marker <= 255 {
+		data[0] = byte(marker)
+	} else {
+		httpcache.GetLogger().Warn("invalid compression marker, storing uncompressed",
+			"key", key,
+			"algorithm", c.algorithm.String())
+		fallbackData := make([]byte, len(value)+1)
+		fallbackData[0] = 0
+		copy(fallbackData[1:], value)
+		c.cache.Set(key, fallbackData)
+		c.uncompressedCount.Add(1)
+		c.uncompressedBytes.Add(int64(len(value)))
+		return
+	}
 	copy(data[1:], compressed)
 
 	c.cache.Set(key, data)
