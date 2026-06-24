@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.2] - 2026-06-24
+
+This release focuses on security hardening and CI/tooling stability while preserving backward compatibility.
+
+### Changed
+
+- Updated vulnerability scan task to use `govulncheck -scan=package ./...` to avoid current symbol-scan runtime panic in this environment.
+- Updated contribution instructions to use the same stable `govulncheck` invocation.
+
+### Security
+
+- Upgraded key dependencies to address known vulnerabilities and reduce scanner findings:
+  - `golang.org/x/net` to `v0.55.0`
+  - `google.golang.org/grpc` to `v1.79.3`
+  - `go.opentelemetry.io/otel` and `go.opentelemetry.io/otel/sdk` to `v1.44.0`
+  - `golang.org/x/crypto` to `v0.52.0`
+  - `github.com/nats-io/nats-server/v2` to `v2.14.2`
+  - `github.com/testcontainers/testcontainers-go` and module packages to `v0.43.0`
+  - `github.com/jackc/pgx/v5` to `v5.9.0`
+- `govulncheck -scan=package ./...` reports no vulnerabilities affecting project packages.
+- Trivy `HIGH/CRITICAL` scan for `go.mod` is now clean (`0` findings).
+
+### Verification
+
+- Full `task check` pipeline executed successfully after updates (`fmt`, `lint`, `govulncheck`, `trivy`, `licenses`, `test`, `test-integration`).
+
 ## [1.4.1] - 2026-06-22
 
 ### Fixed
@@ -258,6 +284,7 @@ For the complete history of the original project, see the [archived repository](
 ---
 
 [1.4.1]: https://github.com/sandrolain/httpcache/compare/v1.4.0...v1.4.1
+[1.4.2]: https://github.com/sandrolain/httpcache/compare/v1.4.1...v1.4.2
 [1.4.0]: https://github.com/sandrolain/httpcache/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/sandrolain/httpcache/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/sandrolain/httpcache/compare/v1.1.0...v1.2.0
