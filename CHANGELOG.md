@@ -5,6 +5,33 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.3] - 2026-10-06
+
+This release resolves the vulnerabilities reported by the `Go Vulnerability Check`
+(`govulncheck`) GitHub Actions workflow, restoring a green security run while
+preserving backward compatibility.
+
+### Security
+
+- Upgraded dependencies to address vulnerabilities reachable from project code:
+  - `google.golang.org/grpc` from `v1.79.3` to `v1.83.2` (GO-2026-6061, GO-2026-6348, GO-2026-6441, GO-2026-6443)
+  - `go.opentelemetry.io/otel` and `go.opentelemetry.io/otel/sdk` (and related modules) from `v1.44.0` to `v1.45.0` (GO-2026-6505)
+  - `golang.org/x/text` from `v0.37.0` to `v0.41.0` (GO-2026-5970)
+  - `go.mongodb.org/mongo-driver` from `v1.17.6` to `v1.17.7` (GO-2026-5327)
+  - `github.com/jackc/pgx/v5` from `v5.9.0` to `v5.9.2` (GO-2026-5004)
+  - `golang.org/x/crypto` from `v0.52.0` to `v0.55.0` (GO-2026-6303)
+  - `golang.org/x/net` from `v0.55.0` to `v0.58.0` (GO-2026-5942)
+  - `github.com/klauspost/compress` from `v1.18.6` to `v1.18.7` (GO-2026-5841)
+- `govulncheck ./...` now reports `0` vulnerabilities affecting project packages.
+  The remaining module-level advisories in `golang.org/x/crypto` (`ssh`, `openpgp`)
+  are not imported by this project and cannot be reached from its code.
+
+### Verification
+
+- Full test suite passes with the race detector (`go test -race ./...`).
+- `golangci-lint run` reports `0` issues.
+- `gofmt -s -l .` and `go vet ./...` are clean.
+
 ## [1.4.2] - 2026-06-24
 
 This release focuses on security hardening and CI/tooling stability while preserving backward compatibility.
