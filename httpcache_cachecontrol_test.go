@@ -492,7 +492,7 @@ func TestResponseWithUppercaseNoStoreNotCached(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requestCount++
 		w.Header().Set("Cache-Control", "NO-STORE")
-		w.Header().Set("Date", time.Now().UTC().Format(time.RFC1123))
+		w.Header().Set("Date", time.Now().UTC().Format(http.TimeFormat))
 		w.Write([]byte("nocache-body"))
 	}))
 	defer ts.Close()
@@ -539,7 +539,7 @@ func TestResponseSecondLineNoCacheForcesRevalidation(t *testing.T) {
 		w.Header().Set("Cache-Control", "max-age=3600")
 		w.Header().Add("Cache-Control", "no-cache")
 		w.Header().Set("ETag", etag)
-		w.Header().Set("Date", time.Now().UTC().Format(time.RFC1123))
+		w.Header().Set("Date", time.Now().UTC().Format(http.TimeFormat))
 		w.Write([]byte("multi-line-body"))
 	}))
 	defer ts.Close()
@@ -763,10 +763,10 @@ func TestMaxAgeQuotedOverridesExpires(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requestCount++
 		// Expires in the far future; quoted max-age=1 must win.
-		expires := time.Now().UTC().Add(100 * time.Hour).Format(time.RFC1123)
+		expires := time.Now().UTC().Add(100 * time.Hour).UTC().Format(http.TimeFormat)
 		w.Header().Set("Cache-Control", `max-age="1"`)
 		w.Header().Set("Expires", expires)
-		w.Header().Set("Date", time.Now().UTC().Format(time.RFC1123))
+		w.Header().Set("Date", time.Now().UTC().Format(http.TimeFormat))
 		w.Write([]byte("quoted-body"))
 	}))
 	defer ts.Close()

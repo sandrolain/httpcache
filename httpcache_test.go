@@ -708,7 +708,7 @@ func TestSkipServerErrorsFromCache(t *testing.T) {
 		StatusCode: http.StatusInternalServerError,
 		Header: http.Header{
 			"Cache-Control": []string{"max-age=3600"},
-			"Date":          []string{time.Now().UTC().Format(time.RFC1123)},
+			"Date":          []string{time.Now().UTC().Format(http.TimeFormat)},
 			"Etag":          []string{"error-etag"},
 		},
 		Body:    io.NopCloser(bytes.NewBufferString("Server error")),
@@ -1179,8 +1179,8 @@ func TestFreshExpiration(t *testing.T) {
 	resetTest()
 	now := time.Now()
 	respHeaders := http.Header{}
-	respHeaders.Set("date", now.Format(time.RFC1123))
-	respHeaders.Set("expires", now.Add(time.Duration(2)*time.Second).Format(time.RFC1123))
+	respHeaders.Set("date", now.UTC().Format(http.TimeFormat))
+	respHeaders.Set("expires", now.Add(time.Duration(2)*time.Second).UTC().Format(http.TimeFormat))
 
 	reqHeaders := http.Header{}
 	if getFreshness(respHeaders, reqHeaders, &realClock{}, slog.Default(), false) != fresh {
@@ -1197,7 +1197,7 @@ func TestMaxAge(t *testing.T) {
 	resetTest()
 	now := time.Now()
 	respHeaders := http.Header{}
-	respHeaders.Set("date", now.Format(time.RFC1123))
+	respHeaders.Set("date", now.UTC().Format(http.TimeFormat))
 	respHeaders.Set("cache-control", "max-age=2")
 
 	reqHeaders := http.Header{}
@@ -1215,7 +1215,7 @@ func TestMaxAgeZero(t *testing.T) {
 	resetTest()
 	now := time.Now()
 	respHeaders := http.Header{}
-	respHeaders.Set("date", now.Format(time.RFC1123))
+	respHeaders.Set("date", now.UTC().Format(http.TimeFormat))
 	respHeaders.Set("cache-control", "max-age=0")
 
 	reqHeaders := http.Header{}
@@ -1228,7 +1228,7 @@ func TestBothMaxAge(t *testing.T) {
 	resetTest()
 	now := time.Now()
 	respHeaders := http.Header{}
-	respHeaders.Set("date", now.Format(time.RFC1123))
+	respHeaders.Set("date", now.UTC().Format(http.TimeFormat))
 	respHeaders.Set("cache-control", "max-age=2")
 
 	reqHeaders := http.Header{}
@@ -1242,8 +1242,8 @@ func TestMinFreshWithExpires(t *testing.T) {
 	resetTest()
 	now := time.Now()
 	respHeaders := http.Header{}
-	respHeaders.Set("date", now.Format(time.RFC1123))
-	respHeaders.Set("expires", now.Add(time.Duration(2)*time.Second).Format(time.RFC1123))
+	respHeaders.Set("date", now.UTC().Format(http.TimeFormat))
+	respHeaders.Set("expires", now.Add(time.Duration(2)*time.Second).UTC().Format(http.TimeFormat))
 
 	reqHeaders := http.Header{}
 	reqHeaders.Set("cache-control", "min-fresh=1")
@@ -1262,7 +1262,7 @@ func TestEmptyMaxStale(t *testing.T) {
 	resetTest()
 	now := time.Now()
 	respHeaders := http.Header{}
-	respHeaders.Set("date", now.Format(time.RFC1123))
+	respHeaders.Set("date", now.UTC().Format(http.TimeFormat))
 	respHeaders.Set("cache-control", "max-age=20")
 
 	reqHeaders := http.Header{}
@@ -1282,7 +1282,7 @@ func TestMaxStaleValue(t *testing.T) {
 	resetTest()
 	now := time.Now()
 	respHeaders := http.Header{}
-	respHeaders.Set("date", now.Format(time.RFC1123))
+	respHeaders.Set("date", now.UTC().Format(http.TimeFormat))
 	respHeaders.Set("cache-control", "max-age=10")
 
 	reqHeaders := http.Header{}
@@ -1377,7 +1377,7 @@ func TestStaleIfErrorRequest(t *testing.T) {
 			Status:     http.StatusText(http.StatusOK),
 			StatusCode: http.StatusOK,
 			Header: http.Header{
-				"Date":          []string{now.Format(time.RFC1123)},
+				"Date":          []string{now.UTC().Format(http.TimeFormat)},
 				"Cache-Control": []string{"no-cache"},
 			},
 			Body: io.NopCloser(bytes.NewBuffer([]byte("some data"))),
@@ -1426,7 +1426,7 @@ func TestStaleIfErrorRequestLifetime(t *testing.T) {
 			Status:     http.StatusText(http.StatusOK),
 			StatusCode: http.StatusOK,
 			Header: http.Header{
-				"Date":          []string{now.Format(time.RFC1123)},
+				"Date":          []string{now.UTC().Format(http.TimeFormat)},
 				"Cache-Control": []string{"no-cache"},
 			},
 			Body: io.NopCloser(bytes.NewBuffer([]byte("some data"))),
@@ -1495,7 +1495,7 @@ func TestStaleIfErrorResponse(t *testing.T) {
 			Status:     http.StatusText(http.StatusOK),
 			StatusCode: http.StatusOK,
 			Header: http.Header{
-				"Date":          []string{now.Format(time.RFC1123)},
+				"Date":          []string{now.UTC().Format(http.TimeFormat)},
 				"Cache-Control": []string{"no-cache, stale-if-error"},
 			},
 			Body: io.NopCloser(bytes.NewBuffer([]byte("some data"))),
@@ -1543,7 +1543,7 @@ func TestStaleIfErrorResponseLifetime(t *testing.T) {
 			Status:     http.StatusText(http.StatusOK),
 			StatusCode: http.StatusOK,
 			Header: http.Header{
-				"Date":          []string{now.Format(time.RFC1123)},
+				"Date":          []string{now.UTC().Format(http.TimeFormat)},
 				"Cache-Control": []string{"no-cache, stale-if-error=100"},
 			},
 			Body: io.NopCloser(bytes.NewBuffer([]byte("some data"))),
@@ -1600,7 +1600,7 @@ func TestStaleIfErrorKeepsStatus(t *testing.T) {
 			Status:     http.StatusText(http.StatusNotFound),
 			StatusCode: http.StatusNotFound,
 			Header: http.Header{
-				"Date":          []string{now.Format(time.RFC1123)},
+				"Date":          []string{now.UTC().Format(http.TimeFormat)},
 				"Cache-Control": []string{"no-cache"},
 			},
 			Body: io.NopCloser(bytes.NewBuffer([]byte("some data"))),
@@ -1675,7 +1675,7 @@ func TestFreshnessStaleWhileRevalidate(t *testing.T) {
 	resetTest()
 	now := time.Now()
 	respHeaders := http.Header{}
-	respHeaders.Set("date", now.Format(time.RFC1123))
+	respHeaders.Set("date", now.UTC().Format(http.TimeFormat))
 	respHeaders.Set("Cache-Control", "max-age=100, stale-while-revalidate=100")
 
 	reqHeaders := http.Header{}

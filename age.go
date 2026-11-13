@@ -28,6 +28,11 @@ func Date(respHeaders http.Header) (date time.Time, err error) {
 // parseHTTPDate accepts the three HTTP-date forms required of recipients by
 // RFC 9110 §5.6.7 while rejecting obsolete zone abbreviations.
 func parseHTTPDate(value string) (time.Time, error) {
+	if len(value) >= 3 && strings.EqualFold(value[len(value)-3:], "GMT") {
+		// RFC 9110 §4.2 says recipients SHOULD accept case-insensitive Date
+		// values; normalizing this token preserves strict timezone handling.
+		value = value[:len(value)-3] + "GMT"
+	}
 	if date, err := time.Parse(http.TimeFormat, value); err == nil {
 		return date, nil
 	}
@@ -36,7 +41,7 @@ func parseHTTPDate(value string) (time.Time, error) {
 			// RFC 9110 §5.6.7: an RFC 850 year that would be more than
 			// 50 years in the future is interpreted as the most recent past year
 			// with the same final two digits.
-			if date.Year() < time.Now().Year()-50 {
+			if date.Year() <= time.Now().Year()-50 {
 				candidate := date.AddDate(100, 0, 0)
 				if candidate.Year() <= time.Now().Year()+50 {
 					date = candidate

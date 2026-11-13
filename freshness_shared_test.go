@@ -12,7 +12,7 @@ import (
 
 func TestSharedCacheSMaxAgeOverridesMaxAge(t *testing.T) {
 	date := time.Now().UTC().Truncate(time.Second)
-	response := http.Header{"Cache-Control": {"max-age=86400, s-maxage=60"}, "Date": {date.Format(time.RFC1123)}}
+	response := http.Header{"Cache-Control": {"max-age=86400, s-maxage=60"}, "Date": {date.UTC().Format(http.TimeFormat)}}
 	clock := &fakeClock{elapsed: 90 * time.Second}
 	if got := getFreshness(response, http.Header{}, clock, slog.Default(), true); got != stale {
 		t.Fatalf("shared freshness = %v, want stale", got)
@@ -26,7 +26,7 @@ func TestSharedCacheDirectivesProhibitStaleReuse(t *testing.T) {
 	date := time.Now().UTC().Truncate(time.Second)
 	for _, directive := range []string{"proxy-revalidate", "s-maxage=10"} {
 		t.Run(directive, func(t *testing.T) {
-			h := http.Header{"Cache-Control": {"max-age=10, stale-while-revalidate=100, stale-if-error=100, " + directive}, "Date": {date.Format(time.RFC1123)}}
+			h := http.Header{"Cache-Control": {"max-age=10, stale-while-revalidate=100, stale-if-error=100, " + directive}, "Date": {date.UTC().Format(http.TimeFormat)}}
 			clock := &fakeClock{elapsed: 15 * time.Second}
 			if got := getFreshness(h, http.Header{}, clock, slog.Default(), true); got != stale {
 				t.Errorf("freshness = %v, want stale", got)
@@ -40,7 +40,7 @@ func TestSharedCacheDirectivesProhibitStaleReuse(t *testing.T) {
 
 func TestMustRevalidateProhibitsStaleReuse(t *testing.T) {
 	date := time.Now().UTC().Truncate(time.Second)
-	h := http.Header{"Cache-Control": {"max-age=10, must-revalidate, stale-while-revalidate=100, stale-if-error=100"}, "Date": {date.Format(time.RFC1123)}}
+	h := http.Header{"Cache-Control": {"max-age=10, must-revalidate, stale-while-revalidate=100, stale-if-error=100"}, "Date": {date.UTC().Format(http.TimeFormat)}}
 	clock := &fakeClock{elapsed: 15 * time.Second}
 	if got := getFreshness(h, http.Header{}, clock, slog.Default(), false); got != stale {
 		t.Errorf("freshness = %v, want stale", got)
@@ -49,7 +49,7 @@ func TestMustRevalidateProhibitsStaleReuse(t *testing.T) {
 		t.Error("canStaleOnError = true, want false")
 	}
 	request := http.Header{"Cache-Control": {"stale-if-error=100"}}
-	if canStaleOnError(http.Header{"Cache-Control": {"max-age=10, must-revalidate"}, "Date": {date.Format(time.RFC1123)}}, request, clock, slog.Default(), false) {
+	if canStaleOnError(http.Header{"Cache-Control": {"max-age=10, must-revalidate"}, "Date": {date.UTC().Format(http.TimeFormat)}}, request, clock, slog.Default(), false) {
 		t.Error("request stale-if-error bypassed must-revalidate")
 	}
 }

@@ -20,7 +20,7 @@ func TestAgeHeader(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		counter++
 		w.Header().Set("Cache-Control", "max-age=3600")
-		w.Header().Set("Date", time.Now().UTC().Format(time.RFC1123))
+		w.Header().Set("Date", time.Now().UTC().Format(http.TimeFormat))
 		w.Write([]byte("test"))
 	}))
 	defer ts.Close()
@@ -101,7 +101,7 @@ func TestAgeHeaderWithRevalidation(t *testing.T) {
 		// First request
 		w.Header().Set("Cache-Control", "max-age=1")
 		w.Header().Set("ETag", etag)
-		w.Header().Set("Date", time.Now().UTC().Format(time.RFC1123))
+		w.Header().Set("Date", time.Now().UTC().Format(http.TimeFormat))
 		w.Write([]byte("test"))
 	}))
 	defer ts.Close()
@@ -182,20 +182,20 @@ func TestCalculateAge(t *testing.T) {
 		},
 		{
 			name:        "Fresh response without cached time",
-			dateHeader:  now.Add(-10 * time.Second).Format(time.RFC1123),
+			dateHeader:  now.Add(-10 * time.Second).UTC().Format(http.TimeFormat),
 			expectedMin: 9,
 			expectedMax: 11,
 		},
 		{
 			name:        "With cached time",
-			dateHeader:  now.Add(-20 * time.Second).Format(time.RFC1123),
+			dateHeader:  now.Add(-20 * time.Second).UTC().Format(http.TimeFormat),
 			cachedTime:  now.Add(-10 * time.Second).Format(time.RFC3339),
 			expectedMin: 19, // RFC 9111: apparent_age(10) + resident_time(10) = ~20
 			expectedMax: 21,
 		},
 		{
 			name:        "With existing Age header",
-			dateHeader:  now.Add(-10 * time.Second).Format(time.RFC1123),
+			dateHeader:  now.Add(-10 * time.Second).UTC().Format(http.TimeFormat),
 			ageHeader:   "5",
 			cachedTime:  now.Add(-5 * time.Second).Format(time.RFC3339),
 			expectedMin: 9,
@@ -265,7 +265,7 @@ func TestAgeHeaderNotOnFreshResponse(t *testing.T) {
 
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "max-age=3600")
-		w.Header().Set("Date", time.Now().UTC().Format(time.RFC1123))
+		w.Header().Set("Date", time.Now().UTC().Format(http.TimeFormat))
 		w.Write([]byte("test"))
 	}))
 	defer ts.Close()
@@ -420,7 +420,7 @@ func TestCalculateAgeWithRequestAndResponseTime(t *testing.T) {
 	dateValue := now.Add(-12 * time.Second)
 
 	headers := http.Header{}
-	headers.Set("Date", dateValue.Format(http.TimeFormat))
+	headers.Set("Date", dateValue.UTC().Format(http.TimeFormat))
 	headers.Set(XRequestTime, requestTime.Format(time.RFC3339))
 	headers.Set(XResponseTime, responseTime.Format(time.RFC3339))
 	headers.Set(headerAge, "5") // Age from origin server
@@ -452,7 +452,7 @@ func TestCalculateAgeWithoutRequestTime(t *testing.T) {
 	dateValue := now.Add(-15 * time.Second)
 
 	headers := http.Header{}
-	headers.Set("Date", dateValue.Format(http.TimeFormat))
+	headers.Set("Date", dateValue.UTC().Format(http.TimeFormat))
 	headers.Set(XResponseTime, responseTime.Format(time.RFC3339))
 	headers.Set(headerAge, "3")
 
@@ -481,7 +481,7 @@ func TestCalculateAgeBackwardCompatibility(t *testing.T) {
 	dateValue := now.Add(-25 * time.Second)
 
 	headers := http.Header{}
-	headers.Set("Date", dateValue.Format(http.TimeFormat))
+	headers.Set("Date", dateValue.UTC().Format(http.TimeFormat))
 	headers.Set(XCachedTime, cachedTime.Format(time.RFC3339))
 	headers.Set(headerAge, "8")
 
@@ -505,7 +505,7 @@ func TestCalculateAgeClockSkew(t *testing.T) {
 	dateValue := now // Date is AFTER response_time (clock skew)
 
 	headers := http.Header{}
-	headers.Set("Date", dateValue.Format(http.TimeFormat))
+	headers.Set("Date", dateValue.UTC().Format(http.TimeFormat))
 	headers.Set(XResponseTime, responseTime.Format(time.RFC3339))
 	headers.Set(headerAge, "0")
 
@@ -529,7 +529,7 @@ func TestCalculateAgeResponseDelayCalculation(t *testing.T) {
 	dateValue := now.Add(-8 * time.Second)
 
 	headers := http.Header{}
-	headers.Set("Date", dateValue.Format(http.TimeFormat))
+	headers.Set("Date", dateValue.UTC().Format(http.TimeFormat))
 	headers.Set(XRequestTime, requestTime.Format(time.RFC3339))
 	headers.Set(XResponseTime, responseTime.Format(time.RFC3339))
 	headers.Set(headerAge, "0") // No age from origin
@@ -619,7 +619,7 @@ func TestFreshnessConsidersAgeHeader(t *testing.T) {
 
 	buildHeaders := func() http.Header {
 		headers := http.Header{}
-		headers.Set("Date", now.Format(http.TimeFormat))
+		headers.Set("Date", now.UTC().Format(http.TimeFormat))
 		headers.Set(XRequestTime, now.Format(time.RFC3339))
 		headers.Set(XResponseTime, now.Format(time.RFC3339))
 		headers.Set(headerAge, "600")
@@ -656,7 +656,7 @@ func TestFreshnessLegacyEntryFallback(t *testing.T) {
 	now := time.Now().UTC()
 
 	headers := http.Header{}
-	headers.Set("Date", now.Add(-30*time.Second).Format(http.TimeFormat))
+	headers.Set("Date", now.Add(-30*time.Second).UTC().Format(http.TimeFormat))
 	headers.Set("Cache-Control", "max-age=60")
 	// No X-Request-Time / X-Response-Time / Age: legacy entry
 
@@ -665,7 +665,7 @@ func TestFreshnessLegacyEntryFallback(t *testing.T) {
 	}
 
 	old := headers.Clone()
-	old.Set("Date", now.Add(-90*time.Second).Format(http.TimeFormat))
+	old.Set("Date", now.Add(-90*time.Second).UTC().Format(http.TimeFormat))
 	if f := getFreshness(old, http.Header{}, &realClock{}, slog.Default(), false); f != stale {
 		t.Errorf("getFreshness() = %d, want stale for legacy entry with Date-based age 90s >= 60s", f)
 	}
@@ -739,7 +739,7 @@ func TestStaleOnErrorAgeRecomputed(t *testing.T) {
 	cachedResp := &http.Response{
 		StatusCode: http.StatusOK,
 		Header: http.Header{
-			"Date":          []string{now.Format(http.TimeFormat)},
+			"Date":          []string{now.UTC().Format(http.TimeFormat)},
 			XResponseTime:   []string{now.Format(time.RFC3339)},
 			XRequestTime:    []string{now.Format(time.RFC3339)},
 			"Cache-Control": []string{"max-age=5"},

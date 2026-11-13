@@ -16,7 +16,7 @@ func TestMustRevalidateEnforcement(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		counter++
 		w.Header().Set("Cache-Control", "max-age=1, must-revalidate")
-		w.Header().Set("Date", time.Now().UTC().Format(time.RFC1123))
+		w.Header().Set("Date", time.Now().UTC().Format(http.TimeFormat))
 		w.Write([]byte("test"))
 	}))
 	defer ts.Close()
@@ -75,7 +75,7 @@ func TestMustRevalidateWithoutMaxStale(t *testing.T) {
 		// First request
 		w.Header().Set("Cache-Control", "max-age=1, must-revalidate")
 		w.Header().Set("ETag", etag)
-		w.Header().Set("Date", time.Now().UTC().Format(time.RFC1123))
+		w.Header().Set("Date", time.Now().UTC().Format(http.TimeFormat))
 		w.Write([]byte("test"))
 	}))
 	defer ts.Close()
@@ -131,7 +131,7 @@ func TestWithoutMustRevalidateAllowsStale(t *testing.T) {
 		counter++
 		// No must-revalidate directive
 		w.Header().Set("Cache-Control", "max-age=1")
-		w.Header().Set("Date", time.Now().UTC().Format(time.RFC1123))
+		w.Header().Set("Date", time.Now().UTC().Format(http.TimeFormat))
 		w.Write([]byte("test"))
 	}))
 	defer ts.Close()
@@ -180,7 +180,7 @@ func TestMustRevalidateWithFreshResponse(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		counter++
 		w.Header().Set("Cache-Control", "max-age=3600, must-revalidate")
-		w.Header().Set("Date", time.Now().UTC().Format(time.RFC1123))
+		w.Header().Set("Date", time.Now().UTC().Format(http.TimeFormat))
 		w.Write([]byte("test"))
 	}))
 	defer ts.Close()
@@ -224,7 +224,7 @@ func TestMustRevalidateOverridesMaxStaleUnlimited(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		counter++
 		w.Header().Set("Cache-Control", "max-age=1, must-revalidate")
-		w.Header().Set("Date", time.Now().UTC().Format(time.RFC1123))
+		w.Header().Set("Date", time.Now().UTC().Format(http.TimeFormat))
 		w.Write([]byte("test"))
 	}))
 	defer ts.Close()

@@ -17,7 +17,7 @@ func TestWarningHeaderStaleWhileRevalidate(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		counter++
 		w.Header().Set("Cache-Control", "max-age=1, stale-while-revalidate=10")
-		w.Header().Set("Date", time.Now().UTC().Format(time.RFC1123))
+		w.Header().Set("Date", time.Now().UTC().Format(http.TimeFormat))
 		w.Write([]byte("test"))
 	}))
 	defer ts.Close()
@@ -69,7 +69,7 @@ func TestWarningHeaderRevalidationFailed(t *testing.T) {
 			return
 		}
 		w.Header().Set("Cache-Control", "max-age=1, stale-if-error=10")
-		w.Header().Set("Date", time.Now().UTC().Format(time.RFC1123))
+		w.Header().Set("Date", time.Now().UTC().Format(http.TimeFormat))
 		w.Write([]byte("test"))
 	}))
 	defer ts.Close()
@@ -113,7 +113,7 @@ func TestWarningHeaderMaxStale(t *testing.T) {
 
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "max-age=1")
-		w.Header().Set("Date", time.Now().UTC().Format(time.RFC1123))
+		w.Header().Set("Date", time.Now().UTC().Format(http.TimeFormat))
 		w.Write([]byte("test"))
 	}))
 	defer ts.Close()
@@ -159,7 +159,7 @@ func TestNoWarningOnFreshResponse(t *testing.T) {
 
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "max-age=3600")
-		w.Header().Set("Date", time.Now().UTC().Format(time.RFC1123))
+		w.Header().Set("Date", time.Now().UTC().Format(http.TimeFormat))
 		w.Write([]byte("test"))
 	}))
 	defer ts.Close()
@@ -197,7 +197,7 @@ func TestNoWarningOnFirstRequest(t *testing.T) {
 
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "max-age=3600")
-		w.Header().Set("Date", time.Now().UTC().Format(time.RFC1123))
+		w.Header().Set("Date", time.Now().UTC().Format(http.TimeFormat))
 		w.Write([]byte("test"))
 	}))
 	defer ts.Close()
@@ -234,7 +234,7 @@ func TestMultipleWarningHeaders(t *testing.T) {
 		}
 		w.Header().Set("Cache-Control", "max-age=1, stale-if-error=10")
 		w.Header().Add("Warning", `199 - "Miscellaneous warning"`)
-		w.Header().Set("Date", time.Now().UTC().Format(time.RFC1123))
+		w.Header().Set("Date", time.Now().UTC().Format(http.TimeFormat))
 		w.Write([]byte("test"))
 	}))
 	defer ts.Close()
@@ -283,7 +283,7 @@ func TestDisableWarningHeaderStaleWhileRevalidate(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		counter++
 		w.Header().Set("Cache-Control", "max-age=1, stale-while-revalidate=10")
-		w.Header().Set("Date", time.Now().UTC().Format(time.RFC1123))
+		w.Header().Set("Date", time.Now().UTC().Format(http.TimeFormat))
 		w.Write([]byte("test"))
 	}))
 	defer ts.Close()
@@ -333,7 +333,7 @@ func TestDisableWarningHeaderRevalidationFailed(t *testing.T) {
 			return
 		}
 		w.Header().Set("Cache-Control", "max-age=1, stale-if-error=10")
-		w.Header().Set("Date", time.Now().UTC().Format(time.RFC1123))
+		w.Header().Set("Date", time.Now().UTC().Format(http.TimeFormat))
 		w.Write([]byte("test"))
 	}))
 	defer ts.Close()
@@ -380,7 +380,7 @@ func TestDisableWarningHeaderMaxStale(t *testing.T) {
 
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "max-age=1")
-		w.Header().Set("Date", time.Now().UTC().Format(time.RFC1123))
+		w.Header().Set("Date", time.Now().UTC().Format(http.TimeFormat))
 		w.Write([]byte("test"))
 	}))
 	defer ts.Close()
@@ -424,7 +424,7 @@ func TestWarningHeaderEnabledByDefault(t *testing.T) {
 
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "max-age=1, stale-while-revalidate=10")
-		w.Header().Set("Date", time.Now().UTC().Format(time.RFC1123))
+		w.Header().Set("Date", time.Now().UTC().Format(http.TimeFormat))
 		w.Write([]byte("test"))
 	}))
 	defer ts.Close()

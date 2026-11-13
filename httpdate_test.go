@@ -14,6 +14,7 @@ func TestDateAcceptsAllHTTPDateForms(t *testing.T) {
 		{name: "IMF-fixdate", value: "Sun, 06 Nov 1994 08:49:37 GMT"},
 		{name: "RFC 850", value: "Sunday, 06-Nov-94 08:49:37 GMT"},
 		{name: "asctime", value: "Sun Nov  6 08:49:37 1994"},
+		{name: "lowercase GMT", value: "Sun, 06 Nov 1994 08:49:37 gmt"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

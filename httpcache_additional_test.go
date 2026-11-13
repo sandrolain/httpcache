@@ -21,7 +21,7 @@ func TestCanStaleOnError(t *testing.T) {
 			name: "response with stale-if-error no value",
 			respHeaders: http.Header{
 				"Cache-Control": []string{"stale-if-error"},
-				"Date":          []string{time.Now().Format(time.RFC1123)},
+				"Date":          []string{time.Now().UTC().Format(http.TimeFormat)},
 			},
 			reqHeaders: http.Header{},
 			want:       true,
@@ -30,7 +30,7 @@ func TestCanStaleOnError(t *testing.T) {
 			name: "response with stale-if-error with valid duration",
 			respHeaders: http.Header{
 				"Cache-Control": []string{"stale-if-error=60"},
-				"Date":          []string{time.Now().Format(time.RFC1123)},
+				"Date":          []string{time.Now().UTC().Format(http.TimeFormat)},
 			},
 			reqHeaders: http.Header{},
 			want:       true,
@@ -39,7 +39,7 @@ func TestCanStaleOnError(t *testing.T) {
 			name: "response with stale-if-error with invalid duration",
 			respHeaders: http.Header{
 				"Cache-Control": []string{"stale-if-error=invalid"},
-				"Date":          []string{time.Now().Format(time.RFC1123)},
+				"Date":          []string{time.Now().UTC().Format(http.TimeFormat)},
 			},
 			reqHeaders: http.Header{},
 			want:       false,
@@ -47,7 +47,7 @@ func TestCanStaleOnError(t *testing.T) {
 		{
 			name: "request with stale-if-error no value",
 			respHeaders: http.Header{
-				"Date": []string{time.Now().Format(time.RFC1123)},
+				"Date": []string{time.Now().UTC().Format(http.TimeFormat)},
 			},
 			reqHeaders: http.Header{
 				"Cache-Control": []string{"stale-if-error"},
@@ -57,7 +57,7 @@ func TestCanStaleOnError(t *testing.T) {
 		{
 			name: "request with stale-if-error with valid duration",
 			respHeaders: http.Header{
-				"Date": []string{time.Now().Format(time.RFC1123)},
+				"Date": []string{time.Now().UTC().Format(http.TimeFormat)},
 			},
 			reqHeaders: http.Header{
 				"Cache-Control": []string{"stale-if-error=60"},
@@ -67,7 +67,7 @@ func TestCanStaleOnError(t *testing.T) {
 		{
 			name: "request with stale-if-error with invalid duration",
 			respHeaders: http.Header{
-				"Date": []string{time.Now().Format(time.RFC1123)},
+				"Date": []string{time.Now().UTC().Format(http.TimeFormat)},
 			},
 			reqHeaders: http.Header{
 				"Cache-Control": []string{"stale-if-error=invalid"},
@@ -78,7 +78,7 @@ func TestCanStaleOnError(t *testing.T) {
 			name: "stale-if-error expired",
 			respHeaders: http.Header{
 				"Cache-Control": []string{"stale-if-error=5"},
-				"Date":          []string{time.Now().Add(-10 * time.Second).Format(time.RFC1123)},
+				"Date":          []string{time.Now().Add(-10 * time.Second).UTC().Format(http.TimeFormat)},
 			},
 			reqHeaders: http.Header{},
 			want:       false,
@@ -115,7 +115,7 @@ func TestGetFreshnessEdgeCases(t *testing.T) {
 
 	t.Run("only-if-cached honors response freshness", func(t *testing.T) {
 		respHeaders := http.Header{
-			"Date":          []string{time.Now().Format(time.RFC1123)},
+			"Date":          []string{time.Now().UTC().Format(http.TimeFormat)},
 			"Cache-Control": []string{"max-age=60"},
 		}
 		reqHeaders := http.Header{
@@ -128,7 +128,7 @@ func TestGetFreshnessEdgeCases(t *testing.T) {
 
 	t.Run("only-if-cached does not make stale response fresh", func(t *testing.T) {
 		respHeaders := http.Header{
-			"Date":          []string{time.Now().Format(time.RFC1123)},
+			"Date":          []string{time.Now().UTC().Format(http.TimeFormat)},
 			"Cache-Control": []string{"max-age=0, must-revalidate"},
 		}
 		reqHeaders := http.Header{"Cache-Control": []string{"only-if-cached"}}
@@ -140,7 +140,7 @@ func TestGetFreshnessEdgeCases(t *testing.T) {
 	t.Run("invalid max-age returns zero duration", func(t *testing.T) {
 		respHeaders := http.Header{
 			"Cache-Control": []string{"max-age=invalid"},
-			"Date":          []string{time.Now().Format(time.RFC1123)},
+			"Date":          []string{time.Now().UTC().Format(http.TimeFormat)},
 		}
 		reqHeaders := http.Header{}
 		if got := getFreshness(respHeaders, reqHeaders, &realClock{}, slog.Default(), false); got != stale {
@@ -151,7 +151,7 @@ func TestGetFreshnessEdgeCases(t *testing.T) {
 	t.Run("invalid expires header", func(t *testing.T) {
 		respHeaders := http.Header{
 			"Expires": []string{"invalid-date"},
-			"Date":    []string{time.Now().Format(time.RFC1123)},
+			"Date":    []string{time.Now().UTC().Format(http.TimeFormat)},
 		}
 		reqHeaders := http.Header{}
 		if got := getFreshness(respHeaders, reqHeaders, &realClock{}, slog.Default(), false); got != stale {
@@ -162,7 +162,7 @@ func TestGetFreshnessEdgeCases(t *testing.T) {
 	t.Run("request max-age with invalid value", func(t *testing.T) {
 		respHeaders := http.Header{
 			"Cache-Control": []string{"max-age=3600"},
-			"Date":          []string{time.Now().Format(time.RFC1123)},
+			"Date":          []string{time.Now().UTC().Format(http.TimeFormat)},
 		}
 		reqHeaders := http.Header{
 			"Cache-Control": []string{"max-age=invalid"},
@@ -177,7 +177,7 @@ func TestGetFreshnessEdgeCases(t *testing.T) {
 	t.Run("min-fresh with invalid value is ignored", func(t *testing.T) {
 		respHeaders := http.Header{
 			"Cache-Control": []string{"max-age=3600"},
-			"Date":          []string{time.Now().Format(time.RFC1123)},
+			"Date":          []string{time.Now().UTC().Format(http.TimeFormat)},
 		}
 		reqHeaders := http.Header{
 			"Cache-Control": []string{"min-fresh=invalid"},
@@ -193,7 +193,7 @@ func TestGetFreshnessEdgeCases(t *testing.T) {
 
 		respHeaders := http.Header{
 			"Cache-Control": []string{"max-age=3600"},
-			"Date":          []string{time.Now().Format(time.RFC1123)},
+			"Date":          []string{time.Now().UTC().Format(http.TimeFormat)},
 		}
 		reqHeaders := http.Header{
 			"Cache-Control": []string{"max-stale=invalid"},
@@ -206,7 +206,7 @@ func TestGetFreshnessEdgeCases(t *testing.T) {
 
 	t.Run("future Date with no freshness info is stale (RFC 9111 4.2.3)", func(t *testing.T) {
 		respHeaders := http.Header{}
-		respHeaders.Set("Date", time.Now().UTC().Add(5*time.Second).Format(time.RFC1123))
+		respHeaders.Set("Date", time.Now().UTC().Add(5*time.Second).UTC().Format(http.TimeFormat))
 
 		if got := getFreshness(respHeaders, http.Header{}, &realClock{}, slog.Default(), false); got == fresh {
 			t.Fatalf("future Date with no freshness info treated as fresh; want stale (RFC 9111 4.2.3); got %s", freshnessString(got))

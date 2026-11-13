@@ -12,7 +12,7 @@ import (
 
 func TestRequestMaxAgeCapsResponseFreshness(t *testing.T) {
 	clock := &fakeClock{elapsed: 90 * time.Second}
-	date := time.Now().UTC().Format(time.RFC1123)
+	date := time.Now().UTC().Format(http.TimeFormat)
 	resp := http.Header{"Cache-Control": {"max-age=60"}, "Date": {date}}
 
 	if got := getFreshness(resp, http.Header{"Cache-Control": {"max-age=120"}}, clock, slog.Default(), false); got != stale {
@@ -28,7 +28,7 @@ func TestRequestNoStorePreservesRevalidatedEntry(t *testing.T) {
 	resetTest()
 	upstream := &transportMock{response: &http.Response{
 		StatusCode: http.StatusOK,
-		Header:     http.Header{"Cache-Control": {"max-age=0"}, "Date": {time.Now().UTC().Format(time.RFC1123)}, "ETag": {`"entry"`}},
+		Header:     http.Header{"Cache-Control": {"max-age=0"}, "Date": {time.Now().UTC().Format(http.TimeFormat)}, "ETag": {`"entry"`}},
 		Body:       io.NopCloser(strings.NewReader("cached body")),
 	}}
 	transport := newMockCacheTransport()
@@ -67,7 +67,7 @@ func TestRequestNoStorePreservesRevalidatedEntry(t *testing.T) {
 
 func TestStaleIfErrorWindowStartsAtExpiration(t *testing.T) {
 	clock := &fakeClock{elapsed: 15 * time.Second}
-	resp := http.Header{"Cache-Control": {"max-age=10, stale-if-error=10"}, "Date": {time.Now().UTC().Format(time.RFC1123)}}
+	resp := http.Header{"Cache-Control": {"max-age=10, stale-if-error=10"}, "Date": {time.Now().UTC().Format(http.TimeFormat)}}
 	if !canStaleOnError(resp, nil, clock, slog.Default(), false) {
 		t.Fatal("expected response to be eligible 5 seconds into the stale-if-error window")
 	}
@@ -78,7 +78,7 @@ func TestStaleIfErrorWindowStartsAtExpiration(t *testing.T) {
 }
 
 func TestStaleIfErrorLimitsStatusesAndVary(t *testing.T) {
-	date := time.Now().UTC().Add(-time.Hour).Format(time.RFC1123)
+	date := time.Now().UTC().Add(-time.Hour).UTC().Format(http.TimeFormat)
 	cached := &http.Response{Header: http.Header{
 		"Cache-Control":            {"max-age=0, stale-if-error=3700"},
 		"Date":                     {date},

@@ -533,6 +533,9 @@ Freshness decisions (`response_is_fresh = freshness_lifetime > current_age`) use
 full RFC 9111 Section 4.2.3 `current_age` algorithm, including the upstream `Age`
 header — not only the time elapsed since the `Date` header:
 
+HTTP dates in `Date`, `Expires`, and date validators accept IMF-fixdate, RFC 850,
+and asctime forms. Obsolete non-GMT timezone abbreviations are rejected.
+
 - **Stored responses with timing metadata** (`X-Request-Time` / `X-Response-Time`,
   present by default): freshness uses the complete algorithm above.
 - **Legacy cached entries without metadata** (e.g. entries written by older
