@@ -263,6 +263,9 @@ type Transport struct {
 	// Multiple goroutines requesting the same cacheable URL will share the result of a single request.
 	requests singleflight.Group
 
+	asyncRevalidationMu sync.Mutex
+	asyncRevalidations  map[string]struct{}
+
 	// clock is the timer interface used for time-related operations.
 	// Defaults to realClock (time.Since) but can be set to a custom implementation for testing.
 	// Configure via WithClock option.
@@ -498,7 +501,25 @@ func addValidatorsToRequest(req *http.Request, cachedResp *http.Response) *http.
 var asyncRevalidateWG sync.WaitGroup
 
 // asyncRevalidate triggers an asynchronous revalidation of the cached response
-func (t *Transport) asyncRevalidate(req *http.Request) {
+func (t *Transport) asyncRevalidate(req *http.Request, cachedResp *http.Response) {
+	cacheKey, _ := t.getCacheKey(req)
+	if t.EnableVarySeparation && cachedResp != nil {
+		varyHeaders := headerAllCommaSepValues(cachedResp.Header, "vary")
+		cacheKey = cacheKeyWithVaryBase(cacheKey, req, varyHeaders)
+	}
+	t.asyncRevalidationMu.Lock()
+	if t.asyncRevalidations == nil {
+		t.asyncRevalidations = make(map[string]struct{})
+	}
+	if _, inFlight := t.asyncRevalidations[cacheKey]; inFlight {
+		t.asyncRevalidationMu.Unlock()
+		t.log().Debug("async revalidation already in flight", "url", req.URL.String())
+		return
+	}
+	t.asyncRevalidations[cacheKey] = struct{}{}
+	asyncRevalidateWG.Add(1)
+	t.asyncRevalidationMu.Unlock()
+
 	bgContext := context.Background()
 	var cancelContext context.CancelFunc
 
@@ -506,12 +527,19 @@ func (t *Transport) asyncRevalidate(req *http.Request) {
 		bgContext, cancelContext = context.WithTimeout(bgContext, t.AsyncRevalidateTimeout)
 	}
 
-	noCacheRequest := req.Clone(bgContext)
-	noCacheRequest.Header.Set("cache-control", cacheControlNoCache)
+	revalidateRequest := req.Clone(bgContext)
+	// max-age=0 forces the stored response to require validation while still
+	// allowing the normal cache path to attach its validators. no-cache maps to
+	// the transparent bypass path and would turn this into an unconditional GET.
+	revalidateRequest.Header.Set("cache-control", "max-age=0")
 
-	asyncRevalidateWG.Add(1)
 	go func() {
-		defer asyncRevalidateWG.Done()
+		defer func() {
+			t.asyncRevalidationMu.Lock()
+			delete(t.asyncRevalidations, cacheKey)
+			t.asyncRevalidationMu.Unlock()
+			asyncRevalidateWG.Done()
+		}()
 
 		// Panic recovery to prevent crashes in background goroutine
 		defer func() {
@@ -529,7 +557,7 @@ func (t *Transport) asyncRevalidate(req *http.Request) {
 
 		t.log().Debug("starting async revalidation", "url", req.URL.String())
 
-		resp, err := t.RoundTrip(noCacheRequest)
+		resp, err := t.RoundTrip(revalidateRequest)
 		if err != nil {
 			t.log().Warn("async revalidation failed", "url", req.URL.String(), "error", err)
 			return
@@ -605,7 +633,7 @@ func (t *Transport) handleCachedResponse(cachedResp *http.Response, req *http.Re
 			addStaleWarning(cachedResp)
 		}
 		// Trigger async revalidation
-		t.asyncRevalidate(req)
+		t.asyncRevalidate(req, cachedResp)
 		return req, true
 	}
 

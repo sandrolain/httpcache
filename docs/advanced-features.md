@@ -700,7 +700,7 @@ client := transport.Client()
 
 // Server responds with: Cache-Control: max-age=60, stale-while-revalidate=300
 // First request: Fetches from server and caches (60s fresh)
-// Second request (after 70s): Returns stale cache immediately + revalidates in background
+// Second request (after 70s): Returns stale cache immediately + conditionally revalidates in background
 // Third request (after 80s): Returns fresh cache (updated by background revalidation)
 ```
 
@@ -714,8 +714,10 @@ This implements the `stale-while-revalidate` directive from [RFC 5861](https://t
 
 1. When a response is stale but within the `stale-while-revalidate` window
 2. The cached response is returned immediately to the client
-3. A background goroutine makes a fresh request to update the cache
+3. A background goroutine sends the cached validators to update the cache with a 304 when possible
 4. Subsequent requests get the updated cached response
+
+Concurrent stale requests for the same cache key share one background revalidation.
 
 **Configuration:**
 
