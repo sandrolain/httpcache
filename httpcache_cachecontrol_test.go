@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 	"time"
 )
@@ -565,5 +566,229 @@ func TestResponseSecondLineNoCacheForcesRevalidation(t *testing.T) {
 	}
 	if resp2.Header.Get(XRevalidated) != "1" {
 		t.Error("Second request should have been revalidated (no-cache from second line honored)")
+	}
+}
+
+// TestParseCacheControlQuotedValues verifies RFC 9111 §5.2: directive arguments
+// may use token or quoted-string syntax, and recipients ought to accept both
+// forms (issue #6).
+func TestParseCacheControlQuotedValues(t *testing.T) {
+	tests := []struct {
+		name     string
+		header   string
+		expected cacheControl
+	}{
+		{
+			name:   "quoted max-age accepted",
+			header: `max-age="3600"`,
+			expected: cacheControl{
+				"max-age": "3600",
+			},
+		},
+		{
+			name:   "quoted value with comma stays one directive",
+			header: `private="Set-Cookie, Cookie", max-age=60`,
+			expected: cacheControl{
+				"private": "Set-Cookie, Cookie",
+				"max-age": "60",
+			},
+		},
+		{
+			name:   "quoted value with equals stays one directive",
+			header: `private="a=b", max-age=60`,
+			expected: cacheControl{
+				"private": "a=b",
+				"max-age": "60",
+			},
+		},
+		{
+			name:   "escaped quote inside quoted string",
+			header: `private="field\"x", max-age=30`,
+			expected: cacheControl{
+				"private": `field"x`,
+				"max-age": "30",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			headers := http.Header{}
+			headers.Set("Cache-Control", tt.header)
+
+			cc := parseCacheControl(headers, slog.Default())
+
+			if len(cc) != len(tt.expected) {
+				t.Errorf("Expected %d directives, got %d: %v", len(tt.expected), len(cc), cc)
+			}
+			for k, v := range tt.expected {
+				if got := cc[k]; got != v {
+					t.Errorf("Expected %q=%q, got %q", k, v, got)
+				}
+			}
+		})
+	}
+}
+
+// TestParseCacheControlMalformedValues verifies malformed directives are
+// ignored without corrupting other directives (issue #6).
+func TestParseCacheControlMalformedValues(t *testing.T) {
+	tests := []struct {
+		name        string
+		header      string
+		expectKey   string
+		expectValue string
+		expectGone  bool
+	}{
+		{
+			name:       "multi-equals value: directive removed",
+			header:     "max-age=5=6, no-cache",
+			expectKey:  "max-age",
+			expectGone: true,
+		},
+		{
+			name:        "tab OWS around directives",
+			header:      "\tno-cache ,\tmax-age =\t60",
+			expectKey:   "max-age",
+			expectValue: "60",
+		},
+		{
+			name:        "empty value with equals treated as valueless directive",
+			header:      "no-cache=, max-age=60",
+			expectKey:   "no-cache",
+			expectValue: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			headers := http.Header{}
+			headers.Set("Cache-Control", tt.header)
+
+			cc := parseCacheControl(headers, slog.Default())
+
+			if tt.expectGone {
+				if _, ok := cc[tt.expectKey]; ok {
+					t.Errorf("Expected malformed directive %q to be removed, got %v", tt.expectKey, cc)
+				}
+			} else if got, ok := cc[tt.expectKey]; !ok {
+				t.Errorf("Expected directive %q to exist, got %v", tt.expectKey, cc)
+			} else if got != tt.expectValue {
+				t.Errorf("Expected %q=%q, got %q", tt.expectKey, tt.expectValue, got)
+			}
+		})
+	}
+}
+
+// TestParseCacheControlOverflowClamp verifies RFC 9111 §1.2.2: overflowing
+// delta-seconds MUST be treated as 2147483648, never negative (issue #6).
+func TestParseCacheControlOverflowClamp(t *testing.T) {
+	tests := []struct {
+		name     string
+		header   string
+		expected string
+	}{
+		{
+			name:     "value above 2^31 clamped",
+			header:   "max-age=3000000000",
+			expected: "2147483648",
+		},
+		{
+			name:     "value above int64 clamped",
+			header:   "max-age=99999999999999999999",
+			expected: "2147483648",
+		},
+		{
+			name:     "s-maxage overflow clamped",
+			header:   "s-maxage=99999999999999999999",
+			expected: "2147483648",
+		},
+		{
+			name:     "value exactly 2^31 kept",
+			header:   "max-age=2147483648",
+			expected: "2147483648",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			headers := http.Header{}
+			headers.Set("Cache-Control", tt.header)
+
+			cc := parseCacheControl(headers, slog.Default())
+
+			for _, key := range []string{"max-age", "s-maxage"} {
+				if v, ok := cc[key]; ok && v != tt.expected {
+					t.Errorf("Expected %s=%s, got %s", key, tt.expected, v)
+				}
+			}
+		})
+	}
+}
+
+// steppingClock is a fakeClock whose elapsed time can be advanced mid-test.
+type steppingClock struct {
+	mu      sync.Mutex
+	elapsed time.Duration
+}
+
+func (c *steppingClock) since(t time.Time) time.Duration {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.elapsed
+}
+
+func (c *steppingClock) step(d time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.elapsed += d
+}
+
+// TestMaxAgeQuotedOverridesExpires verifies end-to-end that a quoted max-age
+// is honored instead of falling back to Expires (issue #6).
+func TestMaxAgeQuotedOverridesExpires(t *testing.T) {
+	requestCount := 0
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestCount++
+		// Expires in the far future; quoted max-age=1 must win.
+		expires := time.Now().UTC().Add(100 * time.Hour).Format(time.RFC1123)
+		w.Header().Set("Cache-Control", `max-age="1"`)
+		w.Header().Set("Expires", expires)
+		w.Header().Set("Date", time.Now().UTC().Format(time.RFC1123))
+		w.Write([]byte("quoted-body"))
+	}))
+	defer ts.Close()
+
+	clk := &steppingClock{}
+	tp := NewTransport(newMockCache(), WithClock(clk))
+	client := &http.Client{Transport: tp}
+
+	// First request: fetch and cache (age 0, within max-age=1)
+	req, _ := http.NewRequest("GET", ts.URL, nil)
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	io.ReadAll(resp.Body)
+	resp.Body.Close()
+
+	if requestCount != 1 {
+		t.Fatalf("Expected 1 origin request after first fetch, got %d", requestCount)
+	}
+
+	// Advance past the quoted max-age=1: the entry must be stale despite the
+	// far-future Expires header, so the second request hits the origin.
+	clk.step(5 * time.Second)
+
+	req2, _ := http.NewRequest("GET", ts.URL, nil)
+	resp2, err := client.Do(req2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	io.ReadAll(resp2.Body)
+	resp2.Body.Close()
+
+	if requestCount != 2 {
+		t.Errorf("Expected revalidation after quoted max-age expired (2 origin requests), got %d", requestCount)
 	}
 }

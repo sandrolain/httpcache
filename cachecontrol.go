@@ -3,11 +3,12 @@
 package httpcache
 
 import (
+	"errors"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
-	"time"
 )
 
 // cacheControl is a map of Cache-Control directive names to their values.
@@ -50,17 +51,17 @@ func parseCacheControlInternal(ccHeader string, log *slog.Logger) cacheControl {
 	cc := cacheControl{}
 	seen := make(map[string]bool)
 
-	for _, part := range strings.Split(ccHeader, ",") {
-		part = strings.Trim(part, " ")
+	for _, part := range splitCacheDirectives(ccHeader) {
+		// OWS (Optional Whitespace) is SP / HTAB per RFC 9110 Section 5.6.3.
+		part = strings.Trim(part, " \t")
 		if part == "" {
 			continue
 		}
 
 		var directive, value string
-		if strings.ContainsRune(part, '=') {
-			keyval := strings.Split(part, "=")
-			directive = strings.Trim(keyval[0], " ")
-			value = strings.Trim(keyval[1], " ")
+		if name, val, found := strings.Cut(part, "="); found {
+			directive = strings.Trim(name, " \t")
+			value = unquoteCacheValue(strings.Trim(val, " \t"))
 		} else {
 			directive = part
 			value = ""
@@ -86,6 +87,67 @@ func parseCacheControlInternal(ccHeader string, log *slog.Logger) cacheControl {
 	detectConflictingDirectives(cc, log)
 
 	return cc
+}
+
+// splitCacheDirectives splits a Cache-Control field value on commas that are
+// outside of quoted strings, per the RFC 9111 §5.2 grammar
+// (cache-directive = token [ BWS "=" BWS ( token / quoted-string ) ]).
+func splitCacheDirectives(header string) []string {
+	var parts []string
+	var current strings.Builder
+	inQuotes := false
+	escaped := false
+
+	for _, r := range header {
+		switch {
+		case escaped:
+			current.WriteRune(r)
+			escaped = false
+		case r == '\\' && inQuotes:
+			current.WriteRune(r)
+			escaped = true
+		case r == '"':
+			inQuotes = !inQuotes
+			current.WriteRune(r)
+		case r == ',' && !inQuotes:
+			parts = append(parts, current.String())
+			current.Reset()
+		default:
+			current.WriteRune(r)
+		}
+	}
+	parts = append(parts, current.String())
+	return parts
+}
+
+// unquoteCacheValue removes surrounding DQUOTEs and unescapes quoted-pair
+// escapes from a quoted-string value (RFC 9110 Section 5.6.4). Values that are
+// not fully quoted are returned unchanged.
+func unquoteCacheValue(v string) string {
+	if len(v) < 2 || v[0] != '"' || v[len(v)-1] != '"' || v[len(v)-2] == '\\' {
+		return v
+	}
+	inner := v[1 : len(v)-1]
+
+	var b strings.Builder
+	escaped := false
+	for _, r := range inner {
+		if escaped {
+			b.WriteRune(r)
+			escaped = false
+			continue
+		}
+		if r == '\\' {
+			escaped = true
+			continue
+		}
+		b.WriteRune(r)
+	}
+	// A trailing backslash without an escape target: keep it as-is.
+	if escaped {
+		b.WriteRune('\\')
+	}
+	return b.String()
 }
 
 // detectConflictingDirectives checks for conflicting Cache-Control directives
@@ -142,8 +204,13 @@ func detectConflictingDirectives(cc cacheControl, log *slog.Logger) {
 	validateMaxAgeDirective(cc, cacheControlSMaxAge, "s-maxage", log)
 }
 
-// validateMaxAgeDirective validates max-age or s-maxage directive values
+// validateMaxAgeDirective validates max-age or s-maxage directive values.
+// RFC 9111 Section 1.2.2: a delta-seconds value that overflows the greatest
+// representable integer MUST be treated as 2147483648, never as a negative.
 func validateMaxAgeDirective(cc cacheControl, directiveKey, directiveName string, log *slog.Logger) {
+	// RFC 9111 Section 1.2.2: the greatest representable delta-seconds value.
+	const maxDeltaSeconds = int64(2147483648)
+
 	if value, hasDirective := cc[directiveKey]; hasDirective && value != "" {
 		// Check if value contains decimal point (float)
 		if strings.Contains(value, ".") {
@@ -155,20 +222,33 @@ func validateMaxAgeDirective(cc cacheControl, directiveKey, directiveName string
 			return
 		}
 
-		if duration, err := time.ParseDuration(value + "s"); err == nil {
-			if duration < 0 {
-				log.Warn("invalid Cache-Control value (negative)",
-					"directive", directiveName,
-					"value", value,
-					"resolution", "treating as 0")
-				cc[directiveKey] = "0"
-			}
-		} else {
+		n, err := strconv.ParseInt(value, 10, 64)
+		switch {
+		case err == nil && n > maxDeltaSeconds:
+			log.Warn("Cache-Control value overflow, clamping to 2147483648",
+				"directive", directiveName,
+				"value", value,
+				"resolution", "clamped to 2147483648 (RFC 9111 Section 1.2.2)")
+			cc[directiveKey] = "2147483648"
+		case err != nil && errors.Is(err, strconv.ErrRange):
+			// Value exceeds int64: treat as the RFC-defined maximum
+			log.Warn("Cache-Control value overflow, clamping to 2147483648",
+				"directive", directiveName,
+				"value", value,
+				"resolution", "clamped to 2147483648 (RFC 9111 Section 1.2.2)")
+			cc[directiveKey] = "2147483648"
+		case err != nil:
 			log.Warn("invalid Cache-Control value (non-numeric)",
 				"directive", directiveName,
 				"value", value,
 				"resolution", "ignoring directive")
 			delete(cc, directiveKey)
+		case n < 0:
+			log.Warn("invalid Cache-Control value (negative)",
+				"directive", directiveName,
+				"value", value,
+				"resolution", "treating as 0")
+			cc[directiveKey] = "0"
 		}
 	}
 }
