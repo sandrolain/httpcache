@@ -28,6 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Data race on cache hits with concurrent requests**: pooled buffers backing parsed cached responses were returned to the pool while the response body was still reading from them (`cachedResponseWithKeySecure`, `newGatewayTimeoutResponse`). The same buffer could be handed to another concurrent request, causing data races and corrupted reads (`unexpected EOF`). The buffer is now released to the pool only when the response body is closed, via the new `bufferReleaseReadCloser` wrapper.
 - Regenerated `go.sum` after dependency updates; full test suite and `govulncheck` pass with zero vulnerabilities affecting the code
 
 ## [2.0.0]
