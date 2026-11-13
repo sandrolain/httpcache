@@ -1,9 +1,12 @@
 package httpcache
 
 import (
+	"io"
 	"log/slog"
 	"net/http"
+	"net/http/httptest"
 	"testing"
+	"time"
 )
 
 // TestParseCacheControlDuplicates tests handling of duplicate Cache-Control directives
@@ -362,5 +365,205 @@ func TestParseCacheControlPreservesValidDirectives(t *testing.T) {
 
 	if len(cc) != len(expected) {
 		t.Errorf("Expected %d directives, got %d", len(expected), len(cc))
+	}
+}
+
+// TestParseCacheControlCaseInsensitive verifies RFC 9111 §5.2: cache directive
+// names are tokens compared case-insensitively (issue #5).
+func TestParseCacheControlCaseInsensitive(t *testing.T) {
+	tests := []struct {
+		name     string
+		header   string
+		expected cacheControl
+	}{
+		{
+			name:   "uppercase directives",
+			header: "MAX-AGE=3600, NO-CACHE",
+			expected: cacheControl{
+				"max-age":  "3600",
+				"no-cache": "",
+			},
+		},
+		{
+			name:   "mixed case directives",
+			header: "Max-Age=60, Must-Revalidate, S-Maxage=120, No-Store",
+			expected: cacheControl{
+				"max-age":         "60",
+				"must-revalidate": "",
+				"s-maxage":        "120",
+				"no-store":        "",
+			},
+		},
+		{
+			name:   "duplicate detection across case variants (first wins)",
+			header: "MAX-AGE=100, max-age=200",
+			expected: cacheControl{
+				"max-age": "100",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			headers := http.Header{}
+			headers.Set("Cache-Control", tt.header)
+
+			cc := parseCacheControl(headers, slog.Default())
+
+			if len(cc) != len(tt.expected) {
+				t.Errorf("Expected %d directives, got %d: %v", len(tt.expected), len(cc), cc)
+			}
+			for k, v := range tt.expected {
+				if got, ok := cc[k]; !ok {
+					t.Errorf("Expected normalized directive %q, got %v", k, cc)
+				} else if got != v {
+					t.Errorf("Expected %q=%q, got %q", k, v, got)
+				}
+			}
+		})
+	}
+}
+
+// TestParseCacheControlMultipleHeaderLines verifies RFC 9110 §5.2/§5.3: repeated
+// Cache-Control field lines are combined into one list; directives on any line
+// carry semantics (issue #5).
+func TestParseCacheControlMultipleHeaderLines(t *testing.T) {
+	tests := []struct {
+		name     string
+		lines    []string
+		expected cacheControl
+	}{
+		{
+			name:  "directive on second line is honored",
+			lines: []string{"max-age=3600", "no-store"},
+			expected: cacheControl{
+				"max-age":  "3600",
+				"no-store": "",
+			},
+		},
+		{
+			name:  "duplicate across lines uses first occurrence",
+			lines: []string{"max-age=100", "max-age=200"},
+			expected: cacheControl{
+				"max-age": "100",
+			},
+		},
+		{
+			name:  "three lines combined",
+			lines: []string{"public", "max-age=60", "must-revalidate"},
+			expected: cacheControl{
+				"public":          "",
+				"max-age":         "60",
+				"must-revalidate": "",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			headers := http.Header{}
+			for _, line := range tt.lines {
+				headers.Add("Cache-Control", line)
+			}
+
+			cc := parseCacheControl(headers, slog.Default())
+
+			if len(cc) != len(tt.expected) {
+				t.Errorf("Expected %d directives, got %d: %v", len(tt.expected), len(cc), cc)
+			}
+			for k, v := range tt.expected {
+				if got, ok := cc[k]; !ok {
+					t.Errorf("Expected directive %q from any line, got %v", k, cc)
+				} else if got != v {
+					t.Errorf("Expected %q=%q, got %q", k, v, got)
+				}
+			}
+		})
+	}
+}
+
+// TestResponseWithUppercaseNoStoreNotCached verifies end-to-end that a response
+// with a case-variant no-store directive is not stored (issue #5).
+func TestResponseWithUppercaseNoStoreNotCached(t *testing.T) {
+	resetTest()
+
+	requestCount := 0
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestCount++
+		w.Header().Set("Cache-Control", "NO-STORE")
+		w.Header().Set("Date", time.Now().UTC().Format(time.RFC1123))
+		w.Write([]byte("nocache-body"))
+	}))
+	defer ts.Close()
+
+	req, _ := http.NewRequest("GET", ts.URL, nil)
+	resp, err := s.client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	io.ReadAll(resp.Body)
+	resp.Body.Close()
+
+	// Second request must hit the origin (no-store honored, case-insensitively)
+	req2, _ := http.NewRequest("GET", ts.URL, nil)
+	resp2, err := s.client.Do(req2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	io.ReadAll(resp2.Body)
+	resp2.Body.Close()
+
+	if requestCount != 2 {
+		t.Errorf("Expected 2 origin requests (no-store honored), got %d", requestCount)
+	}
+	if resp2.Header.Get(XFromCache) == "1" {
+		t.Error("Second response should not come from cache (NO-STORE must be honored)")
+	}
+}
+
+// TestResponseSecondLineNoCacheForcesRevalidation verifies end-to-end that a
+// no-cache directive on the second Cache-Control header line forces revalidation.
+func TestResponseSecondLineNoCacheForcesRevalidation(t *testing.T) {
+	resetTest()
+
+	requestCount := 0
+	etag := `"multi-line-etag"`
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestCount++
+		if r.Header.Get("If-None-Match") == etag {
+			w.WriteHeader(http.StatusNotModified)
+			return
+		}
+		w.Header().Set("Cache-Control", "max-age=3600")
+		w.Header().Add("Cache-Control", "no-cache")
+		w.Header().Set("ETag", etag)
+		w.Header().Set("Date", time.Now().UTC().Format(time.RFC1123))
+		w.Write([]byte("multi-line-body"))
+	}))
+	defer ts.Close()
+
+	// First request: fetch and store
+	req, _ := http.NewRequest("GET", ts.URL, nil)
+	resp, err := s.client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	io.ReadAll(resp.Body)
+	resp.Body.Close()
+
+	// Second request: must revalidate (no-cache on the second line)
+	req2, _ := http.NewRequest("GET", ts.URL, nil)
+	resp2, err := s.client.Do(req2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	io.ReadAll(resp2.Body)
+	resp2.Body.Close()
+
+	if requestCount < 2 {
+		t.Errorf("Expected revalidation due to second-line no-cache, origin requests: %d", requestCount)
+	}
+	if resp2.Header.Get(XRevalidated) != "1" {
+		t.Error("Second request should have been revalidated (no-cache from second line honored)")
 	}
 }

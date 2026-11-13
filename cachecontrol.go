@@ -24,7 +24,10 @@ var cacheControlCache sync.Map
 // - Conflicting directives: applies the most restrictive, logs warning
 // - Invalid values: logs warning but continues processing
 func parseCacheControl(headers http.Header, log *slog.Logger) cacheControl {
-	ccHeader := headers.Get("Cache-Control")
+	// RFC 9110 Section 5.2/5.3: a field value with multiple field lines is
+	// combined into one comma-separated list; every line carries semantics.
+	lines := headers.Values("Cache-Control")
+	ccHeader := strings.Join(lines, ", ")
 
 	// Check cache first
 	if cached, ok := cacheControlCache.Load(ccHeader); ok {
@@ -62,6 +65,10 @@ func parseCacheControlInternal(ccHeader string, log *slog.Logger) cacheControl {
 			directive = part
 			value = ""
 		}
+
+		// RFC 9111 Section 5.2: cache directives are identified by a token,
+		// to be compared case-insensitively.
+		directive = strings.ToLower(directive)
 
 		// RFC 9111: Duplicate directives - use first occurrence
 		if seen[directive] {

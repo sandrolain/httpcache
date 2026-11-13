@@ -218,7 +218,12 @@ func teardown() {
 }
 
 func resetTest() {
+	// Reset transport state mutated by tests so repeated runs
+	// (go test -count=N) are not polluted by earlier tests.
 	s.transport.Cache = newMockCache()
+	s.transport.SkipServerErrorsFromCache = false
+	s.transport.EnableVarySeparation = false
+	s.transport.ShouldCache = nil
 }
 
 // TestCacheableMethod ensures that uncacheable method does not get stored
