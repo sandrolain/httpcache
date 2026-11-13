@@ -199,6 +199,8 @@ The library adds Warning headers to cached responses in these situations:
 - `110 - "Response is Stale"` - When serving a stale response (e.g., with `stale-while-revalidate` or `max-stale`)
 - `111 - "Revalidation Failed"` - When revalidation fails and a stale response is served (with `stale-if-error`)
 
+After successful validation, obsolete 1xx Warning values are removed before the updated response is stored.
+
 **When `DisableWarningHeader = true`:**
 
 No Warning headers are added to responses, ensuring RFC 9111 compliance.

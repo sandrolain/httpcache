@@ -619,10 +619,17 @@ func (t *Transport) handleCachedResponse(cachedResp *http.Response, req *http.Re
 
 // handleNotModifiedResponse updates the cached response with new headers from a 304 response
 func handleNotModifiedResponse(cachedResp *http.Response, newResp *http.Response, markRevalidated bool, clock timer, log *slog.Logger) *http.Response {
+	removeObsoleteWarnings(cachedResp.Header)
 	endToEndHeaders := getEndToEndHeaders(newResp.Header)
 	for _, header := range endToEndHeaders {
+		// Content-Length in a 304 describes the selected representation's
+		// length, but must not replace the stored response's framing metadata.
+		if header == "Content-Length" {
+			continue
+		}
 		cachedResp.Header[header] = newResp.Header[header]
 	}
+	removeObsoleteWarnings(cachedResp.Header)
 	if markRevalidated {
 		cachedResp.Header[XRevalidated] = []string{"1"}
 	}
