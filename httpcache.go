@@ -70,6 +70,7 @@ const (
 	cacheControlPublic               = "public"
 	cacheControlMustRevalidate       = "must-revalidate"
 	cacheControlSMaxAge              = "s-maxage"
+	cacheControlProxyRevalidate      = "proxy-revalidate"
 
 	headerPragma  = "Pragma"
 	pragmaNoCache = "no-cache"
@@ -570,7 +571,7 @@ func (t *Transport) handleCachedResponse(cachedResp *http.Response, req *http.Re
 		return req, false
 	}
 
-	freshness := getFreshness(cachedResp.Header, req.Header, t.clock, t.log())
+	freshness := getFreshness(cachedResp.Header, req.Header, t.clock, t.log(), t.IsPublicCache)
 	t.log().Debug("cache freshness evaluated", "url", req.URL.String(), "freshness", freshnessString(freshness))
 
 	// Add freshness header if marking cached responses
@@ -586,7 +587,7 @@ func (t *Transport) handleCachedResponse(cachedResp *http.Response, req *http.Re
 	if freshness == fresh {
 		t.log().Debug("serving fresh response from cache", "url", req.URL.String())
 		// Check if it's actually stale but served due to max-stale
-		if !t.DisableWarningHeader && isActuallyStale(cachedResp.Header, t.clock, t.log()) {
+		if !t.DisableWarningHeader && isActuallyStale(cachedResp.Header, t.clock, t.log(), t.IsPublicCache) {
 			// RFC 7234 Section 5.5: Add Warning 110 (Response is Stale)
 			addStaleWarning(cachedResp)
 		}
@@ -631,7 +632,7 @@ func handleNotModifiedResponse(cachedResp *http.Response, newResp *http.Response
 }
 
 // shouldReturnStaleOnError checks if a stale cached response should be returned due to an error
-func shouldReturnStaleOnError(err error, resp *http.Response, cachedResp *http.Response, req *http.Request, clock timer, log *slog.Logger) bool {
+func shouldReturnStaleOnError(err error, resp *http.Response, cachedResp *http.Response, req *http.Request, clock timer, log *slog.Logger, shared bool) bool {
 	if req.Method != methodGET || cachedResp == nil {
 		return false
 	}
@@ -643,7 +644,7 @@ func shouldReturnStaleOnError(err error, resp *http.Response, cachedResp *http.R
 		return false
 	}
 
-	return canStaleOnError(cachedResp.Header, req.Header, clock, log)
+	return canStaleOnError(cachedResp.Header, req.Header, clock, log, shared)
 }
 
 // performRequest executes the HTTP request using the provided transport
@@ -856,14 +857,15 @@ func (t *Transport) processCachedResponse(cachedResp *http.Response, markedStale
 	}
 
 	// Use singleflight for revalidation requests
-	resp, err = t.performCacheableRequestOnce(transport, modifiedReq, true, cacheKey, false)
+	_, onlyIfCached := parseCacheControl(req.Header, t.log())[cacheControlOnlyIfCached]
+	resp, err = t.performCacheableRequestOnce(transport, modifiedReq, true, cacheKey, onlyIfCached)
 
 	// Handle 304 Not Modified
 	if err == nil && req.Method == methodGET && resp.StatusCode == http.StatusNotModified {
 		return t.handleCachedNotModified(cachedResp, resp, req), false, nil
 	}
 
-	if shouldReturnStaleOnError(err, resp, cachedResp, req, t.clock, t.log()) {
+	if shouldReturnStaleOnError(err, resp, cachedResp, req, t.clock, t.log(), t.IsPublicCache) {
 		return t.serveStaleCachedResponseOnError(cachedResp, resp, req), true, nil
 	}
 

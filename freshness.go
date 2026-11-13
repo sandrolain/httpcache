@@ -37,6 +37,31 @@ func currentAgeForFreshness(respHeaders http.Header, clock timer, log *slog.Logg
 	return 0
 }
 
+// prohibitsStale reports whether an explicit in-protocol directive prohibits
+// reusing the stale response without successful validation
+// (RFC 9111 Section 4.2.4: a cache MUST NOT generate a stale response if it is
+// prohibited by such a directive; the most restrictive directive wins).
+//
+//   - must-revalidate applies to every cache (Section 5.2.2.1).
+//   - proxy-revalidate is equivalent to must-revalidate for shared caches
+//     (Section 5.2.2.8).
+//   - s-maxage incorporates the proxy-revalidate semantics in shared caches
+//     (Section 5.2.2.10).
+func prohibitsStale(respCacheControl cacheControl, shared bool) bool {
+	if _, ok := respCacheControl[cacheControlMustRevalidate]; ok {
+		return true
+	}
+	if shared {
+		if _, ok := respCacheControl[cacheControlProxyRevalidate]; ok {
+			return true
+		}
+		if _, ok := respCacheControl[cacheControlSMaxAge]; ok {
+			return true
+		}
+	}
+	return false
+}
+
 // getFreshness will return one of fresh/stale/transparent based on the cache-control
 // values of the request and the response
 //
@@ -44,11 +69,15 @@ func currentAgeForFreshness(respHeaders http.Header, clock timer, log *slog.Logg
 // stale indicates that the response needs validating before it is returned
 // transparent indicates the response should not be used to fulfil the request
 //
-// RFC 9111 Note: This is a private cache implementation.
+// shared indicates whether the cache operates in shared (public) cache mode:
+// s-maxage then takes priority over max-age/Expires (RFC 9111 Section 4.2.1),
+// and proxy-revalidate/s-maxage prohibit serving stale without validation.
+//
+// RFC 9111 Note: This is a private cache implementation by default.
 // - Cache-Control: private - Allowed (private caches CAN store these responses)
 // - Cache-Control: public - Ignored (has no additional effect in private caches)
-// - s-maxage - Ignored (only applies to shared caches)
-func getFreshness(respHeaders, reqHeaders http.Header, clock timer, log *slog.Logger) (freshness int) {
+// - s-maxage - Ignored unless the cache is shared (IsPublicCache)
+func getFreshness(respHeaders, reqHeaders http.Header, clock timer, log *slog.Logger, shared bool) (freshness int) {
 	respCacheControl := parseCacheControl(respHeaders, log)
 	reqCacheControl := parseCacheControl(reqHeaders, log)
 
@@ -70,11 +99,11 @@ func getFreshness(respHeaders, reqHeaders http.Header, clock timer, log *slog.Lo
 	if dateErr != nil {
 		return stale
 	}
-	lifetime := calculateLifetime(respCacheControl, respHeaders, date)
+	lifetime := calculateLifetime(respCacheControl, respHeaders, date, shared)
 
 	// Adjust age based on request controls and enforce must-revalidate
 	var returnFresh bool
-	currentAge, lifetime, returnFresh = adjustAgeForRequestControls(respCacheControl, reqCacheControl, currentAge, lifetime)
+	currentAge, lifetime, returnFresh = adjustAgeForRequestControls(respCacheControl, reqCacheControl, currentAge, lifetime, shared)
 	if returnFresh {
 		return fresh
 	}
@@ -83,8 +112,12 @@ func getFreshness(respHeaders, reqHeaders http.Header, clock timer, log *slog.Lo
 		return fresh
 	}
 
-	// Check for stale-while-revalidate directive
-	if stalewhilerevalidate, ok := respCacheControl[cacheControlStaleWhileRevalidate]; ok {
+	// Check for stale-while-revalidate directive.
+	// RFC 9111 Section 4.2.4: an explicit directive prohibiting stale reuse
+	// (must-revalidate; proxy-revalidate/s-maxage in shared caches) wins over
+	// stale-while-revalidate: a stale response MUST NOT be reused without
+	// successful validation, even inside the SWR window.
+	if stalewhilerevalidate, ok := respCacheControl[cacheControlStaleWhileRevalidate]; ok && !prohibitsStale(respCacheControl, shared) {
 		// If the cached response isn't too stale, we can return it and refresh asynchronously
 		stalewhilerevalidateDuration, err := time.ParseDuration(stalewhilerevalidate + "s")
 		if err == nil {
@@ -97,7 +130,7 @@ func getFreshness(respHeaders, reqHeaders http.Header, clock timer, log *slog.Lo
 	return stale
 }
 
-// checkCacheControl checks for no-cache directives, Pragma: no-cache, and only-if-cached
+// checkCacheControl checks for no-cache directives and Pragma: no-cache.
 // RFC 7234 Section 5.4: Pragma: no-cache is treated as Cache-Control: no-cache for HTTP/1.0 compatibility
 func checkCacheControl(respCacheControl, reqCacheControl cacheControl, reqHeaders http.Header) (int, bool) {
 	if _, ok := reqCacheControl[cacheControlNoCache]; ok {
@@ -114,16 +147,27 @@ func checkCacheControl(respCacheControl, reqCacheControl cacheControl, reqHeader
 	if _, ok := respCacheControl[cacheControlNoCache]; ok {
 		return stale, true
 	}
-	if _, ok := reqCacheControl[cacheControlOnlyIfCached]; ok {
-		return fresh, true
-	}
 	return 0, false
 }
 
-// calculateLifetime calculates the response lifetime based on max-age or Expires header
-func calculateLifetime(respCacheControl cacheControl, respHeaders http.Header, date time.Time) time.Duration {
+// calculateLifetime calculates the response lifetime based on s-maxage (shared
+// caches), max-age or Expires header
+func calculateLifetime(respCacheControl cacheControl, respHeaders http.Header, date time.Time, shared bool) time.Duration {
 	var lifetime time.Duration
 	var zeroDuration time.Duration
+
+	// RFC 9111 Section 4.2.1: "If the cache is shared and the s-maxage response
+	// directive is present, use its value, in seconds" — s-maxage takes
+	// priority over max-age and Expires in shared caches.
+	if shared {
+		if sMaxAge, ok := respCacheControl[cacheControlSMaxAge]; ok {
+			parsedLifetime, err := time.ParseDuration(sMaxAge + "s")
+			if err != nil {
+				return zeroDuration
+			}
+			return parsedLifetime
+		}
+	}
 
 	// If a response includes both an Expires header and a max-age directive,
 	// the max-age directive overrides the Expires header, even if the Expires header is more restrictive.
@@ -150,8 +194,10 @@ func calculateLifetime(respCacheControl cacheControl, respHeaders http.Header, d
 }
 
 // adjustAgeForRequestControls adjusts the current age based on request cache control directives
-// and enforces must-revalidate directive from response
-func adjustAgeForRequestControls(respCacheControl, reqCacheControl cacheControl, currentAge time.Duration, lifetime time.Duration) (time.Duration, time.Duration, bool) {
+// and enforces directives that prohibit reuse of stale responses
+// (must-revalidate, and in shared caches proxy-revalidate/s-maxage per
+// RFC 9111 Sections 4.2.4, 5.2.2.1, 5.2.2.8 and 5.2.2.10)
+func adjustAgeForRequestControls(respCacheControl, reqCacheControl cacheControl, currentAge time.Duration, lifetime time.Duration, shared bool) (time.Duration, time.Duration, bool) {
 	if maxAge, ok := reqCacheControl[cacheControlMaxAge]; ok {
 		// the client is willing to accept a response whose age is no greater than the specified time in seconds
 		parsedLifetime, err := time.ParseDuration(maxAge + "s")
@@ -171,12 +217,13 @@ func adjustAgeForRequestControls(respCacheControl, reqCacheControl cacheControl,
 		}
 	}
 
-	// RFC 7234 Section 5.2.2.1: must-revalidate
+	// RFC 9111 Section 5.2.2.1: must-revalidate
 	// "once it has become stale, a cache MUST NOT use the response to satisfy
 	// subsequent requests without successful validation on the origin server"
-	// This overrides max-stale from the request
-	if _, mustRevalidate := respCacheControl[cacheControlMustRevalidate]; mustRevalidate {
-		// Ignore max-stale when must-revalidate is present
+	// This overrides max-stale from the request. In shared caches the same
+	// applies to proxy-revalidate and s-maxage (Sections 5.2.2.8, 5.2.2.10).
+	if prohibitsStale(respCacheControl, shared) {
+		// Ignore max-stale when a stale-prohibiting directive is present
 		return currentAge, lifetime, false
 	}
 
@@ -195,7 +242,7 @@ func adjustAgeForRequestControls(respCacheControl, reqCacheControl cacheControl,
 }
 
 // isActuallyStale checks if a response is actually stale (ignoring client's max-stale tolerance)
-func isActuallyStale(respHeaders http.Header, clock timer, log *slog.Logger) bool {
+func isActuallyStale(respHeaders http.Header, clock timer, log *slog.Logger, shared bool) bool {
 	respCacheControl := parseCacheControl(respHeaders, log)
 
 	date, err := Date(respHeaders)
@@ -204,10 +251,12 @@ func isActuallyStale(respHeaders http.Header, clock timer, log *slog.Logger) boo
 	}
 
 	currentAge := currentAgeForFreshness(respHeaders, clock, log)
-	lifetime := calculateLifetime(respCacheControl, respHeaders, date)
+	lifetime := calculateLifetime(respCacheControl, respHeaders, date, shared)
 
-	// Check if stale-while-revalidate extends freshness
-	if stalewhilerevalidate, ok := respCacheControl[cacheControlStaleWhileRevalidate]; ok {
+	// Check if stale-while-revalidate extends freshness.
+	// Directives prohibiting stale reuse (RFC 9111 Section 4.2.4) override the
+	// SWR window: the response counts as stale even inside it.
+	if stalewhilerevalidate, ok := respCacheControl[cacheControlStaleWhileRevalidate]; ok && !prohibitsStale(respCacheControl, shared) {
 		stalewhilerevalidateDuration, err := time.ParseDuration(stalewhilerevalidate + "s")
 		if err == nil {
 			if lifetime+stalewhilerevalidateDuration > currentAge {
@@ -266,9 +315,18 @@ func checkStaleIfErrorLifetime(respHeaders http.Header, lifetime time.Duration, 
 
 // canStaleOnError determines if a stale response can be returned on error
 // cache control extension: https://tools.ietf.org/html/rfc5861
-func canStaleOnError(respHeaders, reqHeaders http.Header, clock timer, log *slog.Logger) bool {
+func canStaleOnError(respHeaders, reqHeaders http.Header, clock timer, log *slog.Logger, shared bool) bool {
 	respCacheControl := parseCacheControl(respHeaders, log)
 	reqCacheControl := parseCacheControl(reqHeaders, log)
+
+	// RFC 9111 Section 4.2.4: a cache MUST NOT generate a stale response if it
+	// is prohibited by an explicit in-protocol directive (e.g. must-revalidate;
+	// in shared caches proxy-revalidate or s-maxage). Stale-if-error cannot
+	// override it: if disconnected, the cache MUST generate an error response
+	// rather than reuse the stale response (Section 5.2.2.1).
+	if prohibitsStale(respCacheControl, shared) {
+		return false
+	}
 
 	lifetime := time.Duration(-1)
 

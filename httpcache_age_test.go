@@ -629,13 +629,13 @@ func TestFreshnessConsidersAgeHeader(t *testing.T) {
 
 	// age_value=600 + resident 2900 = current_age 3500 < 3600 → fresh
 	clk := &fakeClock{elapsed: 2900 * time.Second}
-	if f := getFreshness(buildHeaders(), reqHeaders, clk, slog.Default()); f != fresh {
+	if f := getFreshness(buildHeaders(), reqHeaders, clk, slog.Default(), false); f != fresh {
 		t.Errorf("getFreshness() = %d, want fresh (%d) when current_age 3500 < lifetime 3600", f, fresh)
 	}
 
 	// age_value=600 + resident 3000 = current_age 3600, lifetime 3600 → stale
 	clk = &fakeClock{elapsed: 3000 * time.Second}
-	if f := getFreshness(buildHeaders(), reqHeaders, clk, slog.Default()); f != stale {
+	if f := getFreshness(buildHeaders(), reqHeaders, clk, slog.Default(), false); f != stale {
 		t.Errorf("getFreshness() = %d, want stale (%d) when current_age 3600 >= lifetime 3600", f, stale)
 	}
 
@@ -643,7 +643,7 @@ func TestFreshnessConsidersAgeHeader(t *testing.T) {
 	noAge := buildHeaders()
 	noAge.Del(headerAge)
 	clk = &fakeClock{elapsed: 3000 * time.Second}
-	if f := getFreshness(noAge, reqHeaders, clk, slog.Default()); f != fresh {
+	if f := getFreshness(noAge, reqHeaders, clk, slog.Default(), false); f != fresh {
 		t.Errorf("getFreshness() = %d, want fresh without Age header (Date-based age only)", f)
 	}
 }
@@ -659,13 +659,13 @@ func TestFreshnessLegacyEntryFallback(t *testing.T) {
 	headers.Set("Cache-Control", "max-age=60")
 	// No X-Request-Time / X-Response-Time / Age: legacy entry
 
-	if f := getFreshness(headers, http.Header{}, &realClock{}, slog.Default()); f != fresh {
+	if f := getFreshness(headers, http.Header{}, &realClock{}, slog.Default(), false); f != fresh {
 		t.Errorf("getFreshness() = %d, want fresh for legacy entry with Date-based age 30s < 60s", f)
 	}
 
 	old := headers.Clone()
 	old.Set("Date", now.Add(-90*time.Second).Format(http.TimeFormat))
-	if f := getFreshness(old, http.Header{}, &realClock{}, slog.Default()); f != stale {
+	if f := getFreshness(old, http.Header{}, &realClock{}, slog.Default(), false); f != stale {
 		t.Errorf("getFreshness() = %d, want stale for legacy entry with Date-based age 90s >= 60s", f)
 	}
 }
