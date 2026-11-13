@@ -532,6 +532,7 @@ func TestResponseSecondLineNoCacheForcesRevalidation(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requestCount++
 		if r.Header.Get("If-None-Match") == etag {
+			w.Header().Set("ETag", etag)
 			w.WriteHeader(http.StatusNotModified)
 			return
 		}

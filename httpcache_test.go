@@ -60,11 +60,11 @@ func setup() {
 
 	mux.HandleFunc("/range", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		lm := "Fri, 14 Dec 2010 01:01:50 GMT"
+		w.Header().Set("last-modified", lm)
 		if r.Header.Get("if-modified-since") == lm {
 			w.WriteHeader(http.StatusNotModified)
 			return
 		}
-		w.Header().Set("last-modified", lm)
 		if r.Header.Get("range") == "bytes=4-9" {
 			w.WriteHeader(http.StatusPartialContent)
 			_, _ = w.Write([]byte(" text "))
@@ -85,21 +85,21 @@ func setup() {
 	}))
 
 	mux.HandleFunc("/etag", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		etag := "124567"
+		etag := `"124567"`
+		w.Header().Set("etag", etag)
 		if r.Header.Get("if-none-match") == etag {
 			w.WriteHeader(http.StatusNotModified)
 			return
 		}
-		w.Header().Set("etag", etag)
 	}))
 
 	mux.HandleFunc("/lastmodified", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		lm := "Fri, 14 Dec 2010 01:01:50 GMT"
+		w.Header().Set("last-modified", lm)
 		if r.Header.Get("if-modified-since") == lm {
 			w.WriteHeader(http.StatusNotModified)
 			return
 		}
-		w.Header().Set("last-modified", lm)
 	}))
 
 	mux.HandleFunc("/varyaccept", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -130,12 +130,12 @@ func setup() {
 	}))
 
 	mux.HandleFunc("/cachederror", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		etag := "abc"
+		etag := `"abc"`
+		w.Header().Set("etag", etag)
 		if r.Header.Get("if-none-match") == etag {
 			w.WriteHeader(http.StatusNotModified)
 			return
 		}
-		w.Header().Set("etag", etag)
 		w.WriteHeader(http.StatusNotFound)
 		w.Write([]byte("Not found"))
 	}))

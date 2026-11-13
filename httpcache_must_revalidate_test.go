@@ -68,6 +68,7 @@ func TestMustRevalidateWithoutMaxStale(t *testing.T) {
 		counter++
 		if r.Header.Get("If-None-Match") == etag {
 			// Return 304 Not Modified
+			w.Header().Set("ETag", etag)
 			w.WriteHeader(http.StatusNotModified)
 			return
 		}

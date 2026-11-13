@@ -443,6 +443,7 @@ func TestCacheKeyHeadersRevalidation(t *testing.T) {
 	testServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requestCount++
 		if r.Header.Get("If-None-Match") == etag {
+			w.Header().Set("ETag", etag)
 			w.WriteHeader(http.StatusNotModified)
 			return
 		}

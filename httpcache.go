@@ -470,9 +470,14 @@ func addValidatorsToRequest(req *http.Request, cachedResp *http.Response) *http.
 	etag := cachedResp.Header.Get(headerETag)
 	lastModified := cachedResp.Header.Get(headerLastModified)
 
-	// Only add validators if they're not already present
-	needsEtag := etag != "" && req.Header.Get(headerETag) == ""
-	needsLastModified := lastModified != "" && req.Header.Get(headerLastModified) == ""
+	// Preserve validators supplied by the client. They describe the client's
+	// own stored representation and take precedence over cache validators.
+	if req.Header.Get("If-None-Match") != "" || req.Header.Get("If-Modified-Since") != "" {
+		return req
+	}
+
+	needsEtag := etag != ""
+	needsLastModified := lastModified != ""
 
 	if !needsEtag && !needsLastModified {
 		return req
@@ -862,6 +867,19 @@ func (t *Transport) processCachedResponse(cachedResp *http.Response, markedStale
 
 	// Handle 304 Not Modified
 	if err == nil && req.Method == methodGET && resp.StatusCode == http.StatusNotModified {
+		if !validatorsMatchFor304(cachedResp.Header, resp.Header) {
+			t.log().Warn("304 validators do not match cached response; retrying without cache validators", "url", req.URL.String())
+			if req.Header.Get("If-None-Match") != "" || req.Header.Get("If-Modified-Since") != "" {
+				// This 304 answers a condition supplied by the client. Do not
+				// apply it to the unrelated stored representation.
+				return resp, false, nil
+			}
+			if drainErr := drainDiscardedBody(resp.Body); drainErr != nil {
+				t.log().Warn("error draining mismatched 304 response body", "error", drainErr)
+			}
+			retryResp, retryErr := t.performCacheableRequestOnce(transport, req, true, cacheKey, false)
+			return retryResp, false, retryErr
+		}
 		return t.handleCachedNotModified(cachedResp, resp, req), false, nil
 	}
 
