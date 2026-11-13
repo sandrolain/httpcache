@@ -305,7 +305,7 @@ func parseStaleIfError(cacheControl cacheControl) (time.Duration, bool, bool) {
 
 	lifetime, err := time.ParseDuration(staleMaxAge + "s")
 	if err != nil {
-		return 0, false, true // Invalid duration
+		return 0, false, false // Ignore an invalid directive
 	}
 
 	return lifetime, false, true
