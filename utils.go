@@ -132,13 +132,39 @@ func getEndToEndHeaders(respHeaders http.Header) []string {
 func newGatewayTimeoutResponse(req *http.Request) *http.Response {
 	// Use buffer pool to reduce allocations
 	braw := getBuffer()
-	defer putBuffer(braw)
 	braw.WriteString("HTTP/1.1 504 Gateway Timeout\r\n\r\n")
 	resp, err := http.ReadResponse(bufio.NewReader(braw), req)
 	if err != nil {
+		putBuffer(braw)
 		panic(err)
 	}
+	// The parsed response body may still be backed by braw: hand the buffer
+	// back to the pool only when the body is closed, not here.
+	if resp != nil && resp.Body != nil {
+		resp.Body = &bufferReleaseReadCloser{ReadCloser: resp.Body, buf: braw, putBuf: putBuffer}
+	}
 	return resp
+}
+
+// bufferReleaseReadCloser wraps a response body backed by a pooled
+// bytes.Buffer and returns the buffer to the pool when the body is closed.
+// It is used to keep pool ownership correct for buffers that back lazily
+// read response bodies (see http.ReadResponse over a pooled buffer).
+type bufferReleaseReadCloser struct {
+	io.ReadCloser
+	buf    *bytes.Buffer
+	putBuf func(*bytes.Buffer)
+}
+
+// Close closes the underlying body and releases the backing buffer exactly once.
+func (b *bufferReleaseReadCloser) Close() error {
+	err := b.ReadCloser.Close()
+	if b.putBuf != nil {
+		put := b.putBuf
+		b.putBuf = nil
+		put(b.buf)
+	}
+	return err
 }
 
 // cachingReadCloser is a wrapper around ReadCloser R that calls OnEOF

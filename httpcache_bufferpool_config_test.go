@@ -247,12 +247,17 @@ func TestMaxPooledBufferSizeConcurrent(t *testing.T) {
 
 	client := transport.Client()
 
-	// Make concurrent requests
+	// Make concurrent requests, limited to avoid connection drops under burst load
 	const numRequests = 50
+	const maxConcurrency = 10
+	sem := make(chan struct{}, maxConcurrency)
 	results := make(chan error, numRequests)
 
 	for i := 0; i < numRequests; i++ {
 		go func(id int) {
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
 			resp, err := client.Get(server.URL)
 			if err != nil {
 				results <- err

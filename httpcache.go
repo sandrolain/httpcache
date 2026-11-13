@@ -446,11 +446,20 @@ func (t *Transport) cachedResponseWithKeySecure(req *http.Request, key string) (
 		markedStale = isStale
 	}
 
-	// Use buffer pool to reduce allocations
+	// Use buffer pool to reduce allocations.
+	// The buffer backs the response body, so it must NOT be returned to the
+	// pool here: the body is read lazily after this function returns. Hand it
+	// back to the pool only when the body is closed.
 	b := getBuffer()
-	defer t.putBuffer(b)
 	b.Write(cachedVal)
 	resp, err = http.ReadResponse(bufio.NewReader(b), req)
+	if err != nil || resp == nil {
+		t.putBuffer(b)
+		return resp, markedStale, err
+	}
+	if resp.Body != nil {
+		resp.Body = &bufferReleaseReadCloser{ReadCloser: resp.Body, buf: b, putBuf: t.putBuffer}
+	}
 	return resp, markedStale, err
 }
 
