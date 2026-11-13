@@ -18,6 +18,7 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"sort"
+	"sync"
 	"strconv"
 	"strings"
 	"time"
@@ -263,7 +264,16 @@ type Transport struct {
 	// Default is false (Warning headers are enabled for backward compatibility).
 	// Set to true to comply with RFC 9111 and avoid deprecated headers.
 	DisableWarningHeader bool
+
+	// revalidateWG tracks in-flight async (stale-while-revalidate) revalidation
+	// goroutines so tests can wait for them before resetting shared state.
+	revalidateWG sync.WaitGroup
 }
+
+// asyncRevalidateWG tracks in-flight async (stale-while-revalidate) revalidation
+// goroutines across ALL transports, so tests can wait for them before resetting
+// shared state (caches, clock) created by previous tests.
+var asyncRevalidateWG sync.WaitGroup
 
 // NewTransport returns a new Transport with the
 // provided Cache implementation and MarkCachedResponses set to true
@@ -411,7 +421,10 @@ func (t *Transport) asyncRevalidate(req *http.Request) {
 	noCacheRequest := req.Clone(bgContext)
 	noCacheRequest.Header.Set("cache-control", cacheControlNoCache)
 
+	asyncRevalidateWG.Add(1)
 	go func() {
+		defer asyncRevalidateWG.Done()
+
 		if cancelContext != nil {
 			defer cancelContext()
 		}

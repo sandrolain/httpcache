@@ -226,7 +226,16 @@ func teardown() {
 }
 
 func resetTest() {
+	// Wait for any in-flight async revalidation goroutines (across all
+	// transports) before resetting shared state, to avoid data races with
+	// background SWR revalidations started by previous tests.
+	asyncRevalidateWG.Wait()
 	s.transport.Cache = NewMemoryCache()
+	// Reset transport flags mutated by tests, so repeated runs
+	// (go test -count=N) are not polluted by earlier tests.
+	s.transport.SkipServerErrorsFromCache = false
+	s.transport.EnableVarySeparation = false
+	s.transport.ShouldCache = nil
 	clock = &realClock{}
 }
 
