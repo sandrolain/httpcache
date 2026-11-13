@@ -860,10 +860,15 @@ func (t *Transport) processCachedResponse(cachedResp *http.Response, markedStale
 	if useCache {
 		return cachedResp, true, nil
 	}
+	if _, onlyIfCached := parseCacheControl(req.Header, t.log())[cacheControlOnlyIfCached]; onlyIfCached {
+		// A cached response that needs revalidation (or otherwise cannot satisfy
+		// this request) is not usable under only-if-cached. Do not forward the
+		// request, invoke stale-if-error, or invalidate the stored entry.
+		return newGatewayTimeoutResponse(req), false, nil
+	}
 
 	// Use singleflight for revalidation requests
-	_, onlyIfCached := parseCacheControl(req.Header, t.log())[cacheControlOnlyIfCached]
-	resp, err = t.performCacheableRequestOnce(transport, modifiedReq, true, cacheKey, onlyIfCached)
+	resp, err = t.performCacheableRequestOnce(transport, modifiedReq, true, cacheKey, false)
 
 	// Handle 304 Not Modified
 	if err == nil && req.Method == methodGET && resp.StatusCode == http.StatusNotModified {
