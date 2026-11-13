@@ -188,7 +188,7 @@ func calculateLifetime(respCacheControl cacheControl, respHeaders http.Header, d
 	} else {
 		expiresHeader := respHeaders.Get("Expires")
 		if expiresHeader != "" {
-			expires, err := time.Parse(time.RFC1123, expiresHeader)
+			expires, err := parseHTTPDate(expiresHeader)
 			if err != nil {
 				lifetime = zeroDuration
 			} else {

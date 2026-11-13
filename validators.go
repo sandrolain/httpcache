@@ -81,7 +81,7 @@ func sameHTTPDate(a, b string) bool {
 	if a == "" || b == "" {
 		return false
 	}
-	parsedA, errA := http.ParseTime(a)
-	parsedB, errB := http.ParseTime(b)
+	parsedA, errA := parseHTTPDate(a)
+	parsedB, errB := parseHTTPDate(b)
 	return errA == nil && errB == nil && parsedA.Equal(parsedB)
 }

@@ -22,7 +22,30 @@ func Date(respHeaders http.Header) (date time.Time, err error) {
 		return
 	}
 
-	return time.Parse(time.RFC1123, dateHeader)
+	return parseHTTPDate(dateHeader)
+}
+
+// parseHTTPDate accepts the three HTTP-date forms required of recipients by
+// RFC 9110 §5.6.7 while rejecting obsolete zone abbreviations.
+func parseHTTPDate(value string) (time.Time, error) {
+	if date, err := time.Parse(http.TimeFormat, value); err == nil {
+		return date, nil
+	}
+	if strings.HasSuffix(value, " GMT") {
+		if date, err := time.Parse(time.RFC850, value); err == nil {
+			// RFC 9110 §5.6.7: an RFC 850 year that would be more than
+			// 50 years in the future is interpreted as the most recent past year
+			// with the same final two digits.
+			if date.Year() < time.Now().Year()-50 {
+				candidate := date.AddDate(100, 0, 0)
+				if candidate.Year() <= time.Now().Year()+50 {
+					date = candidate
+				}
+			}
+			return date, nil
+		}
+	}
+	return time.Parse(time.ANSIC, value)
 }
 
 // maxDeltaSeconds is the greatest representable delta-seconds value.
