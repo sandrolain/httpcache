@@ -18,9 +18,9 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"sort"
-	"sync"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
