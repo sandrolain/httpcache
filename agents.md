@@ -21,6 +21,10 @@ Instructions for AI coding agents working on this repository.
 
 This is a fork of "github.com/gregjones/httpcache", a project archived in 2023 and no longer maintained. The goal is to keep updating it while maintaining backward compatibility with existing code that uses it, to add new features and fix bugs.
 
+## RFC references
+
+- Use the local copies in `docs/rfcs/` as the authoritative source when implementing or reviewing HTTP behavior. See `docs/rfcs/README.md` for the RFC list and reference URLs.
+
 ## Instructions
 
 1. **Dependency updates**: Update dependencies in the `go.mod` file to use the latest versions of libraries, maintaining compatibility with existing code.
