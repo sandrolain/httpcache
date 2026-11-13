@@ -395,7 +395,7 @@ The `must-understand` directive modifies the caching behavior as follows:
 
 httpcache recognizes the following HTTP status codes as "understood":
 
-- **2xx Success**: 200 (OK), 203 (Non-Authoritative Information), 204 (No Content), 206 (Partial Content)
+- **2xx Success**: 200 (OK), 203 (Non-Authoritative Information), 204 (No Content)
 - **3xx Redirection**: 300 (Multiple Choices), 301 (Moved Permanently)
 - **4xx Client Errors**: 404 (Not Found), 405 (Method Not Allowed), 410 (Gone), 414 (URI Too Long)
 - **5xx Server Errors**: 501 (Not Implemented)
@@ -831,6 +831,10 @@ requests with 4xx/5xx status codes do not invalidate cached entries. When
 URI marker in the configured cache and older variants must be revalidated before
 they can be served. These markers use the regular cache backend, so backend
 eviction and clearing policies also apply to them.
+
+The transport currently does not combine byte ranges, so it forwards `206`
+Partial Content responses without storing them. A `304` received while
+revalidating a cached HEAD response updates and reuses that stored response.
 
 #### Content-Location and Location Header Invalidation
 

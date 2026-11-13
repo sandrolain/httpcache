@@ -26,7 +26,7 @@ func TestMustUnderstandKnownStatus(t *testing.T) {
 		{"200 OK", 200, true},
 		{"203 Non-Authoritative", 203, true},
 		{"204 No Content", 204, true},
-		{"206 Partial Content", 206, true},
+		{"206 Partial Content without Range support", 206, false},
 		{"300 Multiple Choices", 300, true},
 		{"301 Moved Permanently", 301, true},
 		{"404 Not Found", 404, true},

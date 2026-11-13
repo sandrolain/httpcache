@@ -99,7 +99,6 @@ var understoodStatusCodes = map[int]bool{
 	200: true, // OK
 	203: true, // Non-Authoritative Information
 	204: true, // No Content
-	206: true, // Partial Content
 	300: true, // Multiple Choices
 	301: true, // Moved Permanently
 	404: true, // Not Found
@@ -871,7 +870,7 @@ func (t *Transport) processCachedResponse(cachedResp *http.Response, markedStale
 	resp, err = t.performCacheableRequestOnce(transport, modifiedReq, true, cacheKey, false)
 
 	// Handle 304 Not Modified
-	if err == nil && req.Method == methodGET && resp.StatusCode == http.StatusNotModified {
+	if err == nil && (req.Method == methodGET || req.Method == methodHEAD) && resp.StatusCode == http.StatusNotModified {
 		if !validatorsMatchFor304(cachedResp.Header, resp.Header) {
 			t.log().Warn("304 validators do not match cached response; retrying without cache validators", "url", req.URL.String())
 			if req.Header.Get("If-None-Match") != "" || req.Header.Get("If-Modified-Since") != "" {
@@ -962,6 +961,11 @@ func (t *Transport) storeResponseInCache(resp *http.Response, req *http.Request,
 		// is handled separately after a successful origin response.
 		return
 	}
+	if resp.StatusCode == http.StatusPartialContent {
+		// This transport does not implement Range/Content-Range storage or
+		// combination, so it must never store a partial representation.
+		return
+	}
 	respCacheControl := parseCacheControl(resp.Header, t.log())
 	reqCacheControl := parseCacheControl(req.Header, t.log())
 
@@ -990,7 +994,6 @@ func (t *Transport) storeResponseInCache(resp *http.Response, req *http.Request,
 	shouldCache := resp.StatusCode == http.StatusOK ||
 		resp.StatusCode == http.StatusNonAuthoritativeInfo || // 203
 		resp.StatusCode == http.StatusNoContent || // 204
-		resp.StatusCode == http.StatusPartialContent || // 206
 		resp.StatusCode == http.StatusMultipleChoices || // 300
 		resp.StatusCode == http.StatusMovedPermanently || // 301
 		resp.StatusCode == http.StatusNotFound || // 404

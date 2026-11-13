@@ -855,7 +855,6 @@ client := transport.Client()
 - `200` OK
 - `203` Non-Authoritative Information
 - `204` No Content
-- `206` Partial Content  
 - `300` Multiple Choices
 - `301` Moved Permanently
 - `404` Not Found
