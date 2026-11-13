@@ -642,12 +642,21 @@ func shouldReturnStaleOnError(err error, resp *http.Response, cachedResp *http.R
 	}
 
 	hasError := err != nil
-	hasServerError := resp != nil && resp.StatusCode >= 500
+	hasServerError := false
+	if resp != nil {
+		switch resp.StatusCode {
+		case http.StatusInternalServerError, http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
+			hasServerError = true
+		}
+	}
 
 	if !hasError && !hasServerError {
 		return false
 	}
 
+	if !varyMatches(cachedResp, req) {
+		return false
+	}
 	return canStaleOnError(cachedResp.Header, req.Header, clock, log, shared)
 }
 
@@ -955,6 +964,12 @@ func (t *Transport) performCacheableRequestOnce(transport http.RoundTripper, req
 // Uses the request context for cache operations.
 func (t *Transport) storeResponseInCache(resp *http.Response, req *http.Request, cacheKey string, cacheable bool) {
 	ctx := req.Context()
+	if _, requestNoStore := parseCacheControl(req.Header, t.log())[cacheControlNoStore]; requestNoStore {
+		// RFC 9111 §5.2.1.5: request no-store does not apply to an already
+		// stored response used to satisfy this request. In particular, do not
+		// delete the existing entry after a successful revalidation.
+		return
+	}
 	if !cacheable {
 		// Range GETs and other uncacheable request forms must not delete an
 		// existing GET entry under the same URI key. Unsafe-method invalidation

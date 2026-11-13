@@ -679,6 +679,9 @@ resp, _ := client.Get(url) // Returns cached response, not 500 error
 ```
 
 This implements [RFC 5861](https://tools.ietf.org/html/rfc5861) for better resilience.
+The `stale-if-error` duration is measured from when the response becomes stale,
+and applies to origin errors 500, 502, 503, and 504. A request `max-age` limits
+the age it accepts and cannot extend the response's freshness lifetime.
 
 ## Stale-While-Revalidate Support
 

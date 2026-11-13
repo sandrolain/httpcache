@@ -98,13 +98,13 @@ func TestStaleMarkingWithTransport(t *testing.T) {
 			hitCount++
 			if hitCount == 1 {
 				// Cacheable response that explicitly allows stale-if-error.
-				w.Header().Set("Cache-Control", "max-age=3600, stale-if-error=60")
+				w.Header().Set("Cache-Control", "max-age=0, stale-if-error=60")
 				w.Header().Set("ETag", "v1")
 				w.WriteHeader(http.StatusOK)
 				_, _ = w.Write([]byte("original"))
 				return
 			}
-			w.WriteHeader(http.StatusInternalServerError)
+			w.WriteHeader(http.StatusBadGateway)
 		}))
 		defer server.Close()
 

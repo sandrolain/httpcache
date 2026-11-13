@@ -102,6 +102,7 @@ func getFreshness(respHeaders, reqHeaders http.Header, clock timer, log *slog.Lo
 	lifetime := calculateLifetime(respCacheControl, respHeaders, date, shared)
 
 	// Adjust age based on request controls and enforce must-revalidate
+	responseAge := currentAge
 	var returnFresh bool
 	currentAge, lifetime, returnFresh = adjustAgeForRequestControls(respCacheControl, reqCacheControl, currentAge, lifetime, shared)
 	if returnFresh {
@@ -117,7 +118,13 @@ func getFreshness(respHeaders, reqHeaders http.Header, clock timer, log *slog.Lo
 	// (must-revalidate; proxy-revalidate/s-maxage in shared caches) wins over
 	// stale-while-revalidate: a stale response MUST NOT be reused without
 	// successful validation, even inside the SWR window.
-	if stalewhilerevalidate, ok := respCacheControl[cacheControlStaleWhileRevalidate]; ok && !prohibitsStale(respCacheControl, shared) {
+	requestMaxAgeExceeded := false
+	if requestMaxAge, ok := reqCacheControl[cacheControlMaxAge]; ok {
+		if limit, err := time.ParseDuration(requestMaxAge + "s"); err != nil || responseAge > limit {
+			requestMaxAgeExceeded = true
+		}
+	}
+	if stalewhilerevalidate, ok := respCacheControl[cacheControlStaleWhileRevalidate]; ok && !requestMaxAgeExceeded && !prohibitsStale(respCacheControl, shared) {
 		// If the cached response isn't too stale, we can return it and refresh asynchronously
 		stalewhilerevalidateDuration, err := time.ParseDuration(stalewhilerevalidate + "s")
 		if err == nil {
@@ -199,12 +206,13 @@ func calculateLifetime(respCacheControl cacheControl, respHeaders http.Header, d
 // RFC 9111 Sections 4.2.4, 5.2.2.1, 5.2.2.8 and 5.2.2.10)
 func adjustAgeForRequestControls(respCacheControl, reqCacheControl cacheControl, currentAge time.Duration, lifetime time.Duration, shared bool) (time.Duration, time.Duration, bool) {
 	if maxAge, ok := reqCacheControl[cacheControlMaxAge]; ok {
-		// the client is willing to accept a response whose age is no greater than the specified time in seconds
+		// Request max-age limits the age the client will accept; it cannot
+		// extend the response's own freshness lifetime (RFC 9111 §5.2.1.1).
 		parsedLifetime, err := time.ParseDuration(maxAge + "s")
 		if err != nil {
-			// Invalid max-age should force stale
-			lifetime = 0
-		} else {
+			parsedLifetime = 0
+		}
+		if parsedLifetime < lifetime {
 			lifetime = parsedLifetime
 		}
 	}
@@ -304,13 +312,17 @@ func parseStaleIfError(cacheControl cacheControl) (time.Duration, bool, bool) {
 }
 
 // checkStaleIfErrorLifetime checks if the response is within the stale-if-error lifetime
-func checkStaleIfErrorLifetime(respHeaders http.Header, lifetime time.Duration, clock timer, log *slog.Logger) bool {
-	if _, err := Date(respHeaders); err != nil {
+func checkStaleIfErrorLifetime(respHeaders http.Header, staleWindow time.Duration, clock timer, log *slog.Logger, shared bool) bool {
+	date, err := Date(respHeaders)
+	if err != nil {
 		return false
 	}
 	// Use the full RFC 9111 §4.2.3 current_age (includes the Age header)
 	currentAge := currentAgeForFreshness(respHeaders, clock, log)
-	return lifetime > currentAge
+	responseCC := parseCacheControl(respHeaders, log)
+	freshnessLifetime := calculateLifetime(responseCC, respHeaders, date, shared)
+	staleDuration := currentAge - freshnessLifetime
+	return staleDuration >= 0 && staleDuration <= staleWindow
 }
 
 // canStaleOnError determines if a stale response can be returned on error
@@ -348,7 +360,7 @@ func canStaleOnError(respHeaders, reqHeaders http.Header, clock timer, log *slog
 
 	// Check if within lifetime
 	if lifetime >= 0 {
-		return checkStaleIfErrorLifetime(respHeaders, lifetime, clock, log)
+		return checkStaleIfErrorLifetime(respHeaders, lifetime, clock, log, shared)
 	}
 
 	return false
