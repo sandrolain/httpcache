@@ -499,7 +499,9 @@ current_age = corrected_initial_age + resident_time
 httpcache validates Age headers according to RFC 9111 Section 5.1 requirements:
 
 - **Multiple Age headers**: Uses the first value, logs warning about others
-- **Invalid values**: Rejects negative numbers, non-numeric values, floats
+- **List-based values**: Uses the first member of a list value (e.g. `Age: 10, 20` → `10`), logs warning
+- **Invalid values**: Rejects negative numbers, sign-prefixed values (`+5`, `-5`), non-numeric values, floats
+- **Overflow**: Values above 2^31 are clamped to 2147483648 per RFC 9111 Section 1.2.2, never treated as negative
 - **Graceful handling**: Logs warnings for invalid Age headers without failing requests
 
 ```go
@@ -508,6 +510,10 @@ httpcache validates Age headers according to RFC 9111 Section 5.1 requirements:
 // Age: 600
 // Result: Uses 300 (first value), logs warning
 
+// Example: List-based Age header
+// Age: 10, 20
+// Result: Uses 10 (first member), logs warning
+
 // Example: Invalid Age header
 // Age: -100
 // Result: Ignores header, logs warning
@@ -515,7 +521,27 @@ httpcache validates Age headers according to RFC 9111 Section 5.1 requirements:
 // Example: Non-numeric Age header
 // Age: invalid
 // Result: Ignores header, logs warning
+
+// Example: Overflowing Age header
+// Age: 99999999999999999999
+// Result: Clamped to 2147483648, logs warning
 ```
+
+#### Freshness Decisions and current_age (RFC 9111 Section 4.2)
+
+Freshness decisions (`response_is_fresh = freshness_lifetime > current_age`) use the
+full RFC 9111 Section 4.2.3 `current_age` algorithm, including the upstream `Age`
+header — not only the time elapsed since the `Date` header:
+
+- **Stored responses with timing metadata** (`X-Request-Time` / `X-Response-Time`,
+  present by default): freshness uses the complete algorithm above.
+- **Legacy cached entries without metadata** (e.g. entries written by older
+  versions or with `X-Cached-Time` fallback): freshness falls back to the
+  simplified `now - Date` calculation, preserving backward-compatible behavior.
+
+When a stale response is served after a failed revalidation (stale-on-error), the
+`Age` header is recomputed before the response is returned, so it accounts for the
+time spent attempting revalidation.
 
 #### Usage Example
 

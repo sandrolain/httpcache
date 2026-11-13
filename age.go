@@ -25,13 +25,20 @@ func Date(respHeaders http.Header) (date time.Time, err error) {
 	return time.Parse(time.RFC1123, dateHeader)
 }
 
+// maxDeltaSeconds is the greatest representable delta-seconds value.
+// RFC 9111 Section 1.2.2: a value that overflows MUST be treated as
+// 2147483648 (2^31), never as a negative value in later calculations.
+const maxDeltaSeconds = int64(2147483648)
+
 // parseAgeHeader parses the Age header according to RFC 9111 Section 5.1.
 // Returns the age duration and a boolean indicating if the header is valid.
 //
 // RFC 9111 requirements:
-// - If multiple Age headers exist, use the first value and discard others
-// - If the value is invalid (negative, non-numeric), ignore it completely
-// - Age header value must be a non-negative integer representing seconds
+//   - If multiple Age headers (or a list-based value) exist, use the first
+//     member and discard others (Section 5.1 SHOULD)
+//   - If the value is invalid (negative, non-numeric), ignore it completely
+//   - A value that overflows is treated as 2147483648 (Section 1.2.2)
+//   - The value must be a non-negative integer (1*DIGIT) representing seconds
 func parseAgeHeader(headers http.Header, log *slog.Logger) (age time.Duration, valid bool) {
 	ageValues := headers.Values(headerAge)
 
@@ -39,19 +46,39 @@ func parseAgeHeader(headers http.Header, log *slog.Logger) (age time.Duration, v
 		return 0, false
 	}
 
-	// RFC 9111: use the first value, discard others
-	ageStr := strings.TrimSpace(ageValues[0])
+	// RFC 9111 Section 5.1: although Age is a singleton field, a cache
+	// encountering a list-based value SHOULD use the first member and
+	// discard subsequent ones.
+	first := ageValues[0]
+	if member, _, found := strings.Cut(first, ","); found {
+		log.Warn("list-based Age header value, using first member",
+			"first", strings.TrimSpace(member),
+			"all", first)
+		first = member
+	}
 
 	if len(ageValues) > 1 {
 		log.Warn("multiple Age headers detected, using first value",
 			"count", len(ageValues),
-			"first", ageStr,
+			"first", strings.TrimSpace(first),
 			"all", ageValues)
 	}
 
-	// Validate that it's a non-negative integer
+	ageStr := strings.TrimSpace(first)
+
+	// delta-seconds = 1*DIGIT: reject sign prefixes and empty values
+	if ageStr == "" || ageStr[0] == '+' || ageStr[0] == '-' {
+		log.Warn("invalid Age header value, ignoring", "value", ageStr)
+		return 0, false
+	}
+
 	ageInt, err := strconv.ParseInt(ageStr, 10, 64)
 	if err != nil {
+		if errors.Is(err, strconv.ErrRange) {
+			// RFC 9111 Section 1.2.2: overflow must be treated as 2147483648
+			log.Warn("Age header value overflow, clamping to 2147483648", "value", ageStr)
+			return time.Duration(maxDeltaSeconds) * time.Second, true
+		}
 		log.Warn("invalid Age header value, ignoring",
 			"value", ageStr,
 			"error", err)
@@ -62,6 +89,12 @@ func parseAgeHeader(headers http.Header, log *slog.Logger) (age time.Duration, v
 		log.Warn("negative Age header value, ignoring",
 			"value", ageInt)
 		return 0, false
+	}
+
+	if ageInt > maxDeltaSeconds {
+		// RFC 9111 Section 1.2.2: clamp instead of wrapping
+		log.Warn("Age header value overflow, clamping to 2147483648", "value", ageInt)
+		ageInt = maxDeltaSeconds
 	}
 
 	return time.Duration(ageInt) * time.Second, true

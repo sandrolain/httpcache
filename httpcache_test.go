@@ -218,6 +218,10 @@ func teardown() {
 }
 
 func resetTest() {
+	// Wait for in-flight async (stale-while-revalidate) revalidations started
+	// by previous tests (also in repeated runs with -count=N) before resetting
+	// shared state, to avoid races with background goroutines.
+	asyncRevalidateWG.Wait()
 	// Reset transport state mutated by tests so repeated runs
 	// (go test -count=N) are not polluted by earlier tests.
 	s.transport.Cache = newMockCache()

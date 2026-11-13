@@ -5,7 +5,9 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 )
@@ -547,5 +549,213 @@ func TestCalculateAgeResponseDelayCalculation(t *testing.T) {
 	expectedAge := 10 * time.Second
 	if age < expectedAge-time.Second || age > expectedAge+time.Second {
 		t.Errorf("calculateAge() = %v, want ~%v (response_delay should be included)", age, expectedAge)
+	}
+}
+
+// TestParseAgeHeaderListValueUsesFirstMember verifies RFC 9111 §5.1: a
+// list-based Age field value SHOULD use the first member (issue #7 / M1).
+func TestParseAgeHeaderListValueUsesFirstMember(t *testing.T) {
+	headers := http.Header{}
+	headers.Set(headerAge, "10, 20")
+
+	got, valid := parseAgeHeader(headers, slog.Default())
+	if !valid {
+		t.Fatalf("parseAgeHeader() valid = false, want true")
+	}
+	if want := 10 * time.Second; got != want {
+		t.Errorf("parseAgeHeader() = %v, want %v (first member)", got, want)
+	}
+}
+
+// TestParseAgeHeaderOverflowClamped verifies RFC 9111 §1.2.2: overflowing
+// delta-seconds MUST be treated as 2147483648, never negative (issue #7 / B8).
+func TestParseAgeHeaderOverflowClamped(t *testing.T) {
+	tests := []struct {
+		name     string
+		ageValue string
+	}{
+		{name: "above 2^31", ageValue: "3000000000"},
+		{name: "above int64", ageValue: "99999999999999999999"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			headers := http.Header{}
+			headers.Set(headerAge, tt.ageValue)
+
+			got, valid := parseAgeHeader(headers, slog.Default())
+			if !valid {
+				t.Fatalf("parseAgeHeader() valid = false, want true (clamped)")
+			}
+			if want := 2147483648 * time.Second; got != want {
+				t.Errorf("parseAgeHeader() = %v, want %v (clamped to 2^31)", got, want)
+			}
+			if got < 0 {
+				t.Errorf("parseAgeHeader() = %v, must never be negative (RFC 9111 §1.2.2)", got)
+			}
+		})
+	}
+}
+
+// TestParseAgeHeaderSignPrefixRejected verifies delta-seconds = 1*DIGIT:
+// sign-prefixed values are invalid and the field is ignored (issue #7 / B8).
+func TestParseAgeHeaderSignPrefixRejected(t *testing.T) {
+	for _, value := range []string{"+5", "-5"} {
+		headers := http.Header{}
+		headers.Set(headerAge, value)
+
+		if _, valid := parseAgeHeader(headers, slog.Default()); valid {
+			t.Errorf("parseAgeHeader() accepted %q, want invalid", value)
+		}
+	}
+}
+
+// TestFreshnessConsidersAgeHeader verifies RFC 9111 §4.2/§4.2.3: freshness
+// decisions must use the full current_age including the upstream Age header,
+// not only the Date header (issue #7 / B7).
+func TestFreshnessConsidersAgeHeader(t *testing.T) {
+	now := time.Now().UTC()
+
+	buildHeaders := func() http.Header {
+		headers := http.Header{}
+		headers.Set("Date", now.Format(http.TimeFormat))
+		headers.Set(XRequestTime, now.Format(time.RFC3339))
+		headers.Set(XResponseTime, now.Format(time.RFC3339))
+		headers.Set(headerAge, "600")
+		headers.Set("Cache-Control", "max-age=3600")
+		return headers
+	}
+	reqHeaders := http.Header{}
+
+	// age_value=600 + resident 2900 = current_age 3500 < 3600 → fresh
+	clk := &fakeClock{elapsed: 2900 * time.Second}
+	if f := getFreshness(buildHeaders(), reqHeaders, clk, slog.Default()); f != fresh {
+		t.Errorf("getFreshness() = %d, want fresh (%d) when current_age 3500 < lifetime 3600", f, fresh)
+	}
+
+	// age_value=600 + resident 3000 = current_age 3600, lifetime 3600 → stale
+	clk = &fakeClock{elapsed: 3000 * time.Second}
+	if f := getFreshness(buildHeaders(), reqHeaders, clk, slog.Default()); f != stale {
+		t.Errorf("getFreshness() = %d, want stale (%d) when current_age 3600 >= lifetime 3600", f, stale)
+	}
+
+	// Same entry WITHOUT the Age header: current_age = 3000 < 3600 → fresh
+	noAge := buildHeaders()
+	noAge.Del(headerAge)
+	clk = &fakeClock{elapsed: 3000 * time.Second}
+	if f := getFreshness(noAge, reqHeaders, clk, slog.Default()); f != fresh {
+		t.Errorf("getFreshness() = %d, want fresh without Age header (Date-based age only)", f)
+	}
+}
+
+// TestFreshnessLegacyEntryFallback verifies backward compatibility: cached
+// entries without timing metadata (no X-Response-Time/X-Request-Time) keep the
+// documented simplified Date-based age calculation (issue #7 compat note).
+func TestFreshnessLegacyEntryFallback(t *testing.T) {
+	now := time.Now().UTC()
+
+	headers := http.Header{}
+	headers.Set("Date", now.Add(-30*time.Second).Format(http.TimeFormat))
+	headers.Set("Cache-Control", "max-age=60")
+	// No X-Request-Time / X-Response-Time / Age: legacy entry
+
+	if f := getFreshness(headers, http.Header{}, &realClock{}, slog.Default()); f != fresh {
+		t.Errorf("getFreshness() = %d, want fresh for legacy entry with Date-based age 30s < 60s", f)
+	}
+
+	old := headers.Clone()
+	old.Set("Date", now.Add(-90*time.Second).Format(http.TimeFormat))
+	if f := getFreshness(old, http.Header{}, &realClock{}, slog.Default()); f != stale {
+		t.Errorf("getFreshness() = %d, want stale for legacy entry with Date-based age 90s >= 60s", f)
+	}
+}
+
+// TestServedResponseNotReStored verifies that serving a cached response does
+// not persist serve-time annotations (Age, Warning) into the stored entry,
+// which would corrupt freshness for subsequent requests (issue #7).
+func TestServedResponseNotReStored(t *testing.T) {
+	clk := &fakeClock{elapsed: 0}
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "max-age=100")
+		w.Write([]byte("body"))
+	}))
+	defer ts.Close()
+
+	tp := newMockCacheTransportWithClock(clk)
+	tp.MarkCachedResponses = true
+	client := &http.Client{Transport: tp}
+
+	req, _ := http.NewRequest("GET", ts.URL, nil)
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	io.ReadAll(resp.Body)
+	resp.Body.Close()
+
+	// Serve from cache
+	clk.elapsed = 50 * time.Second
+	resp2, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	io.ReadAll(resp2.Body)
+	resp2.Body.Close()
+	if resp2.Header.Get(XFromCache) != "1" {
+		t.Fatal("second response should come from cache")
+	}
+
+	// Inspect the stored entry: no serve-time Age or Warning may appear
+	casted := tp.Cache.(*mockCache)
+	casted.mu.RLock()
+	var stored []byte
+	for _, v := range casted.items {
+		stored = v
+		break
+	}
+	casted.mu.RUnlock()
+
+	if stored == nil {
+		t.Fatal("entry not cached")
+	}
+	storedStr := string(stored)
+	if strings.Contains(storedStr, "\nAge:") || strings.Contains(storedStr, "\r\nAge:") {
+		t.Error("stored entry must not contain a serve-time Age header")
+	}
+	if strings.Contains(storedStr, "Warning:") {
+		t.Error("stored entry must not contain a serve-time Warning header")
+	}
+}
+
+// TestStaleOnErrorAgeRecomputed verifies RFC 9111 §5.1: Age is recomputed when
+// serving a stale response after a failed revalidation, accounting for the
+// revalidation duration (issue #7 / M7).
+func TestStaleOnErrorAgeRecomputed(t *testing.T) {
+	clk := &fakeClock{elapsed: 10 * time.Second}
+	tp := newMockCacheTransportWithClock(clk)
+
+	now := time.Now().UTC()
+	cachedResp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header: http.Header{
+			"Date":          []string{now.Format(http.TimeFormat)},
+			XResponseTime:   []string{now.Format(time.RFC3339)},
+			XRequestTime:    []string{now.Format(time.RFC3339)},
+			"Cache-Control": []string{"max-age=5"},
+		},
+		Body: io.NopCloser(strings.NewReader("stale-body")),
+	}
+
+	out := tp.serveStaleCachedResponseOnError(cachedResp, nil, &http.Request{URL: &url.URL{Scheme: "http", Host: "example.com", Path: "/"}})
+	ageStr := out.Header.Get(headerAge)
+	if ageStr == "" {
+		t.Fatal("Age header should be recomputed on stale-on-error serve")
+	}
+	age, err := strconv.ParseInt(ageStr, 10, 64)
+	if err != nil {
+		t.Fatalf("Age header not numeric: %v", err)
+	}
+	if age < 9 || age > 12 {
+		t.Errorf("Age should be ~10s (fakeClock resident time), got %d", age)
 	}
 }

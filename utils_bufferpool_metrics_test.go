@@ -7,6 +7,11 @@ import (
 
 // TestBufferPoolMetricsTracking verifies that buffer pool metrics are tracked correctly.
 func TestBufferPoolMetricsTracking(t *testing.T) {
+	// Wait for in-flight async revalidations started by previous tests: their
+	// background goroutines use the shared buffer pool and would steal the
+	// buffers this test puts back, making pool hits non-deterministic.
+	asyncRevalidateWG.Wait()
+
 	// Reset metrics before test
 	ResetBufferPoolMetrics()
 
@@ -48,20 +53,36 @@ func TestBufferPoolMetricsTracking(t *testing.T) {
 		t.Errorf("expected Discarded=0 for small buffer, got %d", metrics.Discarded)
 	}
 
-	// Get another buffer (should be a pool hit now)
-	buf2 := getBuffer()
+	// Get another buffer (should be a pool hit now).
+	// sync.Pool is best-effort: under -race it randomly drops puts and fails
+	// gets (~25% each) to stress callers, and a GC can clear the victim cache.
+	// Retry a few times so the hit assertion is not flaky.
+	var hit bool
+	for i := 0; i < 5 && !hit; i++ {
+		buf = getBuffer()
+		buf.WriteString("test data")
+		putBuffer(buf)
 
-	metrics = GetBufferPoolMetrics()
-	if metrics.Gets != 2 {
-		t.Errorf("expected Gets=2, got %d", metrics.Gets)
+		buf2 := getBuffer()
+		if buf2.Cap() > 0 {
+			hit = true
+			putBuffer(buf2)
+		} else {
+			// Keep the buffer reusable (Cap > 0) for the next attempt.
+			buf2.WriteString("test data")
+			putBuffer(buf2)
+		}
+		metrics = GetBufferPoolMetrics()
 	}
 
-	if metrics.PoolHits < 1 {
-		t.Errorf("expected at least 1 PoolHit after reusing buffer, got %d", metrics.PoolHits)
+	if metrics.Gets < 2 {
+		t.Errorf("expected Gets>=2, got %d", metrics.Gets)
 	}
 
-	// Clean up
-	putBuffer(buf2)
+	if !hit {
+		t.Errorf("expected at least 1 PoolHit after reusing buffer, got %d hits in %d gets",
+			metrics.PoolHits, metrics.Gets)
+	}
 }
 
 // TestBufferPoolMetricsLargeBuffer verifies that large buffers are tracked as discarded.
@@ -273,6 +294,11 @@ func TestBufferPoolMetricsReset(t *testing.T) {
 
 // TestBufferPoolMetricsMultipleGetsAndPuts verifies accounting with multiple operations.
 func TestBufferPoolMetricsMultipleGetsAndPuts(t *testing.T) {
+	// Wait for in-flight async revalidations started by previous tests: their
+	// background goroutines use the shared buffer pool and would steal the
+	// buffers this test puts back, making pool hits non-deterministic.
+	asyncRevalidateWG.Wait()
+
 	ResetBufferPoolMetrics()
 
 	buffers := make([]*bytes.Buffer, 10)

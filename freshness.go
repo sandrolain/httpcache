@@ -20,11 +20,20 @@ func (c *realClock) since(d time.Time) time.Duration {
 	return time.Since(d)
 }
 
-// clampedAge returns now-date clamped to >= 0 per RFC 9111 Section 4.2.3.
-func clampedAge(date time.Time, clock timer) time.Duration {
-	if age := clock.since(date); age > 0 {
+// currentAgeForFreshness computes the RFC 9111 Section 4.2.3 current_age for
+// freshness decisions. It uses calculateAge, which applies the full algorithm
+// (Age header, response_delay, resident_time) for stored responses with timing
+// metadata, and falls back to the simplified Date-based calculation (plus any
+// Age header) for legacy cached entries without metadata.
+func currentAgeForFreshness(respHeaders http.Header, clock timer, log *slog.Logger) time.Duration {
+	if age, err := calculateAge(respHeaders, clock, log); err == nil {
+		if age < 0 {
+			return 0
+		}
 		return age
 	}
+	// No Date header (or unparsable): fall back to 0; callers treat the
+	// response as stale when freshness cannot be established.
 	return 0
 }
 
@@ -48,13 +57,19 @@ func getFreshness(respHeaders, reqHeaders http.Header, clock timer, log *slog.Lo
 		return result
 	}
 
-	date, err := Date(respHeaders)
-	if err != nil {
+	if _, err := Date(respHeaders); err != nil {
 		return stale
 	}
-	currentAge := clampedAge(date, clock)
+	// RFC 9111 Section 4.2: response_is_fresh = freshness_lifetime > current_age,
+	// where current_age is the full Section 4.2.3 algorithm (including the
+	// upstream Age header).
+	currentAge := currentAgeForFreshness(respHeaders, clock, log)
 
 	// Calculate response lifetime
+	date, dateErr := Date(respHeaders)
+	if dateErr != nil {
+		return stale
+	}
 	lifetime := calculateLifetime(respCacheControl, respHeaders, date)
 
 	// Adjust age based on request controls and enforce must-revalidate
@@ -188,7 +203,7 @@ func isActuallyStale(respHeaders http.Header, clock timer, log *slog.Logger) boo
 		return true // No date means we can't determine freshness, treat as stale
 	}
 
-	currentAge := clampedAge(date, clock)
+	currentAge := currentAgeForFreshness(respHeaders, clock, log)
 	lifetime := calculateLifetime(respCacheControl, respHeaders, date)
 
 	// Check if stale-while-revalidate extends freshness
@@ -240,12 +255,12 @@ func parseStaleIfError(cacheControl cacheControl) (time.Duration, bool, bool) {
 }
 
 // checkStaleIfErrorLifetime checks if the response is within the stale-if-error lifetime
-func checkStaleIfErrorLifetime(respHeaders http.Header, lifetime time.Duration, clock timer) bool {
-	date, err := Date(respHeaders)
-	if err != nil {
+func checkStaleIfErrorLifetime(respHeaders http.Header, lifetime time.Duration, clock timer, log *slog.Logger) bool {
+	if _, err := Date(respHeaders); err != nil {
 		return false
 	}
-	currentAge := clampedAge(date, clock)
+	// Use the full RFC 9111 §4.2.3 current_age (includes the Age header)
+	currentAge := currentAgeForFreshness(respHeaders, clock, log)
 	return lifetime > currentAge
 }
 
@@ -275,7 +290,7 @@ func canStaleOnError(respHeaders, reqHeaders http.Header, clock timer, log *slog
 
 	// Check if within lifetime
 	if lifetime >= 0 {
-		return checkStaleIfErrorLifetime(respHeaders, lifetime, clock)
+		return checkStaleIfErrorLifetime(respHeaders, lifetime, clock, log)
 	}
 
 	return false

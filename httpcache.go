@@ -487,6 +487,11 @@ func addValidatorsToRequest(req *http.Request, cachedResp *http.Response) *http.
 	return req2
 }
 
+// asyncRevalidateWG tracks in-flight async (stale-while-revalidate) revalidation
+// goroutines across ALL transports, so tests can wait for them before resetting
+// shared state (caches, clock) created by previous tests.
+var asyncRevalidateWG sync.WaitGroup
+
 // asyncRevalidate triggers an asynchronous revalidation of the cached response
 func (t *Transport) asyncRevalidate(req *http.Request) {
 	bgContext := context.Background()
@@ -499,7 +504,10 @@ func (t *Transport) asyncRevalidate(req *http.Request) {
 	noCacheRequest := req.Clone(bgContext)
 	noCacheRequest.Header.Set("cache-control", cacheControlNoCache)
 
+	asyncRevalidateWG.Add(1)
 	go func() {
+		defer asyncRevalidateWG.Done()
+
 		// Panic recovery to prevent crashes in background goroutine
 		defer func() {
 			if r := recover(); r != nil {
@@ -807,6 +815,13 @@ func (t *Transport) serveStaleCachedResponseOnError(cachedResp *http.Response, o
 	if !t.DisableWarningHeader {
 		addRevalidationFailedWarning(cachedResp)
 	}
+	// RFC 9111 Section 5.1: Age conveys the sender's estimate of the time since
+	// the response was generated or successfully validated. Recompute it now
+	// that the revalidation attempt is over, so the served value accounts for
+	// the revalidation duration.
+	if age, err := calculateAge(cachedResp.Header, t.clock, t.log()); err == nil {
+		cachedResp.Header.Set(headerAge, formatAge(age))
+	}
 	return cachedResp
 }
 
@@ -826,26 +841,30 @@ func (t *Transport) invalidateOrMarkCachedEntryOnFailure(ctx context.Context, ca
 }
 
 // processCachedResponse handles the logic when a valid cached response exists.
-func (t *Transport) processCachedResponse(cachedResp *http.Response, markedStale bool, req *http.Request, transport http.RoundTripper, cacheKey string) (*http.Response, error) {
+// It reports whether the returned response was served directly from the cache
+// (as opposed to being the result of a revalidation or a 304 header merge),
+// so RoundTrip can skip re-storing it and avoid persisting serve-time
+// annotations (Age, Warning) into the stored entry.
+func (t *Transport) processCachedResponse(cachedResp *http.Response, markedStale bool, req *http.Request, transport http.RoundTripper, cacheKey string) (resp *http.Response, fromCache bool, err error) {
 	if t.MarkCachedResponses {
 		cachedResp.Header.Set(XFromCache, "1")
 	}
 
 	modifiedReq, useCache := t.handleCachedResponse(cachedResp, req, markedStale)
 	if useCache {
-		return cachedResp, nil
+		return cachedResp, true, nil
 	}
 
 	// Use singleflight for revalidation requests
-	resp, err := t.performCacheableRequestOnce(transport, modifiedReq, true, cacheKey, false)
+	resp, err = t.performCacheableRequestOnce(transport, modifiedReq, true, cacheKey, false)
 
 	// Handle 304 Not Modified
 	if err == nil && req.Method == methodGET && resp.StatusCode == http.StatusNotModified {
-		return t.handleCachedNotModified(cachedResp, resp, req), nil
+		return t.handleCachedNotModified(cachedResp, resp, req), false, nil
 	}
 
 	if shouldReturnStaleOnError(err, resp, cachedResp, req, t.clock, t.log()) {
-		return t.serveStaleCachedResponseOnError(cachedResp, resp, req), nil
+		return t.serveStaleCachedResponseOnError(cachedResp, resp, req), true, nil
 	}
 
 	if err != nil || resp.StatusCode != http.StatusOK {
@@ -857,10 +876,10 @@ func (t *Transport) processCachedResponse(cachedResp *http.Response, markedStale
 	}
 
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
-	return resp, nil
+	return resp, false, nil
 }
 
 // performCacheableRequestOnce uses singleflight to deduplicate concurrent requests to the same resource.
@@ -1052,14 +1071,16 @@ func (t *Transport) RoundTrip(req *http.Request) (resp *http.Response, err error
 	transport := t.GetTransport()
 
 	// Wrap the actual request logic for resilience support (retry + circuit breaker)
+	servedFromCache := false
 	doRequest := func() (*http.Response, error) {
 		var reqResp *http.Response
 		var reqErr error
+		servedFromCache = false
 
 		// Handle cached vs uncached response
 		if cacheable && cachedResp != nil && err == nil {
 			t.log().Debug("cache hit, processing cached response", "url", req.URL.String())
-			reqResp, reqErr = t.processCachedResponse(cachedResp, cachedMarkedStale, req, transport, cacheKey)
+			reqResp, servedFromCache, reqErr = t.processCachedResponse(cachedResp, cachedMarkedStale, req, transport, cacheKey)
 		} else {
 			t.log().Debug("cache miss, making request", "url", req.URL.String())
 			// Use singleflight for uncached requests if deduplication is enabled
@@ -1084,8 +1105,14 @@ func (t *Transport) RoundTrip(req *http.Request) (resp *http.Response, err error
 		t.invalidateCache(req, resp)
 	}
 
-	// Store response in cache if applicable
-	t.storeResponseInCache(resp, req, cacheKey, cacheable)
+	// Store response in cache if applicable.
+	// Responses served directly from the cache are NOT re-stored: the entry is
+	// unchanged, and re-storing a served copy would persist serve-time
+	// annotations (Age, Warning headers) into the stored entry, corrupting the
+	// freshness calculation for subsequent requests (RFC 9111 §4.2.3).
+	if !servedFromCache {
+		t.storeResponseInCache(resp, req, cacheKey, cacheable)
+	}
 
 	t.log().Debug("RoundTrip completed", "method", req.Method, "url", req.URL.String(), "status", resp.StatusCode)
 	return resp, nil
