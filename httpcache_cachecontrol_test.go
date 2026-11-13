@@ -658,6 +658,12 @@ func TestParseCacheControlMalformedValues(t *testing.T) {
 			expectKey:   "no-cache",
 			expectValue: "",
 		},
+		{
+			name:       "signed delta-seconds is removed",
+			header:     "max-age=+5",
+			expectKey:  "max-age",
+			expectGone: true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -686,26 +692,31 @@ func TestParseCacheControlOverflowClamp(t *testing.T) {
 	tests := []struct {
 		name     string
 		header   string
+		key      string
 		expected string
 	}{
 		{
 			name:     "value above 2^31 clamped",
 			header:   "max-age=3000000000",
+			key:      "max-age",
 			expected: "2147483648",
 		},
 		{
 			name:     "value above int64 clamped",
 			header:   "max-age=99999999999999999999",
+			key:      "max-age",
 			expected: "2147483648",
 		},
 		{
 			name:     "s-maxage overflow clamped",
 			header:   "s-maxage=99999999999999999999",
+			key:      "s-maxage",
 			expected: "2147483648",
 		},
 		{
 			name:     "value exactly 2^31 kept",
 			header:   "max-age=2147483648",
+			key:      "max-age",
 			expected: "2147483648",
 		},
 	}
@@ -717,10 +728,10 @@ func TestParseCacheControlOverflowClamp(t *testing.T) {
 
 			cc := parseCacheControl(headers, slog.Default())
 
-			for _, key := range []string{"max-age", "s-maxage"} {
-				if v, ok := cc[key]; ok && v != tt.expected {
-					t.Errorf("Expected %s=%s, got %s", key, tt.expected, v)
-				}
+			if got, ok := cc[tt.key]; !ok {
+				t.Fatalf("Expected %s to remain present after validation", tt.key)
+			} else if got != tt.expected {
+				t.Errorf("Expected %s=%s, got %s", tt.key, tt.expected, got)
 			}
 		})
 	}

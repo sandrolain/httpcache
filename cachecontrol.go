@@ -212,6 +212,16 @@ func validateMaxAgeDirective(cc cacheControl, directiveKey, directiveName string
 	const maxDeltaSeconds = int64(2147483648)
 
 	if value, hasDirective := cc[directiveKey]; hasDirective && value != "" {
+		// delta-seconds is 1*DIGIT; ParseInt also accepts a leading plus sign.
+		if value[0] == '+' {
+			log.Warn("invalid Cache-Control value (sign prefix)",
+				"directive", directiveName,
+				"value", value,
+				"resolution", "ignoring directive")
+			delete(cc, directiveKey)
+			return
+		}
+
 		// Check if value contains decimal point (float)
 		if strings.Contains(value, ".") {
 			log.Warn("invalid Cache-Control value (float not allowed)",
