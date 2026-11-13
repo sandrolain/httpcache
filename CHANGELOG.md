@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.4] - 2026-11-13
+
+This release restores a green security CI run and fixes a flaky data race in the
+test suite, preserving backward compatibility.
+
+### Security
+
+- Upgraded dependencies to address vulnerabilities reachable from project code (`govulncheck`):
+  - `github.com/andybalholm/brotli` from `v1.2.0` to `v1.2.7` (GO-2026-6888)
+  - `github.com/klauspost/compress` from `v1.18.7` to `v1.20.2` (GO-2026-6865)
+  - `golang.org/x/net` from `v0.58.0` to `v0.60.0` (GO-2026-6610, GO-2026-6611, GO-2026-6612, GO-2026-6617), with `golang.org/x/crypto` v0.57.0 and related `golang.org/x/*` updates
+- Security workflow (`gosec`, `govulncheck`): bumped Go toolchain from `1.25` to `1.27.4` — the standard library fixes (GO-2026-6809, GO-2026-6617, GO-2026-6859) require Go ≥ 1.26.9 / 1.27.4
+
+### Fixed
+
+- **Flaky data race from async stale-while-revalidate revalidation**: background revalidation goroutines outlived their test and raced with the next test's state reset (global `clock`, cache swap). All in-flight async revalidations are now tracked with a package-level `WaitGroup` and awaited before resetting test state; transport flags mutated by tests are also reset so repeated runs (`go test -count=N`) are not polluted. Verified with `go test -race -count=8`: zero data races.
+
+### CI
+
+- CI and release workflows: Go `1.25` → `1.26` — the updated dependencies require `go >= 1.26.0`, and with `1.25` the `GOTOOLCHAIN=auto` mid-run switch caused intermittent mixed-toolchain compilation failures (test command exiting 1 with all packages passing). Pinning to `1.26` removes the switch entirely.
+
 ## [1.4.3] - 2026-10-06
 
 This release resolves the vulnerabilities reported by the `Go Vulnerability Check`
