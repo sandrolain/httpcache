@@ -264,10 +264,6 @@ type Transport struct {
 	// Default is false (Warning headers are enabled for backward compatibility).
 	// Set to true to comply with RFC 9111 and avoid deprecated headers.
 	DisableWarningHeader bool
-
-	// revalidateWG tracks in-flight async (stale-while-revalidate) revalidation
-	// goroutines so tests can wait for them before resetting shared state.
-	revalidateWG sync.WaitGroup
 }
 
 // asyncRevalidateWG tracks in-flight async (stale-while-revalidate) revalidation
