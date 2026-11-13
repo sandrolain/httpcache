@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.0-rc3] - 2026-11-13
+
+### Security
+
+- **Dependency updates to fix `govulncheck` findings**:
+  - `github.com/andybalholm/brotli` v1.2.1 → v1.2.7 (GO-2026-6888)
+  - `github.com/klauspost/compress` v1.18.6 → v1.20.2 (GO-2026-6865)
+  - `golang.org/x/net` v0.56.0 → v0.60.0 (GO-2026-6617), with `golang.org/x/crypto` v0.57.0 and related `golang.org/x/*` updates
+  - `go.opentelemetry.io/otel/*` v1.44.0 → v1.45.0 (GO-2026-6505)
+  - `google.golang.org/grpc` v1.81.1 → v1.83.1 (GO-2026-6348, GO-2026-6061)
+- **CI security workflow**: bumped Go toolchain used by `gosec` and `govulncheck` jobs from 1.25.7 to 1.27.4 (standard library fixes GO-2026-6809, GO-2026-6617 and GO-2026-6859 require Go ≥ 1.26.9 / 1.27.4)
+
+### Added
+
+- **`agents.md`**: generic AI coding agent instructions for the repository, replacing the Copilot-specific instructions
+
+### Changed
+
+- **Release workflow**: bumped Go toolchain to 1.27.4 to match `go.mod`
+- Ignore `trivy-high.json` local scan artifacts
+
+### Fixed
+
+- Regenerated `go.sum` after dependency updates; full test suite and `govulncheck` pass with zero vulnerabilities affecting the code
+
 ## [2.0.0]
 
 This is a **major breaking release** that adds `context.Context` support and error returns to the `Cache` interface, enabling modern Go patterns for timeout, cancellation, and error handling.
