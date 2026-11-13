@@ -672,8 +672,8 @@ func performRequest(transport http.RoundTripper, req *http.Request, onlyIfCached
 	// Store timing information in response headers for Age calculation
 	// Only if response has headers (defensive check)
 	if resp != nil && resp.Header != nil {
-		resp.Header.Set(XRequestTime, requestTime.Format(time.RFC3339))
-		resp.Header.Set(XResponseTime, responseTime.Format(time.RFC3339))
+		resp.Header.Set(XRequestTime, requestTime.Format(time.RFC3339Nano))
+		resp.Header.Set(XResponseTime, responseTime.Format(time.RFC3339Nano))
 	}
 
 	return resp, nil
@@ -956,10 +956,16 @@ func (t *Transport) performCacheableRequestOnce(transport http.RoundTripper, req
 // Uses the request context for cache operations.
 func (t *Transport) storeResponseInCache(resp *http.Response, req *http.Request, cacheKey string, cacheable bool) {
 	ctx := req.Context()
+	if !cacheable {
+		// Range GETs and other uncacheable request forms must not delete an
+		// existing GET entry under the same URI key. Unsafe-method invalidation
+		// is handled separately after a successful origin response.
+		return
+	}
 	respCacheControl := parseCacheControl(resp.Header, t.log())
 	reqCacheControl := parseCacheControl(req.Header, t.log())
 
-	if !cacheable || !canStore(req, reqCacheControl, respCacheControl, t.IsPublicCache, resp.StatusCode, t.log()) {
+	if !canStore(req, reqCacheControl, respCacheControl, t.IsPublicCache, resp.StatusCode, t.log()) {
 		if t.EnableStaleMarking {
 			t.log().Debug("response not cacheable, marking as stale", "key", cacheKey, "status", resp.StatusCode)
 			if err := t.cacheMarkStale(ctx, cacheKey); err != nil {
@@ -1017,7 +1023,7 @@ func (t *Transport) storeResponseInCache(resp *http.Response, req *http.Request,
 		// Keep original base key so we can also persist a manifest/last-variant there
 		baseKey := cacheKey
 		// Use vary-specific cache key for this variant
-		varyKey := cacheKeyWithVary(req, varyHeaders)
+		varyKey := cacheKeyWithVaryBase(cacheKey, req, varyHeaders)
 
 		if req.Method == methodGET {
 			// Store the full response under both the variant key and the base key so
@@ -1071,7 +1077,7 @@ func (t *Transport) RoundTrip(req *http.Request) (resp *http.Response, err error
 			varyHeaders := headerAllCommaSepValues(cachedResp.Header, "vary")
 			if len(varyHeaders) > 0 {
 				// Recalculate key with vary headers for proper variant lookup
-				varyCacheKey := cacheKeyWithVary(req, varyHeaders)
+				varyCacheKey := cacheKeyWithVaryBase(cacheKey, req, varyHeaders)
 				if varyCacheKey != cacheKey {
 					// Try with vary-specific key
 					varyCachedResp, varyCachedMarkedStale, varyErr := t.cachedResponseWithKeySecure(req, varyCacheKey)
@@ -1083,12 +1089,9 @@ func (t *Transport) RoundTrip(req *http.Request) (resp *http.Response, err error
 				}
 			}
 		}
-	} else {
-		// RFC 7234 Section 4.4: Invalidate cache on unsafe methods
-		// Delete the request URI immediately for unsafe methods
-		t.log().Debug("unsafe method, invalidating cache", "method", req.Method, "url", req.URL.String())
-		if err := t.cacheDelete(req.Context(), cacheKey); err != nil {
-			t.log().Warn("failed to delete cache entry", "key", cacheKey, "error", err)
+		if cachedResp != nil && err == nil && t.invalidatedSinceRequest(req.Context(), req.URL, cachedResp.Header) {
+			t.log().Debug("cached response predates URI invalidation", "url", req.URL.String())
+			cachedMarkedStale = true
 		}
 	}
 

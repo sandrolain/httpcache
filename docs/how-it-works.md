@@ -812,10 +812,10 @@ resp, _ := client.Do(req)
 
 ### Cache Invalidation (Section 4.4)
 
-Cache is automatically invalidated for affected URIs when unsafe methods (POST, PUT, DELETE, PATCH) receive successful responses (2xx or 3xx status codes):
+Cache is automatically invalidated for affected URIs when unsafe methods receive non-error responses (2xx or 3xx status codes). GET, HEAD, OPTIONS, and TRACE are safe; methods with unknown safety are treated as unsafe.
 
 ```go
-// POST/PUT/DELETE/PATCH with 2xx or 3xx response invalidates:
+// An unsafe method with a 2xx or 3xx response invalidates:
 // 1. Request-URI
 // 2. Location header URI (if present, same-origin only)
 // 3. Content-Location header URI (if present, same-origin only)
@@ -824,6 +824,13 @@ client.Post(url, "application/json", body)  // Invalidates GET cache for url
 ```
 
 This ensures cache consistency after data modifications per RFC 9111 Section 4.4.
+
+Range GET requests do not invalidate a cached full response. Responses to unsafe
+requests with 4xx/5xx status codes do not invalidate cached entries. When
+`CacheKeyHeaders` or Vary separation creates scoped keys, invalidation records a
+URI marker in the configured cache and older variants must be revalidated before
+they can be served. These markers use the regular cache backend, so backend
+eviction and clearing policies also apply to them.
 
 #### Content-Location and Location Header Invalidation
 

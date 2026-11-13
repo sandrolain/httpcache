@@ -341,15 +341,23 @@ func TestCacheKeyHeadersInvalidation(t *testing.T) {
 	io.ReadAll(resp3.Body)
 	resp3.Body.Close()
 
-	// Note: Cache invalidation with CacheKeyHeaders invalidates only the base URL,
-	// not the header-specific entries. This is intentional behavior.
-	// The cache for this specific Authorization header combination is still valid.
-	if requestCount != 2 {
-		t.Fatalf("Expected 2 requests (cache with headers still valid), got %d", requestCount)
+	// The successful POST invalidates every variant for the target URI,
+	// including CacheKeyHeaders-scoped entries.
+	if requestCount != 3 {
+		t.Fatalf("Expected 3 requests after invalidation and refetch, got %d", requestCount)
 	}
 
-	if resp3.Header.Get(XFromCache) != "1" {
-		t.Fatal("Expected response to be served from cache (header-specific cache not invalidated)")
+	if resp3.Header.Get(XFromCache) == "1" {
+		t.Fatal("Expected header-specific response to be invalidated")
+	}
+
+	req4, _ := http.NewRequest("GET", testServer.URL, nil)
+	req4.Header.Set("Authorization", "Bearer token1")
+	resp4, _ := client.Do(req4)
+	io.ReadAll(resp4.Body)
+	resp4.Body.Close()
+	if requestCount != 3 || resp4.Header.Get(XFromCache) != "1" {
+		t.Fatalf("Expected refreshed header-specific entry to be cached, requests=%d from-cache=%q", requestCount, resp4.Header.Get(XFromCache))
 	}
 }
 

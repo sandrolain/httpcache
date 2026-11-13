@@ -6,12 +6,19 @@ import (
 	"context"
 	"net/http"
 	"net/url"
+	"time"
 )
 
 // isUnsafeMethod returns true if the HTTP method is considered unsafe
-// RFC 7234 Section 4.4: POST, PUT, DELETE, PATCH are unsafe methods
+// RFC 9110 Section 9.2.1: all methods other than GET, HEAD, OPTIONS, and TRACE
+// are unsafe, including methods whose safety is unknown.
 func isUnsafeMethod(method string) bool {
-	return method == methodPOST || method == methodPUT || method == methodDELETE || method == methodPATCH
+	switch method {
+	case methodGET, methodHEAD, http.MethodOptions, http.MethodTrace:
+		return false
+	default:
+		return true
+	}
 }
 
 // invalidateCache invalidates cache entries per RFC 9111 Section 4.4
@@ -24,7 +31,7 @@ func (t *Transport) invalidateCache(req *http.Request, resp *http.Response) {
 	ctx := req.Context()
 
 	// RFC 9111 Section 4.4: Only invalidate on non-error responses
-	if resp.StatusCode >= 400 {
+	if resp.StatusCode < 200 || resp.StatusCode >= 400 {
 		t.log().Debug("skipping cache invalidation for error response",
 			"status", resp.StatusCode,
 			"url", req.URL.String())
@@ -80,6 +87,17 @@ func (t *Transport) invalidateHeaderURI(ctx context.Context, requestURL *url.URL
 // invalidateURI removes cache entries for the given URI.
 // It invalidates both GET and HEAD requests for the URI.
 func (t *Transport) invalidateURI(ctx context.Context, targetURL *url.URL, source string) {
+	// CacheKeyHeaders and Vary separation append data to cache keys, so deleting
+	// the base GET/HEAD keys cannot remove every stored representation. Persist a
+	// URI-level request-time marker that forces older variants through validation.
+	if len(t.CacheKeyHeaders) > 0 || t.EnableVarySeparation {
+		key := invalidationMarkerKey(targetURL)
+		marker := []byte(time.Now().UTC().Format(time.RFC3339Nano))
+		if err := t.cacheSet(ctx, key, marker); err != nil {
+			t.log().Warn("failed to store URI invalidation marker", "key", key, "error", err)
+		}
+	}
+
 	// Invalidate GET request for this URL
 	getReq := &http.Request{
 		Method: methodGET,
@@ -110,6 +128,42 @@ func (t *Transport) invalidateURI(ctx context.Context, targetURL *url.URL, sourc
 				"source", source)
 		}
 	}
+}
+
+const invalidationMarkerPrefix = "httpcache-invalidation:"
+
+func invalidationMarkerKey(targetURL *url.URL) string {
+	return invalidationMarkerPrefix + targetURL.String()
+}
+
+// invalidatedSinceRequest reports whether a stored response predates the last
+// successful unsafe request for its URI. Responses without request-time
+// metadata are conservatively treated as invalidated.
+func (t *Transport) invalidatedSinceRequest(ctx context.Context, targetURL *url.URL, headers http.Header) bool {
+	if len(t.CacheKeyHeaders) == 0 && !t.EnableVarySeparation {
+		return false
+	}
+	data, ok, err := t.cacheGet(ctx, invalidationMarkerKey(targetURL))
+	if err != nil {
+		t.log().Warn("failed to read URI invalidation marker", "url", targetURL.String(), "error", err)
+		return true
+	}
+	if !ok {
+		return false
+	}
+	marker, err := time.Parse(time.RFC3339Nano, string(data))
+	if err != nil {
+		t.log().Warn("invalid URI invalidation marker", "url", targetURL.String(), "error", err)
+		return true
+	}
+	requestTime, err := time.Parse(time.RFC3339Nano, headers.Get(XRequestTime))
+	if err != nil {
+		requestTime, err = time.Parse(time.RFC3339Nano, headers.Get(XCachedTime))
+	}
+	if err != nil {
+		return true
+	}
+	return !requestTime.After(marker)
 }
 
 // isSameOrigin checks if two URLs have the same origin.

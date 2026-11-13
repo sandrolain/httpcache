@@ -151,7 +151,13 @@ func storeVaryHeaders(resp *http.Response, req *http.Request) {
 // The varyHeaders parameter contains the list of headers specified in the Vary response header.
 // RFC 9111 Section 4.1: Header values are normalized before inclusion in the cache key.
 func cacheKeyWithVary(req *http.Request, varyHeaders []string) string {
-	key := cacheKey(req)
+	return cacheKeyWithVaryBase(cacheKey(req), req, varyHeaders)
+}
+
+// cacheKeyWithVaryBase adds Vary values to an existing base key, preserving
+// any CacheKeyHeaders scoping already present in that key.
+func cacheKeyWithVaryBase(baseKey string, req *http.Request, varyHeaders []string) string {
+	key := baseKey
 
 	if len(varyHeaders) == 0 {
 		return key
