@@ -21,27 +21,28 @@ import (
 )
 
 const (
-	minioImage      = "minio/minio:latest"
-	minioPort       = "9000/tcp"
-	minioAccessKey  = "minioadmin"
-	minioSecretKey  = "minioadmin"
-	minioBucketName = "test-cache"
-	minioRegion     = "us-east-1"
+	siloImage        = "docker.io/pgsty/silo:RELEASE.2026-11-09T00-00-00Z"
+	s3Port           = "9000/tcp"
+	testRootUser     = "minioadmin"
+	testRootPassword = "minioadmin"
+	testBucketName   = "test-cache"
+	testRegion       = "us-east-1"
 )
 
-// setupMinIOContainer starts a MinIO container and returns the endpoint and cleanup function
-func setupMinIOContainer(ctx context.Context, t *testing.T) (string, func()) {
+// setupSiloContainer starts a Silo container and returns the endpoint and cleanup function.
+// Silo is a maintained MinIO fork that preserves the S3 API and MINIO_* configuration.
+func setupSiloContainer(ctx context.Context, t *testing.T) (string, func()) {
 	t.Helper()
 
 	req := testcontainers.ContainerRequest{
-		Image:        minioImage,
-		ExposedPorts: []string{minioPort},
+		Image:        siloImage,
+		ExposedPorts: []string{s3Port},
 		Env: map[string]string{
-			"MINIO_ROOT_USER":     minioAccessKey,
-			"MINIO_ROOT_PASSWORD": minioSecretKey,
+			"MINIO_ROOT_USER":     testRootUser,
+			"MINIO_ROOT_PASSWORD": testRootPassword,
 		},
 		Cmd: []string{"server", "/data", "--console-address", ":9001"},
-		WaitingFor: wait.ForHTTP("/minio/health/live").
+		WaitingFor: wait.ForHTTP("/minio/health/ready").
 			WithPort("9000/tcp").
 			WithStartupTimeout(60 * time.Second),
 	}
@@ -51,7 +52,7 @@ func setupMinIOContainer(ctx context.Context, t *testing.T) (string, func()) {
 		Started:          true,
 	})
 	if err != nil {
-		t.Fatalf("failed to start MinIO container: %v", err)
+		t.Fatalf("failed to start Silo container: %v", err)
 	}
 
 	host, err := container.Host(ctx)
@@ -68,27 +69,27 @@ func setupMinIOContainer(ctx context.Context, t *testing.T) (string, func()) {
 
 	cleanup := func() {
 		if err := container.Terminate(ctx); err != nil {
-			t.Logf("failed to terminate MinIO container: %v", err)
+			t.Logf("failed to terminate Silo container: %v", err)
 		}
 	}
 
-	// Wait a bit more for MinIO to be fully ready
+	// Wait a bit more for Silo to finish initializing.
 	time.Sleep(2 * time.Second)
 
 	return endpoint, cleanup
 }
 
-// createS3Bucket creates a bucket in MinIO using AWS SDK v2
+// createS3Bucket creates a bucket in Silo using AWS SDK v2.
 func createS3Bucket(ctx context.Context, t *testing.T, endpoint, bucketName string) {
 	t.Helper()
 
 	cfg, err := config.LoadDefaultConfig(ctx,
 		config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(
-			minioAccessKey,
-			minioSecretKey,
+			testRootUser,
+			testRootPassword,
 			"",
 		)),
-		config.WithRegion(minioRegion),
+		config.WithRegion(testRegion),
 	)
 	if err != nil {
 		t.Fatalf("failed to load AWS config: %v", err)
@@ -118,31 +119,31 @@ func createS3Bucket(ctx context.Context, t *testing.T, endpoint, bucketName stri
 	t.Logf("S3 bucket '%s' created successfully", bucketName)
 }
 
-// TestBlobCacheMinIOIntegration tests the blob cache with MinIO (S3-compatible).
+// TestBlobCacheSiloIntegration tests the blob cache with Silo (S3-compatible).
 // This is a real integration test that exercises cloud blob storage.
-func TestBlobCacheMinIOIntegration(t *testing.T) {
+func TestBlobCacheSiloIntegration(t *testing.T) {
 	ctx := context.Background()
 
-	endpoint, cleanup := setupMinIOContainer(ctx, t)
+	endpoint, cleanup := setupSiloContainer(ctx, t)
 	defer cleanup()
 
-	t.Log("MinIO container started at:", endpoint)
+	t.Log("Silo container started at:", endpoint)
 
 	// Create the bucket
-	createS3Bucket(ctx, t, endpoint, minioBucketName)
+	createS3Bucket(ctx, t, endpoint, testBucketName)
 
 	// Set AWS credentials for gocloud.dev (uses AWS SDK v1)
-	os.Setenv("AWS_ACCESS_KEY_ID", minioAccessKey)
-	os.Setenv("AWS_SECRET_ACCESS_KEY", minioSecretKey)
+	os.Setenv("AWS_ACCESS_KEY_ID", testRootUser)
+	os.Setenv("AWS_SECRET_ACCESS_KEY", testRootPassword)
 	defer func() {
 		os.Unsetenv("AWS_ACCESS_KEY_ID")
 		os.Unsetenv("AWS_SECRET_ACCESS_KEY")
 	}()
 
-	// Create S3 bucket URL for MinIO
+	// Create S3 bucket URL for Silo.
 	// gocloud.dev automatically detects HTTP from endpoint URL
 	bucketURL := fmt.Sprintf("s3://%s?endpoint=http://%s&s3ForcePathStyle=true&region=%s",
-		minioBucketName, endpoint, minioRegion)
+		testBucketName, endpoint, testRegion)
 
 	cache, err := New(ctx, Config{
 		BucketURL: bucketURL,
@@ -268,28 +269,28 @@ func TestBlobCacheMinIOIntegration(t *testing.T) {
 	})
 }
 
-// TestBlobCacheMinIOKeyPrefix tests key prefix isolation with MinIO.
-func TestBlobCacheMinIOKeyPrefix(t *testing.T) {
+// TestBlobCacheSiloKeyPrefix tests key prefix isolation with Silo.
+func TestBlobCacheSiloKeyPrefix(t *testing.T) {
 	ctx := context.Background()
 
-	endpoint, cleanup := setupMinIOContainer(ctx, t)
+	endpoint, cleanup := setupSiloContainer(ctx, t)
 	defer cleanup()
 
-	t.Log("MinIO container started at:", endpoint)
+	t.Log("Silo container started at:", endpoint)
 
 	// Create the bucket
-	createS3Bucket(ctx, t, endpoint, minioBucketName)
+	createS3Bucket(ctx, t, endpoint, testBucketName)
 
 	// Set AWS credentials
-	os.Setenv("AWS_ACCESS_KEY_ID", minioAccessKey)
-	os.Setenv("AWS_SECRET_ACCESS_KEY", minioSecretKey)
+	os.Setenv("AWS_ACCESS_KEY_ID", testRootUser)
+	os.Setenv("AWS_SECRET_ACCESS_KEY", testRootPassword)
 	defer func() {
 		os.Unsetenv("AWS_ACCESS_KEY_ID")
 		os.Unsetenv("AWS_SECRET_ACCESS_KEY")
 	}()
 
 	bucketURL := fmt.Sprintf("s3://%s?endpoint=http://%s&s3ForcePathStyle=true&region=%s",
-		minioBucketName, endpoint, minioRegion)
+		testBucketName, endpoint, testRegion)
 
 	// Create two caches with different prefixes
 	cache1, err := New(ctx, Config{

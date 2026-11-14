@@ -279,7 +279,7 @@ client := &http.Client{Transport: transport}
 **Features**:
 
 - ✓ **Cloud-Agnostic** - Works with AWS S3, Google Cloud Storage, Azure Blob Storage
-- ✓ **S3-Compatible** - Supports MinIO, Ceph, SeaweedFS, and other S3-compatible services
+- ✓ **S3-Compatible** - Supports MinIO, Silo (a maintained MinIO fork), Ceph, SeaweedFS, and other S3-compatible services
 - ✓ **SHA-256 Key Hashing** - Ensures compatibility with cloud storage naming restrictions
 - ✓ **Local Storage** - Supports `file://` and `mem://` URLs for development/testing
 

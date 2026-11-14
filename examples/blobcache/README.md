@@ -251,7 +251,7 @@ multiCache := multicache.New(
 
 ## Integration Tests
 
-BlobCache includes comprehensive integration tests using MinIO:
+BlobCache includes integration tests using Silo, a maintained MinIO fork with compatible S3 APIs and `MINIO_*` settings. The backend also supports MinIO and other S3-compatible services.
 
 ```bash
 # Run integration tests
