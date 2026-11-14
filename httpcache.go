@@ -101,6 +101,7 @@ var understoodStatusCodes = map[int]bool{
 	204: true, // No Content
 	300: true, // Multiple Choices
 	301: true, // Moved Permanently
+	308: true, // Permanent Redirect
 	404: true, // Not Found
 	405: true, // Method Not Allowed
 	410: true, // Gone
@@ -618,6 +619,14 @@ func (t *Transport) handleCachedResponse(cachedResp *http.Response, req *http.Re
 
 	if freshness == fresh {
 		t.log().Debug("serving fresh response from cache", "url", req.URL.String())
+		if clientConditionalMatches(req, cachedResp) {
+			cachedResp.StatusCode = http.StatusNotModified
+			cachedResp.Status = "304 Not Modified"
+			cachedResp.Body = http.NoBody
+			cachedResp.ContentLength = 0
+			cachedResp.Request = req
+			return req, true
+		}
 		// Check if it's actually stale but served due to max-stale
 		if !t.DisableWarningHeader && isActuallyStale(cachedResp.Header, t.clock, t.log(), t.IsPublicCache) {
 			// RFC 7234 Section 5.5: Add Warning 110 (Response is Stale)
@@ -672,7 +681,7 @@ func handleNotModifiedResponse(cachedResp *http.Response, newResp *http.Response
 
 // shouldReturnStaleOnError checks if a stale cached response should be returned due to an error
 func shouldReturnStaleOnError(err error, resp *http.Response, cachedResp *http.Response, req *http.Request, clock timer, log *slog.Logger, shared bool) bool {
-	if req.Method != methodGET || cachedResp == nil {
+	if (req.Method != methodGET && req.Method != methodHEAD) || cachedResp == nil {
 		return false
 	}
 
@@ -999,38 +1008,14 @@ func (t *Transport) performCacheableRequestOnce(transport http.RoundTripper, req
 // Uses the request context for cache operations.
 func (t *Transport) storeResponseInCache(resp *http.Response, req *http.Request, cacheKey string, cacheable bool) {
 	ctx := req.Context()
-	if _, requestNoStore := parseCacheControl(req.Header, t.log())[cacheControlNoStore]; requestNoStore {
-		// RFC 9111 §5.2.1.5: request no-store does not apply to an already
-		// stored response used to satisfy this request. In particular, do not
-		// delete the existing entry after a successful revalidation.
-		return
-	}
-	if !cacheable {
-		// Range GETs and other uncacheable request forms must not delete an
-		// existing GET entry under the same URI key. Unsafe-method invalidation
-		// is handled separately after a successful origin response.
-		return
-	}
-	if resp.StatusCode == http.StatusPartialContent {
-		// This transport does not implement Range/Content-Range storage or
-		// combination, so it must never store a partial representation.
+	if t.shouldSkipCacheStorage(resp, req, cacheable) {
 		return
 	}
 	respCacheControl := parseCacheControl(resp.Header, t.log())
 	reqCacheControl := parseCacheControl(req.Header, t.log())
 
 	if !canStore(req, reqCacheControl, respCacheControl, t.IsPublicCache, resp.StatusCode, t.log()) {
-		if t.EnableStaleMarking {
-			t.log().Debug("response not cacheable, marking as stale", "key", cacheKey, "status", resp.StatusCode)
-			if err := t.cacheMarkStale(ctx, cacheKey); err != nil {
-				t.log().Warn("failed to mark cache entry as stale", "key", cacheKey, "error", err)
-			}
-		} else {
-			t.log().Debug("response not cacheable, deleting cache entry", "key", cacheKey, "status", resp.StatusCode)
-			if err := t.cacheDelete(ctx, cacheKey); err != nil {
-				t.log().Warn("failed to delete cache entry", "key", cacheKey, "error", err)
-			}
-		}
+		t.handleUnstorableResponse(ctx, cacheKey, resp.StatusCode)
 		return
 	}
 
@@ -1041,17 +1026,7 @@ func (t *Transport) storeResponseInCache(resp *http.Response, req *http.Request,
 
 	// Check if we should cache based on status code
 	// RFC 7231 section 6.1: Cacheable by default status codes
-	shouldCache := resp.StatusCode == http.StatusOK ||
-		resp.StatusCode == http.StatusNonAuthoritativeInfo || // 203
-		resp.StatusCode == http.StatusNoContent || // 204
-		resp.StatusCode == http.StatusMultipleChoices || // 300
-		resp.StatusCode == http.StatusMovedPermanently || // 301
-		resp.StatusCode == http.StatusNotFound || // 404
-		resp.StatusCode == http.StatusMethodNotAllowed || // 405
-		resp.StatusCode == http.StatusGone || // 410
-		resp.StatusCode == http.StatusRequestURITooLong || // 414
-		resp.StatusCode == http.StatusNotImplemented || // 501
-		mustUnderstandAllowsCaching // must-understand overrides status code check
+	shouldCache := cacheableStatus(resp, respCacheControl, mustUnderstandAllowsCaching)
 
 	// Allow custom override via ShouldCache hook
 	if !shouldCache && t.ShouldCache != nil {
@@ -1102,6 +1077,60 @@ func (t *Transport) storeResponseInCache(resp *http.Response, req *http.Request,
 	}
 }
 
+func (t *Transport) shouldSkipCacheStorage(resp *http.Response, req *http.Request, cacheable bool) bool {
+	if !cacheable || resp.StatusCode == http.StatusPartialContent {
+		return true
+	}
+	reqCacheControl := parseCacheControl(req.Header, t.log())
+	if resp.StatusCode == http.StatusGatewayTimeout {
+		if _, onlyIfCached := reqCacheControl[cacheControlOnlyIfCached]; onlyIfCached {
+			return true
+		}
+	}
+	if _, requestNoStore := reqCacheControl[cacheControlNoStore]; requestNoStore {
+		// Request no-store does not invalidate an already stored representation.
+		return true
+	}
+	return false
+}
+
+func (t *Transport) handleUnstorableResponse(ctx context.Context, cacheKey string, statusCode int) {
+	if t.EnableStaleMarking {
+		t.log().Debug("response not cacheable, marking as stale", "key", cacheKey, "status", statusCode)
+		if err := t.cacheMarkStale(ctx, cacheKey); err != nil {
+			t.log().Warn("failed to mark cache entry as stale", "key", cacheKey, "error", err)
+		}
+		return
+	}
+	t.log().Debug("response not cacheable, deleting cache entry", "key", cacheKey, "status", statusCode)
+	if err := t.cacheDelete(ctx, cacheKey); err != nil {
+		t.log().Warn("failed to delete cache entry", "key", cacheKey, "error", err)
+	}
+}
+
+func cacheableStatus(resp *http.Response, respCacheControl cacheControl, mustUnderstandAllowsCaching bool) bool {
+	shouldCache := resp.StatusCode == http.StatusOK ||
+		resp.StatusCode == http.StatusNonAuthoritativeInfo ||
+		resp.StatusCode == http.StatusNoContent ||
+		resp.StatusCode == http.StatusMultipleChoices ||
+		resp.StatusCode == http.StatusMovedPermanently ||
+		resp.StatusCode == http.StatusNotFound ||
+		resp.StatusCode == http.StatusMethodNotAllowed ||
+		resp.StatusCode == http.StatusGone ||
+		resp.StatusCode == http.StatusPermanentRedirect ||
+		resp.StatusCode == http.StatusRequestURITooLong ||
+		resp.StatusCode == http.StatusNotImplemented ||
+		mustUnderstandAllowsCaching
+	if shouldCache {
+		return true
+	}
+	_, hasMaxAge := respCacheControl[cacheControlMaxAge]
+	_, hasSMaxAge := respCacheControl[cacheControlSMaxAge]
+	_, hasPublic := respCacheControl[cacheControlPublic]
+	_, hasPrivate := respCacheControl[cacheControlPrivate]
+	return hasMaxAge || hasSMaxAge || hasPublic || hasPrivate || resp.Header.Get("Expires") != ""
+}
+
 // RoundTrip takes a Request and returns a Response
 //
 // If there is a fresh Response already in cache, then it will be returned without connecting to
@@ -1110,6 +1139,30 @@ func (t *Transport) storeResponseInCache(resp *http.Response, req *http.Request,
 // If there is a stale Response, then any validators it contains will be set on the new request
 // to give the server a chance to respond with NotModified. If this happens, then the cached Response
 // will be returned.
+func (t *Transport) lookupCachedResponse(req *http.Request, cacheKey string, cacheable bool) (*http.Response, bool, string, error) {
+	if !cacheable {
+		return nil, false, cacheKey, nil
+	}
+	cachedResp, markedStale, err := t.cachedResponseWithKeySecure(req, cacheKey)
+	if t.EnableVarySeparation && cachedResp != nil && err == nil {
+		varyHeaders := headerAllCommaSepValues(cachedResp.Header, "vary")
+		if len(varyHeaders) > 0 {
+			varyCacheKey := cacheKeyWithVaryBase(cacheKey, req, varyHeaders)
+			if varyCacheKey != cacheKey {
+				varyCachedResp, varyMarkedStale, varyErr := t.cachedResponseWithKeySecure(req, varyCacheKey)
+				if varyErr == nil && varyCachedResp != nil {
+					cachedResp, markedStale, cacheKey = varyCachedResp, varyMarkedStale, varyCacheKey
+				}
+			}
+		}
+	}
+	if cachedResp != nil && err == nil && t.invalidatedSinceRequest(req.Context(), req.URL, cachedResp.Header) {
+		t.log().Debug("cached response predates URI invalidation", "url", req.URL.String())
+		markedStale = true
+	}
+	return cachedResp, markedStale, cacheKey, err
+}
+
 func (t *Transport) RoundTrip(req *http.Request) (resp *http.Response, err error) {
 	// Get cache key (computed once and memoized in context)
 	cacheKey, req := t.getCacheKey(req)
@@ -1117,36 +1170,7 @@ func (t *Transport) RoundTrip(req *http.Request) (resp *http.Response, err error
 
 	t.log().Debug("RoundTrip started", "method", req.Method, "url", req.URL.String(), "cacheable", cacheable)
 
-	var cachedResp *http.Response
-	var cachedMarkedStale bool
-	if cacheable {
-		// Try to get cached response
-		cachedResp, cachedMarkedStale, err = t.cachedResponseWithKeySecure(req, cacheKey)
-
-		// RFC 9111 Vary Separation: If EnableVarySeparation is true and cached response has Vary headers,
-		// recalculate cache key with vary values and try again for the correct variant.
-		// This only applies when the new vary separation behavior is enabled.
-		if t.EnableVarySeparation && cachedResp != nil && err == nil {
-			varyHeaders := headerAllCommaSepValues(cachedResp.Header, "vary")
-			if len(varyHeaders) > 0 {
-				// Recalculate key with vary headers for proper variant lookup
-				varyCacheKey := cacheKeyWithVaryBase(cacheKey, req, varyHeaders)
-				if varyCacheKey != cacheKey {
-					// Try with vary-specific key
-					varyCachedResp, varyCachedMarkedStale, varyErr := t.cachedResponseWithKeySecure(req, varyCacheKey)
-					if varyErr == nil && varyCachedResp != nil {
-						cachedResp = varyCachedResp
-						cachedMarkedStale = varyCachedMarkedStale
-						cacheKey = varyCacheKey
-					}
-				}
-			}
-		}
-		if cachedResp != nil && err == nil && t.invalidatedSinceRequest(req.Context(), req.URL, cachedResp.Header) {
-			t.log().Debug("cached response predates URI invalidation", "url", req.URL.String())
-			cachedMarkedStale = true
-		}
-	}
+	cachedResp, cachedMarkedStale, cacheKey, err := t.lookupCachedResponse(req, cacheKey, cacheable)
 
 	// Get the underlying transport in a thread-safe manner
 	transport := t.GetTransport()
@@ -1174,7 +1198,13 @@ func (t *Transport) RoundTrip(req *http.Request) (resp *http.Response, err error
 	}
 
 	// Apply resilience policies (retry + circuit breaker) if configured
-	resp, err = t.executeWithResilience(doRequest)
+	if _, onlyIfCached := parseCacheControl(req.Header, t.log())[cacheControlOnlyIfCached]; onlyIfCached {
+		// A synthetic 504 for only-if-cached must not be retried by a configured
+		// resilience policy; each retry would repeat the same cache-only lookup.
+		resp, err = doRequest()
+	} else {
+		resp, err = t.executeWithResilience(doRequest)
+	}
 
 	if err != nil {
 		return nil, err

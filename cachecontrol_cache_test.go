@@ -3,6 +3,7 @@ package httpcache
 import (
 	"log/slog"
 	"net/http"
+	"strconv"
 	"testing"
 )
 
@@ -197,5 +198,30 @@ func TestParseCacheControlEmptyHeader(t *testing.T) {
 	// Should be cached
 	if _, ok := cacheControlCache.Load(""); !ok {
 		t.Errorf("expected empty header to be cached")
+	}
+}
+
+func TestParseCacheControlCacheReturnsIndependentMaps(t *testing.T) {
+	headers := http.Header{"Cache-Control": {"max-age=42"}}
+	first := parseCacheControl(headers, slog.Default())
+	first["max-age"] = "0"
+	second := parseCacheControl(headers, slog.Default())
+	if second["max-age"] != "42" {
+		t.Fatalf("mutating one parse result changed the cached result: got %q", second["max-age"])
+	}
+}
+
+func TestParseCacheControlCacheIsBounded(t *testing.T) {
+	for i := 0; i < maxCacheControlCacheEntries+100; i++ {
+		headers := http.Header{"Cache-Control": {"max-age=" + strconv.Itoa(i)}}
+		parseCacheControl(headers, slog.Default())
+	}
+	count := 0
+	cacheControlCache.Range(func(_, _ any) bool {
+		count++
+		return true
+	})
+	if count > maxCacheControlCacheEntries {
+		t.Fatalf("Cache-Control parse cache has %d entries, limit is %d", count, maxCacheControlCacheEntries)
 	}
 }

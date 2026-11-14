@@ -334,7 +334,7 @@ func TestSameOriginCheck(t *testing.T) {
 			name:     "Default ports - http",
 			url1:     "http://example.com/path",
 			url2:     "http://example.com:80/path",
-			expected: false, // Different because host strings differ
+			expected: true, // An omitted HTTP port is equivalent to port 80
 		},
 		{
 			name:     "Subdomain difference",

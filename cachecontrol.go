@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 )
 
 // cacheControl is a map of Cache-Control directive names to their values.
@@ -17,6 +18,10 @@ type cacheControl map[string]string
 // cacheControlCache stores parsed Cache-Control headers to avoid redundant parsing.
 // Key is the raw Cache-Control header value, value is the parsed cacheControl map.
 var cacheControlCache sync.Map
+var cacheControlCacheMu sync.Mutex
+var cacheControlCacheSize atomic.Int64
+
+const maxCacheControlCacheEntries = 1024
 
 // parseCacheControl parses the Cache-Control header and returns a map of directives.
 // Results are cached to avoid redundant parsing of the same header value.
@@ -33,17 +38,48 @@ func parseCacheControl(headers http.Header, log *slog.Logger) cacheControl {
 	// Check cache first
 	if cached, ok := cacheControlCache.Load(ccHeader); ok {
 		if cc, ok := cached.(cacheControl); ok {
-			return cc
+			return cloneCacheControl(cc)
 		}
 	}
 
 	// Parse if not cached
 	cc := parseCacheControlInternal(ccHeader, log)
 
-	// Store in cache
-	cacheControlCache.Store(ccHeader, cc)
+	// Keep the process-wide parse cache bounded. A second lookup under the
+	// insertion lock also avoids storing the same value twice concurrently.
+	cacheControlCacheMu.Lock()
+	if cached, ok := cacheControlCache.Load(ccHeader); ok {
+		cacheControlCacheMu.Unlock()
+		if parsed, ok := cached.(cacheControl); ok {
+			return cloneCacheControl(parsed)
+		}
+	} else {
+		if cacheControlCacheSize.Load() >= maxCacheControlCacheEntries {
+			count := int64(0)
+			cacheControlCache.Range(func(key, _ any) bool {
+				count++
+				if count > maxCacheControlCacheEntries*3/4 {
+					cacheControlCache.Delete(key)
+					count--
+				}
+				return true
+			})
+			cacheControlCacheSize.Store(count)
+		}
+		cacheControlCache.Store(ccHeader, cloneCacheControl(cc))
+		cacheControlCacheSize.Add(1)
+		cacheControlCacheMu.Unlock()
+	}
 
 	return cc
+}
+
+func cloneCacheControl(cc cacheControl) cacheControl {
+	cloned := make(cacheControl, len(cc))
+	for directive, value := range cc {
+		cloned[directive] = value
+	}
+	return cloned
 }
 
 // parseCacheControlInternal performs the actual parsing of Cache-Control header.

@@ -34,18 +34,37 @@ func varyMatches(cachedResp *http.Response, req *http.Request) bool {
 		canonicalHeader := http.CanonicalHeaderKey(header)
 
 		// Get the current request header value
-		reqValue := req.Header.Get(canonicalHeader)
+		reqValue := combinedHeaderValues(req.Header, canonicalHeader)
 		// Get the stored request header value from X-Varied-* headers
 		storedValue := cachedResp.Header.Get(headerXVariedPrefix + canonicalHeader)
 
 		// RFC 9111 Section 4.1: If header is absent from request, it matches if also absent in stored request
 		// Both empty: match
 		// One empty, one not: no match
-		if !normalizedHeaderValuesMatch(reqValue, storedValue) {
+		if !normalizedHeaderValuesMatch(normalizeVaryHeaderValue(canonicalHeader, reqValue), storedValue) {
 			return false
 		}
 	}
 	return true
+}
+
+func combinedHeaderValues(header http.Header, name string) string {
+	values := header.Values(name)
+	for i := range values {
+		values[i] = strings.TrimSpace(values[i])
+	}
+	return strings.Join(values, ", ")
+}
+
+func normalizeVaryHeaderValue(name, value string) string {
+	value = normalizeHeaderValue(value)
+	switch http.CanonicalHeaderKey(name) {
+	case "Accept-Charset", "Accept-Encoding", "Accept-Language", "Allow", "Connection",
+		"Content-Encoding", "Content-Language", "TE", "Trailer", "Transfer-Encoding", "Upgrade":
+		return strings.ToLower(value)
+	default:
+		return value
+	}
 }
 
 // normalizedHeaderValuesMatch implements RFC 9111 Section 4.1 header field matching.
@@ -135,13 +154,13 @@ func storeVaryHeaders(resp *http.Response, req *http.Request) {
 			continue
 		}
 
-		reqValue := req.Header.Get(varyKey)
+		reqValue := combinedHeaderValues(req.Header, varyKey)
 		fakeHeader := headerXVariedPrefix + varyKey
 
 		// RFC 9111 Section 4.1: Normalize the value before storing
 		// This ensures that future requests with equivalent (but differently formatted)
 		// header values will match correctly
-		normalizedValue := normalizeHeaderValue(reqValue)
+		normalizedValue := normalizeVaryHeaderValue(varyKey, reqValue)
 		resp.Header.Set(fakeHeader, normalizedValue)
 	}
 }
@@ -171,9 +190,9 @@ func cacheKeyWithVaryBase(baseKey string, req *http.Request, varyHeaders []strin
 			continue
 		}
 
-		value := req.Header.Get(canonicalHeader)
+		value := combinedHeaderValues(req.Header, canonicalHeader)
 		// RFC 9111 Section 4.1: Normalize value before including in cache key
-		normalizedValue := normalizeHeaderValue(value)
+		normalizedValue := normalizeVaryHeaderValue(canonicalHeader, value)
 		// Include even empty values to ensure proper cache separation
 		varyParts = append(varyParts, canonicalHeader+":"+normalizedValue)
 	}

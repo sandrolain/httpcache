@@ -108,6 +108,17 @@ func getFreshness(respHeaders, reqHeaders http.Header, clock timer, log *slog.Lo
 	if returnFresh {
 		return fresh
 	}
+	requestMaxAgeExceeded := false
+	if requestMaxAge, ok := reqCacheControl[cacheControlMaxAge]; ok {
+		if limit, err := time.ParseDuration(requestMaxAge + "s"); err == nil && responseAge > limit {
+			requestMaxAgeExceeded = true
+		}
+	}
+	if requestMaxAgeExceeded {
+		if _, maxStaleAllowsStale := reqCacheControl["max-stale"]; !maxStaleAllowsStale {
+			return stale
+		}
+	}
 
 	if lifetime > currentAge {
 		return fresh
@@ -118,12 +129,6 @@ func getFreshness(respHeaders, reqHeaders http.Header, clock timer, log *slog.Lo
 	// (must-revalidate; proxy-revalidate/s-maxage in shared caches) wins over
 	// stale-while-revalidate: a stale response MUST NOT be reused without
 	// successful validation, even inside the SWR window.
-	requestMaxAgeExceeded := false
-	if requestMaxAge, ok := reqCacheControl[cacheControlMaxAge]; ok {
-		if limit, err := time.ParseDuration(requestMaxAge + "s"); err != nil || responseAge > limit {
-			requestMaxAgeExceeded = true
-		}
-	}
 	if stalewhilerevalidate, ok := respCacheControl[cacheControlStaleWhileRevalidate]; ok && !requestMaxAgeExceeded && !prohibitsStale(respCacheControl, shared) {
 		// If the cached response isn't too stale, we can return it and refresh asynchronously
 		stalewhilerevalidateDuration, err := time.ParseDuration(stalewhilerevalidate + "s")
@@ -205,18 +210,6 @@ func calculateLifetime(respCacheControl cacheControl, respHeaders http.Header, d
 // (must-revalidate, and in shared caches proxy-revalidate/s-maxage per
 // RFC 9111 Sections 4.2.4, 5.2.2.1, 5.2.2.8 and 5.2.2.10)
 func adjustAgeForRequestControls(respCacheControl, reqCacheControl cacheControl, currentAge time.Duration, lifetime time.Duration, shared bool) (time.Duration, time.Duration, bool) {
-	if maxAge, ok := reqCacheControl[cacheControlMaxAge]; ok {
-		// Request max-age limits the age the client will accept; it cannot
-		// extend the response's own freshness lifetime (RFC 9111 §5.2.1.1).
-		parsedLifetime, err := time.ParseDuration(maxAge + "s")
-		if err != nil {
-			parsedLifetime = 0
-		}
-		if parsedLifetime < lifetime {
-			lifetime = parsedLifetime
-		}
-	}
-
 	if minfresh, ok := reqCacheControl["min-fresh"]; ok {
 		//  the client wants a response that will still be fresh for at least the specified number of seconds.
 		minfreshDuration, err := time.ParseDuration(minfresh + "s")

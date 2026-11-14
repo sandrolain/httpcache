@@ -101,7 +101,7 @@ func headerAllCommaSepValues(headers http.Header, name string) []string {
 
 // getEndToEndHeaders returns the list of end-to-end headers from the response
 func getEndToEndHeaders(respHeaders http.Header) []string {
-	// These headers are always hop-by-hop
+	// These headers are always hop-by-hop.
 	hopByHopHeaders := map[string]struct{}{
 		"Connection":          {},
 		"Keep-Alive":          {},
@@ -112,6 +112,9 @@ func getEndToEndHeaders(respHeaders http.Header) []string {
 		"Transfer-Encoding":   {},
 		"Upgrade":             {},
 	}
+	excludedHeaders := map[string]struct{}{
+		"Proxy-Authentication-Info": {},
+	}
 
 	for _, extra := range strings.Split(respHeaders.Get("connection"), ",") {
 		// any header listed in connection, if present, is also considered hop-by-hop
@@ -121,7 +124,9 @@ func getEndToEndHeaders(respHeaders http.Header) []string {
 	}
 	endToEndHeaders := []string{}
 	for respHeader := range respHeaders {
-		if _, ok := hopByHopHeaders[respHeader]; !ok {
+		_, hopByHop := hopByHopHeaders[respHeader]
+		_, excluded := excludedHeaders[respHeader]
+		if !hopByHop && !excluded {
 			endToEndHeaders = append(endToEndHeaders, respHeader)
 		}
 	}

@@ -19,6 +19,9 @@ httpcache implements RFC 9111 (HTTP Caching, which obsoletes RFC 7234) by:
 - `If-None-Match` (ETag validation)
 - `If-Modified-Since` (Last-Modified validation)
 
+On fresh cache hits, matching client conditional headers are evaluated locally;
+the cache returns `304 Not Modified` when the stored representation matches.
+
 ### Response Headers
 
 - `Cache-Control` (max-age, no-cache, no-store, must-revalidate, stale-if-error, stale-while-revalidate)

@@ -24,6 +24,20 @@ func TestRequestMaxAgeCapsResponseFreshness(t *testing.T) {
 	}
 }
 
+func TestRequestMaxAgeAllowsInclusiveAgeBoundary(t *testing.T) {
+	clock := &fakeClock{elapsed: 60 * time.Second}
+	date := time.Now().UTC().Format(http.TimeFormat)
+	response := http.Header{"Cache-Control": {"max-age=3600"}, "Date": {date}}
+	request := http.Header{"Cache-Control": {"max-age=60"}}
+	if got := getFreshness(response, request, clock, slog.Default(), false); got != fresh {
+		t.Fatalf("age equal to request max-age = %v, want fresh", got)
+	}
+	response.Set("Cache-Control", "max-age=30")
+	if got := getFreshness(response, request, clock, slog.Default(), false); got != stale {
+		t.Fatalf("request max-age extended a stale response: got %v, want stale", got)
+	}
+}
+
 func TestRequestNoStorePreservesRevalidatedEntry(t *testing.T) {
 	resetTest()
 	upstream := &transportMock{response: &http.Response{

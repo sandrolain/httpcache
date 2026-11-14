@@ -153,7 +153,6 @@ func setup() {
 	}))
 
 	mux.HandleFunc("/badrequest", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Cache-Control", "max-age=3600")
 		w.WriteHeader(http.StatusBadRequest)
 		w.Write([]byte("Bad Request"))
 	}))
@@ -1964,7 +1963,8 @@ func TestShouldCacheNilDoesNotCache(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Second request: should NOT be from cache (400 is not cacheable by default per RFC 7231)
+	// Second request should not be from cache: this 400 response has no explicit
+	// freshness metadata and is not cacheable by default.
 	resp, err = s.client.Do(req)
 	if err != nil {
 		t.Fatal(err)

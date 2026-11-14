@@ -6,6 +6,7 @@ import (
 	"context"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 )
 
@@ -169,7 +170,25 @@ func (t *Transport) invalidatedSinceRequest(ctx context.Context, targetURL *url.
 // isSameOrigin checks if two URLs have the same origin.
 // Per RFC 9111, origin is defined as scheme + host (including port).
 func isSameOrigin(url1, url2 *url.URL) bool {
-	return url1.Scheme == url2.Scheme && url1.Host == url2.Host
+	if url1 == nil || url2 == nil || !strings.EqualFold(url1.Scheme, url2.Scheme) ||
+		!strings.EqualFold(url1.Hostname(), url2.Hostname()) {
+		return false
+	}
+	return originPort(url1) == originPort(url2)
+}
+
+func originPort(u *url.URL) string {
+	if port := u.Port(); port != "" {
+		return port
+	}
+	switch strings.ToLower(u.Scheme) {
+	case "http":
+		return "80"
+	case "https":
+		return "443"
+	default:
+		return ""
+	}
 }
 
 // getOrigin returns the origin string for a URL (scheme://host).

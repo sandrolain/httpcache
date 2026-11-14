@@ -5,6 +5,65 @@ import (
 	"strings"
 )
 
+// clientConditionalMatches reports whether a fresh stored representation
+// satisfies the request's If-None-Match or If-Modified-Since precondition.
+func clientConditionalMatches(req *http.Request, stored *http.Response) bool {
+	if req.Method != http.MethodGet && req.Method != http.MethodHead {
+		return false
+	}
+	if values := req.Header.Values("If-None-Match"); len(values) > 0 {
+		return ifNoneMatchMatches(values, stored.Header.Values(headerETag))
+	}
+	if value := req.Header.Get("If-Modified-Since"); value != "" {
+		return ifModifiedSinceMatches(value, stored.Header.Get(headerLastModified))
+	}
+	return false
+}
+
+func ifNoneMatchMatches(requestValues, storedValues []string) bool {
+	storedTags := validEntityTags(storedValues)
+	for _, value := range requestValues {
+		for _, candidate := range splitEntityTagList(value) {
+			if strings.TrimSpace(candidate) == "*" {
+				return true
+			}
+			for _, requestTag := range validEntityTags([]string{candidate}) {
+				for _, storedTag := range storedTags {
+					// If-None-Match uses weak comparison for GET and HEAD.
+					if requestTag.opaque == storedTag.opaque {
+						return true
+					}
+				}
+			}
+		}
+	}
+	return false
+}
+
+func ifModifiedSinceMatches(requestValue, storedValue string) bool {
+	modifiedSince, err := parseHTTPDate(requestValue)
+	if err != nil {
+		return false
+	}
+	lastModified, err := parseHTTPDate(storedValue)
+	return err == nil && !lastModified.After(modifiedSince)
+}
+
+func splitEntityTagList(value string) []string {
+	var tags []string
+	start := 0
+	quoted := false
+	for i := 0; i < len(value); i++ {
+		if value[i] == '"' && (i == 0 || value[i-1] != '\\') {
+			quoted = !quoted
+		} else if value[i] == ',' && !quoted {
+			tags = append(tags, value[start:i])
+			start = i + 1
+		}
+	}
+	return append(tags, value[start:])
+}
+
 // validatorsMatchFor304 reports whether a 304 response can update a stored
 // response under RFC 9111 Section 4.3.4.
 func validatorsMatchFor304(stored, notModified http.Header) bool {
@@ -65,7 +124,10 @@ func validEntityTags(values []string) []entityTag {
 		valid := true
 		for i := 1; i < len(value)-1; i++ {
 			c := value[i]
-			if c != 0x21 && !(c >= 0x23 && c <= 0x7e) && c < 0x80 {
+			if c == 0x21 || c >= 0x23 && c <= 0x7e || c >= 0x80 {
+				continue
+			}
+			if c < 0x80 {
 				valid = false
 				break
 			}
