@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/sandrolain/httpcache/test"
+	"github.com/sandrolain/httpcache/v2/test"
 )
 
 func getTestConnString() string {

@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -194,8 +195,12 @@ func TestCacheOperationTimeout_CompletesWithinTimeout(t *testing.T) {
 
 // contextTrackingCache tracks the contexts used in cache operations
 type contextTrackingCache struct {
-	lastSetContext context.Context
-	data           map[string][]byte
+	lastSetContext     context.Context
+	lastSetContextErr  error
+	lastSetDeadline    time.Time
+	lastSetHasDeadline bool
+	lastSetTime        time.Time
+	data               map[string][]byte
 }
 
 func (c *contextTrackingCache) Get(ctx context.Context, key string) ([]byte, bool, error) {
@@ -205,11 +210,20 @@ func (c *contextTrackingCache) Get(ctx context.Context, key string) ([]byte, boo
 
 func (c *contextTrackingCache) Set(ctx context.Context, key string, value []byte) error {
 	c.lastSetContext = ctx
+	c.lastSetContextErr = ctx.Err()
+	c.lastSetDeadline, c.lastSetHasDeadline = ctx.Deadline()
+	c.lastSetTime = time.Now()
 	if c.data == nil {
 		c.data = make(map[string][]byte)
 	}
 	c.data[key] = value
 	return nil
+}
+
+type cacheOperationRoundTripperFunc func(*http.Request) (*http.Response, error)
+
+func (f cacheOperationRoundTripperFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
 }
 
 func (c *contextTrackingCache) Delete(ctx context.Context, key string) error {
@@ -237,55 +251,57 @@ func TestCacheOperationTimeout_UsesIndependentContext(t *testing.T) {
 		WithMarkCachedResponses(true),
 	)
 
-	// Create a test server
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Cache-Control", "max-age=3600")
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("test response"))
+	// Return headers synchronously, then cancel the request before consuming the
+	// body. This makes the test independent of local listener startup and
+	// verifies that the later cache write does not inherit a canceled request.
+	transport.SetTransport(cacheOperationRoundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Cache-Control": []string{"max-age=3600"}},
+			Body:       io.NopCloser(strings.NewReader("test response")),
+			Request:    req,
+		}, nil
 	}))
-	defer server.Close()
 
-	// Create request with short-lived context
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
-	defer cancel()
-
-	req, _ := http.NewRequestWithContext(ctx, "GET", server.URL, nil)
-	client := transport.Client()
-
-	// Make request
-	resp, err := client.Do(req)
+	ctx, cancel := context.WithCancel(context.Background())
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, "http://example.com/resource", nil)
+	resp, err := transport.RoundTrip(req)
 	if err != nil {
 		t.Fatalf("Request failed: %v", err)
 	}
 	defer resp.Body.Close()
+	cancel()
+	if ctx.Err() != context.Canceled {
+		t.Fatalf("request context was not canceled after receiving headers: %v", ctx.Err())
+	}
 
 	// Read body to trigger caching
-	io.Copy(io.Discard, resp.Body)
-
-	// Wait for cache operation
-	time.Sleep(200 * time.Millisecond)
+	if _, err := io.Copy(io.Discard, resp.Body); err != nil {
+		t.Fatalf("Read response body: %v", err)
+	}
 
 	// Verify cache operation used independent context (not the cancelled one)
 	if cache.lastSetContext == nil {
 		t.Fatal("Cache Set was not called")
 	}
 
-	// The cache context should not be the same as the request context
+	// The cache context should not be the same as the request context.
 	if cache.lastSetContext == ctx {
 		t.Error("Cache operation should use independent context, not request context")
 	}
+	if cache.lastSetContextErr != nil {
+		t.Errorf("cache Set received a canceled context: %v", cache.lastSetContextErr)
+	}
 
 	// The cache context should have a deadline (from our timeout)
-	deadline, ok := cache.lastSetContext.Deadline()
-	if !ok {
+	if !cache.lastSetHasDeadline {
 		t.Error("Cache context should have a deadline")
 	}
 
-	// Deadline should be in the future (roughly 5 seconds from now)
-	expectedDeadline := time.Now().Add(5 * time.Second)
-	timeDiff := expectedDeadline.Sub(deadline).Abs()
-	if timeDiff > 2*time.Second {
-		t.Errorf("Cache context deadline seems incorrect: %v (expected ~5s from now)", deadline)
+	// The deadline is set when the independent cache operation starts.
+	remaining := cache.lastSetDeadline.Sub(cache.lastSetTime)
+	if remaining <= 0 || remaining > 5*time.Second || 5*time.Second-remaining > 100*time.Millisecond {
+		t.Errorf("Cache context timeout = %v, want approximately 5s", remaining)
 	}
 }
 

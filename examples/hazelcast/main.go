@@ -7,8 +7,8 @@ import (
 	"log"
 
 	"github.com/hazelcast/hazelcast-go-client"
-	"github.com/sandrolain/httpcache"
-	hzcache "github.com/sandrolain/httpcache/hazelcast"
+	"github.com/sandrolain/httpcache/v2"
+	hzcache "github.com/sandrolain/httpcache/v2/hazelcast"
 )
 
 func main() {

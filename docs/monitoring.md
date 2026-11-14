@@ -21,7 +21,7 @@ This design ensures:
 ### Basic Metrics
 
 ```go
-import "github.com/sandrolain/httpcache"
+import "github.com/sandrolain/httpcache/v2"
 
 // Create metrics
 metrics := httpcache.NewTransportMetrics()
@@ -49,8 +49,8 @@ import (
     "net/http"
     
     "github.com/prometheus/client_golang/prometheus/promhttp"
-    "github.com/sandrolain/httpcache"
-    prommetrics "github.com/sandrolain/httpcache/wrapper/metrics/prometheus"
+    "github.com/sandrolain/httpcache/v2"
+    prommetrics "github.com/sandrolain/httpcache/v2/wrapper/metrics/prometheus"
 )
 
 func main() {
@@ -92,7 +92,7 @@ func main() {
 | `CacheMisses` | Counter | Number of cache misses |
 | `CacheErrors` | Counter | Number of cache operation errors |
 | `StaleServed` | Counter | Stale responses served (stale-if-error) |
-| `Deduplication` | Counter | Requests deduplicated via singleflight |
+| `Deduplication` | Counter | Requests handled by request deduplication |
 | `CachedBytes` | Gauge | Approximate bytes in cache |
 | `CacheLatencyBuckets` | Histogram | Latency distribution (10 buckets) |
 

@@ -31,8 +31,8 @@ import (
  "net/http"
  "runtime/debug"
 
- "github.com/sandrolain/httpcache"
- "github.com/sandrolain/httpcache/freecache"
+ "github.com/sandrolain/httpcache/v2"
+ "github.com/sandrolain/httpcache/v2/freecache"
 )
 
 func main() {

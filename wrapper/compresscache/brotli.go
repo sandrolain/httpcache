@@ -7,7 +7,7 @@ import (
 	"io"
 
 	"github.com/andybalholm/brotli"
-	"github.com/sandrolain/httpcache"
+	"github.com/sandrolain/httpcache/v2"
 )
 
 // BrotliCache wraps a cache with automatic Brotli compression/decompression

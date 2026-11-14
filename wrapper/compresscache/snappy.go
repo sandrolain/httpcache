@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"github.com/golang/snappy"
-	"github.com/sandrolain/httpcache"
+	"github.com/sandrolain/httpcache/v2"
 )
 
 // SnappyCache wraps a cache with automatic Snappy compression/decompression

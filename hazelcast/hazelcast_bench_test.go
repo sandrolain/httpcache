@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/hazelcast/hazelcast-go-client"
-	"github.com/sandrolain/httpcache"
+	"github.com/sandrolain/httpcache/v2"
 )
 
 const (

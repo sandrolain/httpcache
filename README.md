@@ -7,7 +7,7 @@
 [![Coverage](https://img.shields.io/badge/coverage-90%25-brightgreen.svg)](https://github.com/sandrolain/httpcache)
 [![Go Report Card](https://goreportcard.com/badge/github.com/sandrolain/httpcache)](https://goreportcard.com/report/github.com/sandrolain/httpcache)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE.txt)
-[![GoDoc](https://godoc.org/github.com/sandrolain/httpcache?status.svg)](https://godoc.org/github.com/sandrolain/httpcache)
+[![Go Reference](https://pkg.go.dev/badge/github.com/sandrolain/httpcache/v2.svg)](https://pkg.go.dev/github.com/sandrolain/httpcache/v2)
 
 **Package httpcache** provides an `http.RoundTripper` implementation that works as a mostly [RFC 9111](https://www.rfc-editor.org/rfc/rfc9111.html) (HTTP Caching) compliant cache for HTTP responses. It improves application performance by reducing redundant HTTP requests and supports various backends for use cases such as API caching, web scraping, and microservices.
 
@@ -61,7 +61,7 @@
   - ✅ Same-origin policy enforcement for cache invalidation
   - ✅ Cache-Control: private directive support (Section 5.2.2.6)
   - ✅ Cache-Control: must-understand directive support (Section 5.2.2.3)
-  - ✅ Vary header matching per Section 4.1 (wildcard, whitespace normalization, case-insensitive)
+  - ✅ Vary header matching per Section 4.1 (wildcard handling, supported field-aware normalization, exact matching for unknown fields)
   - ✅ Vary header separation - Optional separate cache entries for response variants (Section 4.1)
   - ✅ Authorization header handling per Section 3.5 (secure caching in shared caches)
 - ✅ **Multiple Backends** - Memory, Disk, Redis, LevelDB, Memcache, PostgreSQL, MongoDB, NATS K/V, Hazelcast, Cloud Storage (S3/GCS/Azure)
@@ -80,7 +80,7 @@
 - ✅ **Stale-If-Error** - Resilient caching with RFC 5861 support
 - ✅ **Stale-While-Revalidate** - Async cache updates for better performance (RFC 5861)
 - ✅ **Configurable Cache Mode** - Use as private cache (default) or shared/public cache
-- ✅ **Request Deduplication** - Coalesce concurrent requests to the same resource (optional `EnableDeduplication` flag)
+- ✅ **Request Deduplication** - Coalesce equivalent concurrent cacheable requests with identical request headers (optional `EnableDeduplication` flag)
 - ✅ **Memory Protection** - Configurable max cacheable response size (default: 10MB) prevents memory exhaustion from large responses
 - ✅ **Buffer Pool Configuration** - Configurable buffer pool size (default: 64KB) for optimal memory/performance trade-off
 
@@ -107,8 +107,8 @@ import (
     "net/http"
     "os"
     
-    "github.com/sandrolain/httpcache"
-    "github.com/sandrolain/httpcache/diskcache"
+    "github.com/sandrolain/httpcache/v2"
+    "github.com/sandrolain/httpcache/v2/diskcache"
 )
 
 func main() {
@@ -196,7 +196,7 @@ fmt.Printf("Buffer pool hit rate: %.2f%%\n", bufferMetrics.PoolHitRate())
 fmt.Printf("Buffer pool discard rate: %.2f%%\n", bufferMetrics.DiscardRate())
 
 // Export to Prometheus (optional - requires separate package)
-import prommetrics "github.com/sandrolain/httpcache/wrapper/metrics/prometheus"
+import prommetrics "github.com/sandrolain/httpcache/v2/wrapper/metrics/prometheus"
 collector := prommetrics.NewCollector(prommetrics.CollectorConfig{Metrics: metrics})
 stop := collector.Start(context.Background())
 defer stop()
@@ -212,14 +212,12 @@ defer stop()
 
 > **Cache Operation Timeout**: By default, cache write operations have a **30-second timeout** to prevent indefinite operations after request completion. The cache operation uses an independent context to allow completing writes even if the client disconnects, but with this reasonable timeout. Set to 0 to disable (not recommended for production).
 
-> **Memory Protection**: By default, responses larger than **10MB** are not cached to prevent memory exhaustion. This limit can be configured with `WithMaxCacheableResponseSize()` or disabled by setting it to 0. Large responses that exceed the limit are still served normally but bypass the cache.
-
-```
+> **Memory Protection**: By default, responses larger than **10MB** are not cached. When deduplication is enabled, this limit also bounds the body buffer used to share a response: above the limit, the initiating caller receives the full stream and other callers make independent requests. Set the limit to 0 to disable the bound; deduplicated responses can then be buffered without a size limit.
 
 ## Installation
 
 ```bash
-go get github.com/sandrolain/httpcache
+go get github.com/sandrolain/httpcache/v2@v2.0.0-rc4
 ```
 
 ## Documentation
@@ -227,7 +225,7 @@ go get github.com/sandrolain/httpcache
 ### 📚 Core Documentation
 
 - **[Cache Backends](./docs/backends.md)** - Choose and configure storage backends (Memory, Redis, PostgreSQL, etc.)
-- **[How It Works](./docs/how-it-works.md)** - RFC 7234 implementation details, cache headers, and detecting cache hits
+- **[How It Works](./docs/how-it-works.md)** - RFC 9111 implementation details, cache headers, and detecting cache hits
 - **[Advanced Features](./docs/advanced-features.md)** - Transport configuration, stale-if-error, cache key headers, custom cache control
 - **[Performance Optimization](./docs/performance-v2.md)** - v2 performance improvements, benchmark results, and optimization techniques
 - **[Resilience Features](./docs/resilience.md)** - Retry policies and circuit breakers for fault-tolerant HTTP clients
@@ -322,6 +320,8 @@ transport.CacheKeyHeaders = []string{"Authorization"}  // Separate cache per use
 ```
 
 See [Authorization Header and Shared Caches](./docs/advanced-features.md#authorization-header-and-shared-caches) for detailed examples and security considerations.
+
+Responses with `Vary` fields carry internal `X-Varied-*` metadata for matching; it may include sensitive request header values. `MarkCachedResponses` only controls the `X-From-Cache` marker and does not remove that metadata. Do not expose or log raw response headers without reviewing them; see [Security Considerations](./docs/security.md#vary-metadata-and-sensitive-headers).
 
 ## Performance
 

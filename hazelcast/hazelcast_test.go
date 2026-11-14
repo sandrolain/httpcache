@@ -7,8 +7,8 @@ import (
 
 	"github.com/hazelcast/hazelcast-go-client"
 	"github.com/hazelcast/hazelcast-go-client/types"
-	"github.com/sandrolain/httpcache"
-	"github.com/sandrolain/httpcache/test"
+	"github.com/sandrolain/httpcache/v2"
+	"github.com/sandrolain/httpcache/v2/test"
 )
 
 // setupHazelcastCache creates a Hazelcast client and map for testing.

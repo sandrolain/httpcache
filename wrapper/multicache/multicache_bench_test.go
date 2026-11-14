@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"testing"
 
-	httpcache "github.com/sandrolain/httpcache"
+	httpcache "github.com/sandrolain/httpcache/v2"
 )
 
 func BenchmarkGet_SingleTier_Hit(b *testing.B) {

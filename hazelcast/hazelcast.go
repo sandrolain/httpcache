@@ -6,7 +6,7 @@ import (
 	"fmt"
 
 	"github.com/hazelcast/hazelcast-go-client"
-	"github.com/sandrolain/httpcache"
+	"github.com/sandrolain/httpcache/v2"
 )
 
 // cache is an implementation of httpcache.Cache that caches responses in a

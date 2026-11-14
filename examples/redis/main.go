@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
-	"github.com/sandrolain/httpcache"
-	rediscache "github.com/sandrolain/httpcache/redis"
+	"github.com/sandrolain/httpcache/v2"
+	rediscache "github.com/sandrolain/httpcache/v2/redis"
 )
 
 func main() {

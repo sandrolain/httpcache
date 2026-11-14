@@ -8,7 +8,7 @@ import (
 
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
-	"github.com/sandrolain/httpcache"
+	"github.com/sandrolain/httpcache/v2"
 )
 
 const stalePrefix = "stale."

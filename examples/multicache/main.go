@@ -9,11 +9,11 @@ import (
 	"os"
 	"time"
 
-	httpcache "github.com/sandrolain/httpcache"
-	"github.com/sandrolain/httpcache/diskcache"
-	"github.com/sandrolain/httpcache/freecache"
-	rediscache "github.com/sandrolain/httpcache/redis"
-	"github.com/sandrolain/httpcache/wrapper/multicache"
+	httpcache "github.com/sandrolain/httpcache/v2"
+	"github.com/sandrolain/httpcache/v2/diskcache"
+	"github.com/sandrolain/httpcache/v2/freecache"
+	rediscache "github.com/sandrolain/httpcache/v2/redis"
+	"github.com/sandrolain/httpcache/v2/wrapper/multicache"
 
 	"github.com/redis/go-redis/v9"
 )

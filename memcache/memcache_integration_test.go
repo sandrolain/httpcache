@@ -8,7 +8,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/sandrolain/httpcache/test"
+	"github.com/sandrolain/httpcache/v2/test"
 	"github.com/testcontainers/testcontainers-go"
 	testcontainersMemcache "github.com/testcontainers/testcontainers-go/modules/memcached"
 )

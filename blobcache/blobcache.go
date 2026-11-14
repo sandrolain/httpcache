@@ -13,7 +13,7 @@
 //	import (
 //	    "context"
 //	    _ "gocloud.dev/blob/s3blob"
-//	    "github.com/sandrolain/httpcache/blobcache"
+//	    "github.com/sandrolain/httpcache/v2/blobcache"
 //	)
 //
 //	ctx := context.Background()
@@ -31,7 +31,7 @@ import (
 	"io"
 	"time"
 
-	"github.com/sandrolain/httpcache"
+	"github.com/sandrolain/httpcache/v2"
 	"gocloud.dev/blob"
 	"gocloud.dev/gcerrors"
 )

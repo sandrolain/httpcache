@@ -78,7 +78,7 @@ Enable encryption of cached data with two modes available:
 #### Fixed Salt Encryption (Default)
 
 ```go
-import "github.com/sandrolain/httpcache"
+import "github.com/sandrolain/httpcache/v2"
 
 cache := diskcache.New("/tmp/cache")
 transport := httpcache.NewTransport(cache,
@@ -102,7 +102,7 @@ client := transport.Client()
 #### Random Salt Encryption (Enhanced Security)
 
 ```go
-import "github.com/sandrolain/httpcache"
+import "github.com/sandrolain/httpcache/v2"
 
 cache := diskcache.New("/tmp/cache")
 transport := httpcache.NewTransport(cache,
@@ -157,7 +157,7 @@ if transport.IsEncryptionEnabled() {
 If you use the same `Transport` instance to make requests on behalf of different users, responses may be incorrectly shared between users unless properly configured:
 
 ```go
-import "github.com/sandrolain/httpcache/diskcache"
+import "github.com/sandrolain/httpcache/v2/diskcache"
 
 // ❌ DANGEROUS: Same transport for different users
 cache := diskcache.New("/tmp/cache")
@@ -268,12 +268,18 @@ func getClientForUser(userID string) *http.Client {
 
 Always use `WithCacheKeyHeaders` or ensure the server sends appropriate `Vary` headers when caching user-specific or tenant-specific data.
 
+### Vary Metadata and Sensitive Headers
+
+To validate a stored `Vary` response, httpcache records the original request's selected header values in internal `X-Varied-*` response metadata. For fields without known normalization rules, this metadata can contain the raw request value; sensitive fields such as `Authorization` or `Cookie` can therefore appear in cached response headers.
+
+Do not forward or log raw response headers without reviewing these fields. `MarkCachedResponses` controls the `X-From-Cache` diagnostic marker only; it does not remove `X-Varied-*` metadata. Restrict access to cache data and avoid exposing internal response headers to untrusted clients.
+
 ## Complete Security Example
 
 ```go
 import (
-    "github.com/sandrolain/httpcache"
-    "github.com/sandrolain/httpcache/redis"
+    "github.com/sandrolain/httpcache/v2"
+    "github.com/sandrolain/httpcache/v2/redis"
 )
 
 // Get passphrase from secure storage

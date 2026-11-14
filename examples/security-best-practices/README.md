@@ -166,8 +166,8 @@ import (
     "log"
     "os"
     
-    "github.com/sandrolain/httpcache"
-    "github.com/sandrolain/httpcache/redis"
+    "github.com/sandrolain/httpcache/v2"
+    "github.com/sandrolain/httpcache/v2/redis"
 )
 
 func main() {

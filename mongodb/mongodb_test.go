@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sandrolain/httpcache/test"
+	"github.com/sandrolain/httpcache/v2/test"
 )
 
 func TestMongoDBCache(t *testing.T) {

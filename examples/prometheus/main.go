@@ -10,9 +10,9 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"github.com/sandrolain/httpcache"
-	"github.com/sandrolain/httpcache/diskcache"
-	prommetrics "github.com/sandrolain/httpcache/wrapper/metrics/prometheus"
+	"github.com/sandrolain/httpcache/v2"
+	"github.com/sandrolain/httpcache/v2/diskcache"
+	prommetrics "github.com/sandrolain/httpcache/v2/wrapper/metrics/prometheus"
 )
 
 func main() {

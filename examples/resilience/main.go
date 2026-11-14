@@ -8,8 +8,8 @@ import (
 
 	"github.com/failsafe-go/failsafe-go"
 	"github.com/failsafe-go/failsafe-go/circuitbreaker"
-	"github.com/sandrolain/httpcache"
-	"github.com/sandrolain/httpcache/diskcache"
+	"github.com/sandrolain/httpcache/v2"
+	"github.com/sandrolain/httpcache/v2/diskcache"
 )
 
 func main() {

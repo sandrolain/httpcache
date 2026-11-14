@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sandrolain/httpcache"
+	"github.com/sandrolain/httpcache/v2"
 )
 
 func setupBenchmarkCache(b *testing.B) (httpcache.Cache, func()) {

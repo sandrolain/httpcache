@@ -7,8 +7,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/sandrolain/httpcache"
-	"github.com/sandrolain/httpcache/diskcache"
+	"github.com/sandrolain/httpcache/v2"
+	"github.com/sandrolain/httpcache/v2/diskcache"
 )
 
 func main() {

@@ -5,8 +5,8 @@ import (
 	"io"
 	"runtime/debug"
 
-	"github.com/sandrolain/httpcache"
-	"github.com/sandrolain/httpcache/freecache"
+	"github.com/sandrolain/httpcache/v2"
+	"github.com/sandrolain/httpcache/v2/freecache"
 )
 
 const cache300URL = "https://httpbin.org/cache/300"

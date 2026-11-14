@@ -6,7 +6,7 @@ The Stale Marking System is a resilience feature that improves cache behavior wh
 
 ## Motivation
 
-Based on analysis of `lox/httpcache` (see `context/LOX_HTTPCACHE_ANALYSIS.md`), marking entries as stale rather than deleting them provides better resilience:
+Marking entries as stale rather than deleting them provides better resilience:
 
 - **Better stale-if-error support**: Stale entries can be served when origin servers return errors
 - **Improved availability**: Content remains available even during server outages
@@ -151,8 +151,8 @@ Different backends use different strategies for tracking stale entries:
 package main
 
 import (
-    "github.com/sandrolain/httpcache"
-    "github.com/sandrolain/httpcache/redis"
+    "github.com/sandrolain/httpcache/v2"
+    "github.com/sandrolain/httpcache/v2/redis"
 )
 
 func main() {
@@ -221,7 +221,7 @@ go test -v ./redis
 
 **No breaking changes** - stale marking is opt-in:
 
-1. Update httpcache: `go get github.com/sandrolain/httpcache@latest`
+1. Update httpcache: `go get github.com/sandrolain/httpcache/v2@v2.0.0-rc4`
 2. Optionally enable stale marking:
 
    ```go
@@ -291,5 +291,5 @@ Stale markers are cleaned up:
 
 - RFC 7234 Section 4.2.4 (Serving Stale Responses)
 - RFC 5861 (stale-if-error extension)
-- `context/LOX_HTTPCACHE_ANALYSIS.md` (analysis and motivation)
+- [RFC 5861](https://www.rfc-editor.org/rfc/rfc5861.html) (stale-if-error extension)
 - `httpcache_stale_marking_test.go` (tests and examples)

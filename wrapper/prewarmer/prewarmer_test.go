@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sandrolain/httpcache"
-	"github.com/sandrolain/httpcache/freecache"
+	"github.com/sandrolain/httpcache/v2"
+	"github.com/sandrolain/httpcache/v2/freecache"
 )
 
 // newTestServer creates a test HTTP server that returns cacheable responses.

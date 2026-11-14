@@ -12,8 +12,8 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/prometheus/client_golang/prometheus/testutil"
-	"github.com/sandrolain/httpcache"
-	"github.com/sandrolain/httpcache/diskcache"
+	"github.com/sandrolain/httpcache/v2"
+	"github.com/sandrolain/httpcache/v2/diskcache"
 )
 
 func TestCollector_BasicMetrics(t *testing.T) {

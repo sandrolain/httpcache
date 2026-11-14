@@ -11,8 +11,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/sandrolain/httpcache"
-	"github.com/sandrolain/httpcache/diskcache"
+	"github.com/sandrolain/httpcache/v2"
+	"github.com/sandrolain/httpcache/v2/diskcache"
 )
 
 const cache300URL = "https://httpbin.org/cache/300"

@@ -5,7 +5,7 @@ package memcache
 import (
 	"testing"
 
-	"github.com/sandrolain/httpcache/test"
+	"github.com/sandrolain/httpcache/v2/test"
 
 	"appengine/aetest"
 )

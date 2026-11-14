@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/sandrolain/httpcache"
+	"github.com/sandrolain/httpcache/v2"
 )
 
 func TestFreecacheImplementsCache(t *testing.T) {

@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/redis/go-redis/v9"
-	"github.com/sandrolain/httpcache/test"
+	"github.com/sandrolain/httpcache/v2/test"
 )
 
 func TestRedisCache(t *testing.T) {

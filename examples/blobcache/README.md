@@ -123,7 +123,7 @@ go run main.go
 
 ```go
 import (
-    "github.com/sandrolain/httpcache/blobcache"
+    "github.com/sandrolain/httpcache/v2/blobcache"
     _ "gocloud.dev/blob/s3blob"      // For AWS S3
     // _ "gocloud.dev/blob/gcsblob"  // For Google Cloud Storage
     // _ "gocloud.dev/blob/azureblob" // For Azure Blob Storage
@@ -220,7 +220,7 @@ The `Close()` method properly closes the bucket connection, but only if the cach
 - **Best Practice**: Use as a persistent tier in a MultiCache setup:
 
 ```go
-import "github.com/sandrolain/httpcache/wrapper/multicache"
+import "github.com/sandrolain/httpcache/v2/wrapper/multicache"
 
 localCache := diskcache.New("/tmp/cache")
 blobCache, _ := blobcache.New(ctx, config)

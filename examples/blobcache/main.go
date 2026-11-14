@@ -9,8 +9,8 @@ import (
 	"os"
 	"time"
 
-	"github.com/sandrolain/httpcache"
-	"github.com/sandrolain/httpcache/blobcache"
+	"github.com/sandrolain/httpcache/v2"
+	"github.com/sandrolain/httpcache/v2/blobcache"
 
 	// Import blob drivers as needed
 	_ "gocloud.dev/blob/fileblob" // For file:// URLs

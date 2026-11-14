@@ -8,8 +8,8 @@ import (
 	"os"
 	"time"
 
-	"github.com/sandrolain/httpcache"
-	"github.com/sandrolain/httpcache/mongodb"
+	"github.com/sandrolain/httpcache/v2"
+	"github.com/sandrolain/httpcache/v2/mongodb"
 )
 
 func main() {

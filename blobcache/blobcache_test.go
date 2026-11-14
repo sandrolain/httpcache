@@ -9,7 +9,7 @@ import (
 	_ "gocloud.dev/blob/fileblob" // Register file:// scheme
 	_ "gocloud.dev/blob/memblob"  // Register mem:// scheme
 
-	"github.com/sandrolain/httpcache/test"
+	"github.com/sandrolain/httpcache/v2/test"
 )
 
 func TestBlobCache(t *testing.T) {

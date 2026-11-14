@@ -32,7 +32,7 @@ httpcache supports multiple storage backends. Choose the one that fits your use 
 The [`multicache`](../wrapper/multicache/README.md) wrapper allows you to combine multiple cache backends with automatic fallback and promotion:
 
 ```go
-import "github.com/sandrolain/httpcache/wrapper/multicache"
+import "github.com/sandrolain/httpcache/v2/wrapper/multicache"
 
 // Tier 1: Fast in-memory cache
 memCache := freecache.New(10 * 1024 * 1024)  // 10 MB
@@ -96,7 +96,7 @@ See [Security Considerations](./security.md) for details.
 ### Disk Cache
 
 ```go
-import "github.com/sandrolain/httpcache/diskcache"
+import "github.com/sandrolain/httpcache/v2/diskcache"
 
 cache := diskcache.New("/tmp/my-cache")
 transport := httpcache.NewTransport(cache)
@@ -108,7 +108,7 @@ client := transport.Client()
 ### Disk Cache
 
 ```go
-import "github.com/sandrolain/httpcache/diskcache"
+import "github.com/sandrolain/httpcache/v2/diskcache"
 
 cache := diskcache.New("/tmp/my-cache")
 transport := httpcache.NewTransport(cache)
@@ -124,7 +124,7 @@ client := &http.Client{Transport: transport}
 ```go
 import (
     "github.com/redis/go-redis/v9"
-    rediscache "github.com/sandrolain/httpcache/redis"
+    rediscache "github.com/sandrolain/httpcache/v2/redis"
 )
 
 client := redis.NewClient(&redis.Options{
@@ -140,7 +140,7 @@ httpClient := &http.Client{Transport: transport}
 ### LevelDB Cache
 
 ```go
-import "github.com/sandrolain/httpcache/leveldbcache"
+import "github.com/sandrolain/httpcache/v2/leveldbcache"
 
 cache, _ := leveldbcache.New("/path/to/cache")
 transport := httpcache.NewTransport(cache)
@@ -152,7 +152,7 @@ client := &http.Client{Transport: transport}
 ### PostgreSQL Cache
 
 ```go
-import "github.com/sandrolain/httpcache/postgresql"
+import "github.com/sandrolain/httpcache/v2/postgresql"
 
 ctx := context.Background()
 cache, _ := postgresql.New(ctx, "postgres://user:pass@localhost/dbname", nil)
@@ -165,7 +165,7 @@ client := &http.Client{Transport: transport}
 ### MongoDB Cache
 
 ```go
-import "github.com/sandrolain/httpcache/mongodb"
+import "github.com/sandrolain/httpcache/v2/mongodb"
 
 ctx := context.Background()
 config := mongodb.Config{
@@ -183,7 +183,7 @@ client := &http.Client{Transport: transport}
 ### NATS K/V Cache
 
 ```go
-import "github.com/sandrolain/httpcache/natskv"
+import "github.com/sandrolain/httpcache/v2/natskv"
 
 ctx := context.Background()
 cache, _ := natskv.New(ctx, natskv.Config{
@@ -204,7 +204,7 @@ client := &http.Client{Transport: transport}
 ```go
 import (
     "github.com/hazelcast/hazelcast-go-client"
-    hzcache "github.com/sandrolain/httpcache/hazelcast"
+    hzcache "github.com/sandrolain/httpcache/v2/hazelcast"
 )
 
 ctx := context.Background()
@@ -225,7 +225,7 @@ httpClient := &http.Client{Transport: transport}
 ```go
 import (
     "github.com/coocood/freecache"
-    fcache "github.com/sandrolain/httpcache/freecache"
+    fcache "github.com/sandrolain/httpcache/v2/freecache"
 )
 
 // Create FreeCache with 100MB size
@@ -241,7 +241,7 @@ client := &http.Client{Transport: transport}
 
 ```go
 import (
-    "github.com/sandrolain/httpcache/blobcache"
+    "github.com/sandrolain/httpcache/v2/blobcache"
     _ "gocloud.dev/blob/s3blob"      // For AWS S3
     // _ "gocloud.dev/blob/gcsblob"  // For Google Cloud Storage
     // _ "gocloud.dev/blob/azureblob" // For Azure Blob Storage
@@ -308,8 +308,8 @@ Add security to any cache with built-in SHA-256 key hashing (always enabled) and
 
 ```go
 import (
-    "github.com/sandrolain/httpcache"
-    "github.com/sandrolain/httpcache/redis"
+    "github.com/sandrolain/httpcache/v2"
+    "github.com/sandrolain/httpcache/v2/redis"
 )
 
 // Connect to Redis

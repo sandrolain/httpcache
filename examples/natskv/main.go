@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sandrolain/httpcache"
-	"github.com/sandrolain/httpcache/natskv"
+	"github.com/sandrolain/httpcache/v2"
+	"github.com/sandrolain/httpcache/v2/natskv"
 )
 
 func main() {

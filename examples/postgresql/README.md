@@ -75,7 +75,7 @@ For production use, you can create your own connection pool:
 ```go
 import (
     "github.com/jackc/pgx/v5/pgxpool"
-    "github.com/sandrolain/httpcache/postgresql"
+    "github.com/sandrolain/httpcache/v2/postgresql"
 )
 
 pool, err := pgxpool.New(ctx, connString)

@@ -53,7 +53,7 @@ Redis cache is ideal for:
 ```go
 import (
     "github.com/redis/go-redis/v9"
-    rediscache "github.com/sandrolain/httpcache/redis"
+    rediscache "github.com/sandrolain/httpcache/v2/redis"
 )
 
 // Using the Config-based constructor (recommended)

@@ -88,7 +88,7 @@ import (
     "net/http"
     "sync"
     
-    "github.com/sandrolain/httpcache"
+    "github.com/sandrolain/httpcache/v2"
 )
 
 func main() {
@@ -133,7 +133,7 @@ import (
     "fmt"
     "time"
     
-    "github.com/sandrolain/httpcache"
+    "github.com/sandrolain/httpcache/v2"
 )
 
 func main() {
@@ -187,7 +187,7 @@ package main
 import (
     "sync"
     
-    "github.com/sandrolain/httpcache"
+    "github.com/sandrolain/httpcache/v2"
 )
 
 func main() {
@@ -290,9 +290,9 @@ For those interested in the implementation details:
 
 ### Request Deduplication
 
-- **Singleflight pattern** - Uses `golang.org/x/sync/singleflight` to coalesce concurrent identical requests
-- **Automatic coordination** - When multiple goroutines request the same resource, only one request is made to the origin
-- **Shared results** - All waiting goroutines receive the same response
+- **Request coordination** - When enabled, matching concurrent requests may share one origin request if the response is within the sharing limit and does not use `Vary: *`
+- **Independent results** - Each participant receives its own response body and can cancel its wait independently
+- **Separate retries** - Oversized and `Vary: *` responses are returned to the initiator; other participants retry independently
 
 ### Buffer Pool
 

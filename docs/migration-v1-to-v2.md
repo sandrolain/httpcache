@@ -18,6 +18,8 @@ This guide provides step-by-step instructions for upgrading from httpcache v1 to
 
 httpcache v2 is a major upgrade focusing on performance optimization while maintaining most of the v1 API. The migration path is designed to be straightforward for most use cases.
 
+The v2 release uses the Go module path `github.com/sandrolain/httpcache/v2`. Update every `httpcache` import, including backend and wrapper packages, to include `/v2`. The current version documented here is `v2.0.0-rc4`.
+
 **Key Improvements in v2:**
 
 - 79-82% faster buffer operations with zero allocations
@@ -175,10 +177,17 @@ Custom cache backend implementations from v1 must be updated.
 
 ### Step 1: Update Import Statement
 
-No changes required. The import path remains the same:
+Update the module path in your `go.mod` and imports. Backend and wrapper package imports use the same `/v2` suffix before the package name:
+
+```bash
+go get github.com/sandrolain/httpcache/v2@v2.0.0-rc4
+```
 
 ```go
-import "github.com/sandrolain/httpcache"
+import (
+	"github.com/sandrolain/httpcache/v2"
+	"github.com/sandrolain/httpcache/v2/diskcache"
+)
 ```
 
 ### Step 2: Review Hash Algorithm Choice
@@ -372,7 +381,7 @@ transport := httpcache.NewTransport(cache,
     httpcache.WithMaxCacheableResponseSize(1*1024*1024),        // 1MB limit
     httpcache.WithCacheOperationTimeout(15*time.Second),
 )
-// Deduplication disabled to avoid singleflight memory
+// Deduplication disabled to avoid buffering responses for sharing
 transport.EnableDeduplication = false
 ```
 
@@ -560,7 +569,7 @@ transport.MarkCachedResponses = true
 1. **Verify v2 is actually deployed:**
 
    ```bash
-   go list -m github.com/sandrolain/httpcache
+   go list -m github.com/sandrolain/httpcache/v2
    ```
 
 2. **Verify xxHash is enabled:**
@@ -605,7 +614,7 @@ transport.MarkCachedResponses = true
 go clean -modcache
 
 # Update dependencies
-go get -u github.com/sandrolain/httpcache
+go get github.com/sandrolain/httpcache/v2@v2.0.0-rc4
 
 # Tidy dependencies
 go mod tidy
@@ -619,7 +628,7 @@ go build ./...
 - [Performance Benchmarks](./performance-v2.md) - Detailed v1 vs v2 comparison
 - [Advanced Features](./advanced-features.md) - In-depth feature documentation
 - [How It Works](./how-it-works.md) - Implementation details
-- [RFC 9111 Compliance](../context/RFC_9111_ALIGNMENT.md) - HTTP caching standard compliance
+- [RFC 9111 Compliance](./how-it-works.md#rfc-9111-compliance-features) - HTTP caching standard compliance
 
 ## Support
 
@@ -637,6 +646,7 @@ If you encounter issues not covered in this guide:
 ## Version Information
 
 - **v1**: Stable release, maintained for critical bug fixes
-- **v2**: Current release, recommended for new deployments
+- **v2.0.0-rc4**: Current pre-release; the stable v2 release has not been published yet
+- **Module path**: `github.com/sandrolain/httpcache/v2`
 - **Migration Path**: v1 → v2 (direct upgrade supported)
 - **Backward Compatibility**: High (with hash algorithm consideration)

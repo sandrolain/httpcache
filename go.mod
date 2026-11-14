@@ -1,4 +1,4 @@
-module github.com/sandrolain/httpcache
+module github.com/sandrolain/httpcache/v2
 
 go 1.26.4
 

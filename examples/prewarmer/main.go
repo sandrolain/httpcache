@@ -7,9 +7,9 @@ import (
 	"log"
 	"time"
 
-	"github.com/sandrolain/httpcache"
-	"github.com/sandrolain/httpcache/freecache"
-	"github.com/sandrolain/httpcache/wrapper/prewarmer"
+	"github.com/sandrolain/httpcache/v2"
+	"github.com/sandrolain/httpcache/v2/freecache"
+	"github.com/sandrolain/httpcache/v2/wrapper/prewarmer"
 )
 
 func main() {

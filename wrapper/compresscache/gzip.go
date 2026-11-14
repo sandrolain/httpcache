@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/sandrolain/httpcache"
+	"github.com/sandrolain/httpcache/v2"
 )
 
 // GzipCache wraps a cache with automatic Gzip compression/decompression

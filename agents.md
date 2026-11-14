@@ -4,7 +4,7 @@ Instructions for AI coding agents working on this repository.
 
 ## Project overview
 
-- Go module: `github.com/sandrolain/httpcache` — a mostly RFC 9111 compliant HTTP cache (`http.RoundTripper`) with pluggable backends and wrappers.
+- Go module: `github.com/sandrolain/httpcache/v2` — a mostly RFC 9111 compliant HTTP cache (`http.RoundTripper`) with pluggable backends and wrappers.
 - Go version is managed with `asdf` (see `.tool-versions`) and pinned in `go.mod`.
 - Common tasks are defined in `taskfile.yaml` and run with `task <name>`.
 

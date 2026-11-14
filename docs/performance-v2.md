@@ -109,7 +109,7 @@ Version 1 established a solid performance baseline with the following characteri
 
 ### Request Deduplication
 
-v1 includes optional request deduplication using Go's `singleflight` to coalesce concurrent requests to the same resource.
+Request deduplication is optional and coalesces only requests with matching cache keys and identical request-header maps. The coordinator gives each caller an independent response body and cancellation path.
 
 **Configuration:**
 
@@ -120,9 +120,9 @@ transport.EnableDeduplication = true  // Default: false
 
 **Benefits:**
 
-- Reduces backend load by coalescing concurrent identical requests
-- Single network request for multiple concurrent callers
-- All callers receive the same response
+- Reduces backend load when equivalent requests arrive concurrently
+- Small responses without `Vary: *` can use one network request
+- Each caller receives an independent response body
 - Particularly useful for high-traffic scenarios or slow backends
 
 **Use Cases:**
@@ -134,10 +134,11 @@ transport.EnableDeduplication = true  // Default: false
 
 **Performance Impact:**
 
-When enabled, deduplication adds minimal overhead (~few microseconds) for coordination but significantly reduces backend load:
+When enabled, deduplication adds coordination and probes the response body up to `MaxCacheableResponseSize` to determine whether it can be shared:
 
-- **Without deduplication**: 10 concurrent requests = 10 backend calls
-- **With deduplication**: 10 concurrent requests = 1 backend call (9 requests wait and share result)
+- **Without deduplication**: 10 concurrent cache misses can make 10 backend calls
+- **With deduplication**: equivalent requests can share one backend call when the response is within the sharing limit and does not contain `Vary: *`
+- Oversized and `Vary: *` responses are returned to the initiating caller; other participants make independent requests
 
 See `httpcache_singleflight_bench_test.go` for detailed benchmarks.
 
@@ -159,9 +160,10 @@ transport := httpcache.NewTransport(cache,
 **Behavior:**
 
 - Responses exceeding the limit are streamed without caching
-- Large responses are still served normally to clients
+- With deduplication enabled, the initiating caller gets the full stream and joining callers retry independently
 - Prevents memory exhaustion from unexpectedly large payloads
 - No impact on cache hits or normal-sized responses
+- A value of 0 disables the limit and permits unbounded buffering for deduplication
 
 ### Cache Operation Timeout
 

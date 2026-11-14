@@ -8,8 +8,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/sandrolain/httpcache"
-	"github.com/sandrolain/httpcache/leveldbcache"
+	"github.com/sandrolain/httpcache/v2"
+	"github.com/sandrolain/httpcache/v2/leveldbcache"
 )
 
 func main() {

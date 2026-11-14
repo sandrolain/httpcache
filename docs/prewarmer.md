@@ -16,7 +16,7 @@ The Cache Prewarmer is a utility that allows you to prefetch and cache resources
 The prewarmer is included as part of the httpcache package:
 
 ```go
-import "github.com/sandrolain/httpcache/wrapper/prewarmer"
+import "github.com/sandrolain/httpcache/v2/wrapper/prewarmer"
 ```
 
 ## Basic Usage
@@ -31,9 +31,9 @@ import (
     "fmt"
     "log"
 
-    "github.com/sandrolain/httpcache"
-    "github.com/sandrolain/httpcache/freecache"
-    "github.com/sandrolain/httpcache/wrapper/prewarmer"
+    "github.com/sandrolain/httpcache/v2"
+    "github.com/sandrolain/httpcache/v2/freecache"
+    "github.com/sandrolain/httpcache/v2/wrapper/prewarmer"
 )
 
 func main() {

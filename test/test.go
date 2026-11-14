@@ -5,7 +5,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/sandrolain/httpcache"
+	"github.com/sandrolain/httpcache/v2"
 )
 
 // Cache excercises a httpcache.Cache implementation.

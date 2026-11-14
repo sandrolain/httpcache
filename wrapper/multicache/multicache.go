@@ -7,7 +7,7 @@ package multicache
 import (
 	"context"
 
-	httpcache "github.com/sandrolain/httpcache"
+	httpcache "github.com/sandrolain/httpcache/v2"
 )
 
 // MultiCache implements a multi-tiered caching strategy where cache tiers are

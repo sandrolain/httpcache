@@ -331,7 +331,7 @@ transport := httpcache.NewTransport(cache,
 **Related:**
 
 - See [examples/maxcacheablesize](../examples/maxcacheablesize/) for complete working example
-- See [bottleneck analysis](../context/bottleneck-analysis-2025-01-14.md) for performance considerations
+- See [Performance Optimization](./performance-v2.md) for performance considerations
 
 ### Cache Operation Timeout
 
@@ -433,7 +433,7 @@ transport := httpcache.NewTransport(cache,
 
 **Related:**
 
-- See [bottleneck analysis](../context/bottleneck-analysis-2025-01-14.md#12-race-condition-in-contextbackground-usage) for technical details
+- See [How It Works](./how-it-works.md) for implementation details
 - RFC 9111 doesn't specify cache operation timeouts (implementation detail)
 
 ### Private vs Public Cache
@@ -505,7 +505,7 @@ This implements RFC 9111 Section 5.2.2.6 (Cache-Control: private directive).
 
 **Private Cache (default, `IsPublicCache = false`):**
 
-- ✅ **Always caches** responses to requests with `Authorization` header
+- May cache responses to requests with `Authorization` headers without extra permission directives, subject to normal cacheability rules and response directives such as `no-store`
 - No special directives required
 - Safe for single-user scenarios (browsers, API clients)
 
@@ -649,7 +649,7 @@ import (
     "log/slog"
     "os"
     
-    "github.com/sandrolain/httpcache"
+    "github.com/sandrolain/httpcache/v2"
 )
 
 // Create a custom logger
@@ -1005,7 +1005,7 @@ The upstream request is not canceled just because the initiating caller cancels 
 For sophisticated caching strategies with multiple storage backends, use the [`multicache`](../wrapper/multicache/README.md) wrapper:
 
 ```go
-import "github.com/sandrolain/httpcache/wrapper/multicache"
+import "github.com/sandrolain/httpcache/v2/wrapper/multicache"
 
 // Create individual cache tiers
 memCache := freecache.New(10 * 1024 * 1024)      // Fast, in-memory (10 MB)

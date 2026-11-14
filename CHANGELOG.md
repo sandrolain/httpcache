@@ -5,8 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [2.0.0-rc3] - 2026-11-13
+## [2.0.0-rc4] - 2026-11-14
 
+### Changed
+
+- **Go module path**: The v2 release candidate uses `github.com/sandrolain/httpcache/v2`; update imports for the core package, backends, and wrappers.
+- **Release workflow**: Publish `-rcN` tags as prereleases, keep them from becoming the latest stable release, use the pinned Go toolchain, and request the v2 module path from the Go proxy.
+
+### Fixed
+
+- **RFC 9111 conformance (#5–#18)**: Corrected Cache-Control parsing, age and freshness calculations, validator handling, `only-if-cached`, stale directives, unsafe-method invalidation, 206 and HEAD handling, 304 metadata updates, date parsing, and Vary edge cases.
+- **Shared-cache safety (#19–#25)**: Prevented unauthorized reuse of cached responses for Authorization requests, including entries originally stored by anonymous requests; corrected Host-scoped keying and invalidation, Vary handling, and request deduplication safety.
+- **Request deduplication**: Keyed coalescing on exact request identity, bounded response sharing by `MaxCacheableResponseSize`, avoided sharing `Vary: *` responses, and made wait cancellation independent.
+- **Cache-operation cancellation regression coverage**: Replaced the timing-sensitive network deadline check with a deterministic test that verifies cache writes use an independent context.
+
+### Added
+
+- **BlobCache Silo integration**: Added integration coverage using Silo, a MinIO-compatible server image, for S3-backed storage and key-prefix isolation.
+- **Module migration guidance**: Documented the `/v2` import path and cache-entry migration behavior.
+
+## [2.0.0-rc3] - 2026-11-13
 ### Security
 
 - **Dependency updates to fix `govulncheck` findings**:
@@ -19,11 +37,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **`agents.md`**: generic AI coding agent instructions for the repository, replacing the Copilot-specific instructions
+- **Repository guidance**: Replaced tool-specific contribution notes with a repository-wide `AGENTS.md`.
 
 ### Changed
 
-- **Release workflow**: bumped Go toolchain to 1.27.4 to match `go.mod`
+- **Release workflow**: bumped the pinned release toolchain to Go 1.27.4
 - Ignore `trivy-high.json` local scan artifacts
 
 ### Fixed
@@ -37,8 +55,8 @@ This is a **major breaking release** that adds `context.Context` support and err
 
 ### Added
 
-- **Request Deduplication**: New `EnableDeduplication` flag coalesces concurrent requests to the same resource into a single network request using `golang.org/x/sync/singleflight`. Reduces server load and latency for parallel access patterns. ([#1](https://github.com/sandrolain/httpcache/issues/1))
-- **Memory Protection**: New `MaxCacheableResponseSize` field and `WithMaxCacheableResponseSize()` option protect against memory exhaustion from large response bodies. Default limit of **10MB** prevents caching responses that could cause OOM errors. Large responses exceeding the limit are served normally but bypass the cache. Set to 0 to disable the limit.
+- **Request Deduplication**: Optional `EnableDeduplication` coalesces equivalent concurrent cacheable requests, with independent response bodies and cancellation. ([#1](https://github.com/sandrolain/httpcache/issues/1))
+- **Memory Protection**: `MaxCacheableResponseSize` bounds cache buffering and response sharing for deduplicated requests. It defaults to **10MB**; larger responses continue streaming to the initiating caller while joining deduplicated callers make independent requests. Set to 0 to remove the limit.
 - **Cache Operation Timeout**: New `CacheOperationTimeout` field and `WithCacheOperationTimeout()` option prevent cache write operations from running indefinitely. Default timeout of **30 seconds** ensures cache operations complete within a reasonable time even if the original request context is cancelled. Cache operations use an independent context to allow completing writes after client disconnection, but with this timeout protection. Set to 0 to disable (not recommended for production).
 - **Internal Metrics System**: Built-in thread-safe metrics collection for cache operations:
   - **Counters**: Cache hits, misses, errors, stale served, deduplication

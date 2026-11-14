@@ -188,7 +188,7 @@ Ordinary single, non-empty `CacheKeyHeaders` values keep their existing cache-ke
 
 ## Vary Header Matching (RFC 9111 Section 4.1)
 
-httpcache implements RFC 9111 Section 4.1 compliant Vary header matching with full support for wildcard handling, whitespace normalization, and case-insensitive header names.
+httpcache validates `Vary` fields when reusing cached responses, including wildcard handling and case-insensitive field names. Normalization depends on the field: known list fields use supported field-aware rules, while unknown fields are compared exactly.
 
 ### Vary: * Wildcard
 
