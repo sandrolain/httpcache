@@ -40,11 +40,11 @@ func (t *Transport) invalidateCache(req *http.Request, resp *http.Response) {
 	}
 
 	// Always invalidate the Request-URI
-	t.invalidateURI(ctx, req.URL, "request-uri")
+	t.invalidateURI(ctx, req.URL, "request-uri", req.Host)
 
 	// Invalidate Location header URI (RFC 9111 Section 4.4)
 	if location := resp.Header.Get(headerLocation); location != "" {
-		if err := t.invalidateHeaderURI(ctx, req.URL, location, "Location"); err != nil {
+		if err := t.invalidateHeaderURI(ctx, req.URL, location, "Location", req.Host); err != nil {
 			t.log().Debug("failed to invalidate Location URI",
 				"location", location,
 				"error", err.Error())
@@ -53,7 +53,7 @@ func (t *Transport) invalidateCache(req *http.Request, resp *http.Response) {
 
 	// Invalidate Content-Location header URI (RFC 9111 Section 4.4)
 	if contentLocation := resp.Header.Get(headerContentLocation); contentLocation != "" {
-		if err := t.invalidateHeaderURI(ctx, req.URL, contentLocation, "Content-Location"); err != nil {
+		if err := t.invalidateHeaderURI(ctx, req.URL, contentLocation, "Content-Location", req.Host); err != nil {
 			t.log().Debug("failed to invalidate Content-Location URI",
 				"content-location", contentLocation,
 				"error", err.Error())
@@ -64,7 +64,7 @@ func (t *Transport) invalidateCache(req *http.Request, resp *http.Response) {
 // invalidateHeaderURI parses and invalidates a URI from a response header.
 // It ensures same-origin policy compliance per RFC 9111.
 // Returns an error if the URI cannot be parsed.
-func (t *Transport) invalidateHeaderURI(ctx context.Context, requestURL *url.URL, headerValue string, headerName string) error {
+func (t *Transport) invalidateHeaderURI(ctx context.Context, requestURL *url.URL, headerValue string, headerName string, requestHost string) error {
 	// Parse the header value as a URI (may be relative or absolute)
 	targetURL, err := requestURL.Parse(headerValue)
 	if err != nil {
@@ -81,17 +81,18 @@ func (t *Transport) invalidateHeaderURI(ctx context.Context, requestURL *url.URL
 		return nil
 	}
 
-	t.invalidateURI(ctx, targetURL, headerName)
+	t.invalidateURI(ctx, targetURL, headerName, requestHost)
 	return nil
 }
 
 // invalidateURI removes cache entries for the given URI.
 // It invalidates both GET and HEAD requests for the URI.
-func (t *Transport) invalidateURI(ctx context.Context, targetURL *url.URL, source string) {
+
+func (t *Transport) invalidateURI(ctx context.Context, targetURL *url.URL, source string, requestHost string) {
 	// CacheKeyHeaders and Vary separation append data to cache keys, so deleting
 	// the base GET/HEAD keys cannot remove every stored representation. Persist a
 	// URI-level request-time marker that forces older variants through validation.
-	if len(t.CacheKeyHeaders) > 0 || t.EnableVarySeparation {
+	if len(t.CacheKeyHeaders) > 0 || t.EnableVarySeparation || hostOverrideKey(&http.Request{URL: targetURL, Host: requestHost}) != "" {
 		key := invalidationMarkerKey(targetURL)
 		marker := []byte(time.Now().UTC().Format(time.RFC3339Nano))
 		if err := t.cacheSet(ctx, key, marker); err != nil {
@@ -103,6 +104,7 @@ func (t *Transport) invalidateURI(ctx context.Context, targetURL *url.URL, sourc
 	getReq := &http.Request{
 		Method: methodGET,
 		URL:    targetURL,
+		Host:   requestHost,
 	}
 	getKey := cacheKey(getReq)
 	if err := t.cacheDelete(ctx, getKey); err != nil {
@@ -118,6 +120,7 @@ func (t *Transport) invalidateURI(ctx context.Context, targetURL *url.URL, sourc
 	headReq := &http.Request{
 		Method: methodHEAD,
 		URL:    targetURL,
+		Host:   requestHost,
 	}
 	headKey := cacheKey(headReq)
 	if headKey != getKey {
@@ -140,8 +143,9 @@ func invalidationMarkerKey(targetURL *url.URL) string {
 // invalidatedSinceRequest reports whether a stored response predates the last
 // successful unsafe request for its URI. Responses without request-time
 // metadata are conservatively treated as invalidated.
-func (t *Transport) invalidatedSinceRequest(ctx context.Context, targetURL *url.URL, headers http.Header) bool {
-	if len(t.CacheKeyHeaders) == 0 && !t.EnableVarySeparation {
+func (t *Transport) invalidatedSinceRequest(ctx context.Context, targetURL *url.URL, headers http.Header, requestHost ...string) bool {
+	hasHostOverride := len(requestHost) > 0 && hostOverrideKey(&http.Request{URL: targetURL, Host: requestHost[0]}) != ""
+	if len(t.CacheKeyHeaders) == 0 && !t.EnableVarySeparation && !hasHostOverride {
 		return false
 	}
 	data, ok, err := t.cacheGet(ctx, invalidationMarkerKey(targetURL))

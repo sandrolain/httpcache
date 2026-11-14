@@ -8,6 +8,11 @@ import (
 	"strings"
 )
 
+const (
+	headerXVariedPresentPrefix = "X-Varied-Present-"
+	headerConnectionName       = "Connection"
+)
+
 // varyMatches will return false unless all of the cached values for the headers listed in Vary
 // match the new request
 func varyMatches(cachedResp *http.Response, req *http.Request) bool {
@@ -33,39 +38,111 @@ func varyMatches(cachedResp *http.Response, req *http.Request) bool {
 
 		canonicalHeader := http.CanonicalHeaderKey(header)
 
-		// Get the current request header value
-		reqValue := combinedHeaderValues(req.Header, canonicalHeader)
+		// Get the current request header value. Unknown fields are kept exact,
+		// including their individual field lines, because their whitespace and
+		// combination semantics are not known to the cache.
+		reqValues := req.Header.Values(canonicalHeader)
+		reqPresent := len(reqValues) > 0
+		reqValue := varyFieldValue(canonicalHeader, reqValues)
 		// Get the stored request header value from X-Varied-* headers
 		storedValue := cachedResp.Header.Get(headerXVariedPrefix + canonicalHeader)
+		storedPresent, knownPresence := storedVaryHeaderPresence(cachedResp.Header, canonicalHeader)
+		if !knownPresence || reqPresent != storedPresent ||
+			(!supportsVaryNormalization(canonicalHeader) && !hasCurrentVaryMetadata(cachedResp.Header, canonicalHeader)) {
+			return false
+		}
 
 		// RFC 9111 Section 4.1: If header is absent from request, it matches if also absent in stored request
 		// Both empty: match
 		// One empty, one not: no match
-		if !normalizedHeaderValuesMatch(normalizeVaryHeaderValue(canonicalHeader, reqValue), storedValue) {
+		if supportsVaryNormalization(canonicalHeader) {
+			reqValue = normalizeVaryHeaderValue(canonicalHeader, reqValue)
+			if !normalizedHeaderValuesMatch(reqValue, storedValue) {
+				return false
+			}
+		} else if reqValue != storedValue {
 			return false
 		}
 	}
 	return true
 }
 
+// storedVaryHeaderPresence reports whether the original request contained the
+// nominated field. Older cached entries have no explicit presence metadata;
+// non-empty values and absent value headers are unambiguous, while an empty
+// stored value is ambiguous and must be revalidated rather than reused.
+func storedVaryHeaderPresence(header http.Header, name string) (present, known bool) {
+	marker := headerXVariedPresentPrefix + name
+	if values, ok := header[marker]; ok {
+		if len(values) == 1 && values[0] == "v1:1" {
+			return true, true
+		}
+		if len(values) == 1 && values[0] == "v1:0" {
+			return false, true
+		}
+		return false, false
+	}
+	if values, ok := header[headerXVariedPrefix+name]; ok {
+		if len(values) == 0 || values[0] == "" {
+			return false, false
+		}
+		return true, true
+	}
+	return false, true
+}
+
+func hasCurrentVaryMetadata(header http.Header, name string) bool {
+	values := header[headerXVariedPresentPrefix+name]
+	return len(values) == 1 && (values[0] == "v1:0" || values[0] == "v1:1")
+}
+
 func combinedHeaderValues(header http.Header, name string) string {
 	values := header.Values(name)
+	trimmed := make([]string, len(values))
 	for i := range values {
-		values[i] = strings.TrimSpace(values[i])
+		trimmed[i] = strings.TrimSpace(values[i])
 	}
-	return strings.Join(values, ", ")
+	return strings.Join(trimmed, ", ")
 }
 
 func normalizeVaryHeaderValue(name, value string) string {
+	if !supportsVaryNormalization(name) {
+		return value
+	}
 	value = normalizeHeaderValue(value)
 	switch http.CanonicalHeaderKey(name) {
-	case "Accept-Charset", "Accept-Encoding", "Accept-Language", "Allow", "Connection",
+	case "Accept-Charset", "Accept-Encoding", "Accept-Language", "Allow", headerConnectionName,
 		"Content-Encoding", "Content-Language", "TE", "Trailer", "Transfer-Encoding", "Upgrade":
 		return strings.ToLower(value)
 	default:
 		return value
 	}
 }
+
+func supportsVaryNormalization(name string) bool {
+	switch http.CanonicalHeaderKey(name) {
+	case "Accept", "Accept-Charset", "Accept-Encoding", "Accept-Language", headerConnectionName,
+		"Content-Encoding", "Content-Language", "Trailer":
+		return true
+	default:
+		return false
+	}
+}
+
+func varyFieldValue(name string, values []string) string {
+	if supportsVaryNormalization(name) {
+		return combinedHeaderValues(http.Header{name: values}, name)
+	}
+	if len(values) == 1 && values[0] != "" && !strings.Contains(values[0], "|") && !strings.HasPrefix(values[0], varyLinesEncodingPrefix) {
+		return values[0]
+	}
+	if len(values) == 0 {
+		return ""
+	}
+	return encodeHeaderValues(varyLinesEncodingPrefix, values)
+}
+
+const varyLinesEncodingPrefix = "!vary-lines-v1!"
 
 // normalizedHeaderValuesMatch implements RFC 9111 Section 4.1 header field matching.
 // Header fields match if they can be transformed to be identical by:
@@ -104,9 +181,29 @@ func normalizeHeaderValue(value string) string {
 
 	prevSpace := false
 	lastWasComma := false
+	inQuotes := false
+	escaped := false
 
 	for i := 0; i < len(value); i++ {
 		c := value[i]
+		if inQuotes {
+			normalized.WriteByte(c)
+			if escaped {
+				escaped = false
+			} else if c == '\\' {
+				escaped = true
+			} else if c == '"' {
+				inQuotes = false
+			}
+			continue
+		}
+		if c == '"' {
+			normalized.WriteByte(c)
+			inQuotes = true
+			prevSpace = false
+			lastWasComma = false
+			continue
+		}
 
 		// Handle whitespace characters
 		if c == ' ' || c == '\t' || c == '\n' || c == '\r' {
@@ -134,11 +231,28 @@ func normalizeHeaderValue(value string) string {
 
 // hasCommaAhead checks if there's a comma ahead in the string, skipping whitespace.
 func hasCommaAhead(s string, pos int) bool {
+	inQuotes := false
+	escaped := false
 	for j := pos + 1; j < len(s); j++ {
-		if s[j] == ',' {
+		c := s[j]
+		if inQuotes {
+			if escaped {
+				escaped = false
+			} else if c == '\\' {
+				escaped = true
+			} else if c == '"' {
+				inQuotes = false
+			}
+			continue
+		}
+		if c == '"' {
+			inQuotes = true
+			continue
+		}
+		if c == ',' {
 			return true
 		}
-		if s[j] != ' ' && s[j] != '\t' && s[j] != '\n' && s[j] != '\r' {
+		if c != ' ' && c != '\t' && c != '\n' && c != '\r' {
 			return false
 		}
 	}
@@ -154,14 +268,21 @@ func storeVaryHeaders(resp *http.Response, req *http.Request) {
 			continue
 		}
 
-		reqValue := combinedHeaderValues(req.Header, varyKey)
+		reqValues := req.Header.Values(varyKey)
+		reqValue := varyFieldValue(varyKey, reqValues)
 		fakeHeader := headerXVariedPrefix + varyKey
+		present := len(req.Header.Values(varyKey)) > 0
 
 		// RFC 9111 Section 4.1: Normalize the value before storing
 		// This ensures that future requests with equivalent (but differently formatted)
 		// header values will match correctly
 		normalizedValue := normalizeVaryHeaderValue(varyKey, reqValue)
 		resp.Header.Set(fakeHeader, normalizedValue)
+		if present {
+			resp.Header.Set(headerXVariedPresentPrefix+varyKey, "v1:1")
+		} else {
+			resp.Header.Set(headerXVariedPresentPrefix+varyKey, "v1:0")
+		}
 	}
 }
 
@@ -190,11 +311,20 @@ func cacheKeyWithVaryBase(baseKey string, req *http.Request, varyHeaders []strin
 			continue
 		}
 
-		value := combinedHeaderValues(req.Header, canonicalHeader)
-		// RFC 9111 Section 4.1: Normalize value before including in cache key
+		values := req.Header.Values(canonicalHeader)
+		value := varyFieldValue(canonicalHeader, values)
+		presence := "absent"
+		if len(values) > 0 {
+			presence = "present"
+		}
+		// RFC 9111 Section 4.1: Normalize only values whose known field syntax
+		// permits it; preserve unknown field values exactly.
 		normalizedValue := normalizeVaryHeaderValue(canonicalHeader, value)
-		// Include even empty values to ensure proper cache separation
-		varyParts = append(varyParts, canonicalHeader+":"+normalizedValue)
+		if strings.Contains(normalizedValue, "|") || strings.HasPrefix(normalizedValue, varyLinesEncodingPrefix) {
+			normalizedValue = encodeHeaderValues(varyLinesEncodingPrefix, []string{normalizedValue})
+		}
+		// Include presence explicitly: absent and explicitly empty fields differ.
+		varyParts = append(varyParts, canonicalHeader+":"+presence+":"+normalizedValue)
 	}
 
 	if len(varyParts) > 0 {

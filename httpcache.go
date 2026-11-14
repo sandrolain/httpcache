@@ -20,8 +20,6 @@ import (
 	"runtime/debug"
 	"sync"
 	"time"
-
-	"golang.org/x/sync/singleflight"
 )
 
 const (
@@ -260,9 +258,8 @@ type Transport struct {
 	// Disabled by default. Configure via WithResilience option.
 	resilience *ResilienceConfig
 
-	// requests is a singleflight.Group used to deduplicate concurrent requests to the same resource.
-	// Multiple goroutines requesting the same cacheable URL will share the result of a single request.
-	requests singleflight.Group
+	// deduplication coordinates equivalent in-flight cacheable requests.
+	deduplication dedupGroup
 
 	asyncRevalidationMu sync.Mutex
 	asyncRevalidations  map[string]struct{}
@@ -919,7 +916,7 @@ func (t *Transport) processCachedResponse(cachedResp *http.Response, markedStale
 		return newGatewayTimeoutResponse(req), false, nil
 	}
 
-	// Use singleflight for revalidation requests
+	// Coalesce equivalent revalidation requests when deduplication is enabled.
 	resp, err = t.performCacheableRequestOnce(transport, modifiedReq, true, cacheKey, false)
 
 	// Handle 304 Not Modified
@@ -959,49 +956,35 @@ func (t *Transport) processCachedResponse(cachedResp *http.Response, markedStale
 	return resp, false, nil
 }
 
-// performCacheableRequestOnce uses singleflight to deduplicate concurrent requests to the same resource.
+// performCacheableRequestOnce coalesces equivalent concurrent cacheable requests.
 // For non-cacheable requests, it calls performRequest directly.
-// For cacheable requests with EnableDeduplication=true, it uses singleflight to ensure only one request is made,
-// and all concurrent callers receive the same result.
+// Requests with bodies are not deduplicated. Oversized and Vary:* responses
+// are returned to the initiating caller while other callers make independent requests.
 func (t *Transport) performCacheableRequestOnce(transport http.RoundTripper, req *http.Request, cacheable bool, cacheKey string, onlyIfCached bool) (*http.Response, error) {
 	if !cacheable || !t.EnableDeduplication {
 		return performRequest(transport, req, onlyIfCached)
 	}
+	if requestHasBody(req) || onlyIfCached {
+		return performRequest(transport, req, onlyIfCached)
+	}
 
-	// Use singleflight to deduplicate concurrent requests
-	res, err, shared := t.requests.Do(cacheKey, func() (interface{}, error) {
-		resp, err := performRequest(transport, req, onlyIfCached)
-		if err != nil {
-			return nil, err
-		}
-		return shareHttpResponse(resp), nil
+	key := deduplicationKey(cacheKey, req)
+	resp, shared, err := t.deduplication.do(req, key, t.MaxCacheableResponseSize, func(ctx context.Context, operationReq *http.Request) (*http.Response, error) {
+		return performRequest(transport, operationReq, false)
 	})
-
+	if errors.Is(err, errDedupRetry) {
+		return performRequest(transport, req, false)
+	}
 	if err != nil {
 		return nil, err
 	}
-
-	// Type assertion: should always succeed
-	resp, ok := res.(*shareableResponse)
-	if !ok {
-		return nil, errors.New("internal error: unexpected response type from singleflight")
+	if resp != nil && resp.Request != req {
+		resp.Request = req
 	}
-
-	if !shared {
-		// First goroutine: return the original response
-		t.log().Debug("request not shared", "url", req.URL.String())
-		return resp.GetUnsharedResponse(), nil
-	}
-
-	// Subsequent goroutines: return a reusable clone
-	t.log().Debug("request deduplicated via singleflight", "url", req.URL.String())
-
-	// Track deduplication metrics
-	if t.Metrics != nil {
+	if shared && t.Metrics != nil {
 		t.Metrics.Deduplication.Add(1)
 	}
-
-	return resp.GetReusableResponse(), nil
+	return resp, nil
 }
 
 // storeResponseInCache stores the response in cache if applicable.
@@ -1156,7 +1139,24 @@ func (t *Transport) lookupCachedResponse(req *http.Request, cacheKey string, cac
 			}
 		}
 	}
-	if cachedResp != nil && err == nil && t.invalidatedSinceRequest(req.Context(), req.URL, cachedResp.Header) {
+	if cachedResp != nil && err == nil && t.IsPublicCache && len(req.Header.Values("Authorization")) > 0 {
+		respCacheControl := parseCacheControl(cachedResp.Header, t.log())
+		_, hasPublic := respCacheControl[cacheControlPublic]
+		_, hasMustRevalidate := respCacheControl[cacheControlMustRevalidate]
+		_, hasSMaxAge := respCacheControl[cacheControlSMaxAge]
+		if !hasPublic && !hasMustRevalidate && !hasSMaxAge {
+			// RFC 9111 Section 3.5: a shared cache cannot use a stored response
+			// for an authorized request unless the response explicitly permits it.
+			// Drop it before freshness, stale-while-revalidate, or stale-if-error
+			// processing so none of those paths can expose the response either.
+			t.log().Debug("refusing cached response for Authorization request in shared cache",
+				"url", req.URL.String(),
+				"reason", "no public/must-revalidate/s-maxage directive")
+			cachedResp = nil
+			markedStale = false
+		}
+	}
+	if cachedResp != nil && err == nil && t.invalidatedSinceRequest(req.Context(), req.URL, cachedResp.Header, req.Host) {
 		t.log().Debug("cached response predates URI invalidation", "url", req.URL.String())
 		markedStale = true
 	}
@@ -1188,7 +1188,7 @@ func (t *Transport) RoundTrip(req *http.Request) (resp *http.Response, err error
 			reqResp, servedFromCache, reqErr = t.processCachedResponse(cachedResp, cachedMarkedStale, req, transport, cacheKey)
 		} else {
 			t.log().Debug("cache miss, making request", "url", req.URL.String())
-			// Use singleflight for uncached requests if deduplication is enabled
+			// Coalesce equivalent uncached requests when deduplication is enabled.
 			reqCacheControl := parseCacheControl(req.Header, t.log())
 			_, onlyIfCached := reqCacheControl[cacheControlOnlyIfCached]
 			reqResp, reqErr = t.performCacheableRequestOnce(transport, req, cacheable, cacheKey, onlyIfCached)

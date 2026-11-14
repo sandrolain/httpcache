@@ -167,6 +167,8 @@ req2.Header.Set("X-User-ID", "user-456")
 client.Do(req2)  // Cached separately for user-456
 ```
 
+Ordinary single, non-empty `CacheKeyHeaders` values keep their existing cache-key format. An explicitly empty value or multiple field lines use a versioned, length-prefixed segment so they cannot collide with an absent field, a combined value, or a different line sequence. Those exceptional keys can miss an older cache entry once after an upgrade; the response is then fetched and stored using the new format.
+
 **When to enable vary separation:**
 
 - ✅ Enable when you need full RFC 9111 compliance
@@ -207,7 +209,7 @@ resp2, _ := client.Do(req2)  // ❌ Cache miss! Vary: * prevents matching
 **Behavior:**
 
 - `Vary: *` ALWAYS fails to match, regardless of request headers
-- The response is still cached, but it will never match any subsequent request
+- It is never reusable from the cache or shared with other concurrent requests through request deduplication
 - Useful for responses that vary based on factors outside of HTTP headers (cookies, session state, etc.)
 
 ### Whitespace Normalization
@@ -215,34 +217,30 @@ resp2, _ := client.Do(req2)  // ❌ Cache miss! Vary: * prevents matching
 httpcache normalizes whitespace in header values to ensure consistent matching:
 
 ```go
-// Request 1: Accept-Language header with spaces
+// Request 1: Accept-Language header with optional whitespace
 req1.Header.Set("Accept-Language", "en, fr, de")
 
-// Request 2: Same languages, different whitespace
-req2.Header.Set("Accept-Language", "en,fr,de")  // No spaces
+// Request 2: Same field value with optional whitespace differences
+req2.Header.Set("Accept-Language", " en, fr, de ")
 
-// ✅ Both requests match! Normalized to "en,fr,de"
+// ✅ Requests match where only optional whitespace differs
 ```
 
 **Normalization Rules:**
 
-1. **Leading/trailing whitespace removed**: `" en, fr "` → `"en,fr"`
-2. **All whitespace types collapsed to single space**:
-   - Multiple spaces: `"en,    fr"` → `"en,fr"`
-   - Tabs: `"en,\tfr"` → `"en,fr"`
-   - Newlines: `"en,\nfr"` → `"en,fr"`
-3. **Comma-separated list normalization**: `"en, fr"` → `"en,fr"`
+For request fields with known list and normalization semantics, httpcache combines repeated field lines and applies the supported whitespace and case normalization. For other `Vary` fields, it preserves the exact value and each field line; it does not assume that commas, whitespace, or ordering can be normalized safely.
+
+An explicitly present empty field differs from an absent field. New cache entries record field presence. A legacy entry for an unknown `Vary` field that lacks this metadata is treated as ambiguous and is not reused; the request is fetched or revalidated, and the new response records the required metadata.
 
 **Examples:**
 
 ```go
-// All of these match each other:
-"en, fr"        → normalized to "en,fr"
-"en,fr"         → normalized to "en,fr"
-"  en, fr  "    → normalized to "en,fr"
-"en,  fr"       → normalized to "en,fr"
-"en,\tfr"       → normalized to "en,fr"
-"en,    fr"     → normalized to "en,fr"
+// Optional whitespace around a field value is ignored:
+" en "          → normalized to "en"
+"en, fr"        → normalized to "en, fr"
+"en,fr"         → remains "en,fr"
+// Whitespace inside quoted values is preserved:
+`example; p="a  b"` → quoted whitespace remains significant
 ```
 
 ### Case-Insensitive Header Names
@@ -262,7 +260,7 @@ req3.Header.Set("ACCEPT-LANGUAGE", "en")     // UPPERCASE
 
 ### Absent Header Handling
 
-When both cached response and current request lack a Vary header, they match:
+When both cached request and current request omit a Vary field, they match. An explicitly present empty field value is distinct from an absent field:
 
 ```go
 // Server responds with: Vary: Accept-Language
@@ -324,6 +322,16 @@ req2.Header.Set("Accept-Language", "en,fr,de")  // No spaces
 // ✅ Cache hit!
 ```
 
+### Request Host Overrides
+
+The URL authority is part of the cache key. When `Request.Host` explicitly overrides the authority in `Request.URL`, the override is also included so requests routed to different virtual hosts cannot collide. Equivalent authorities normalize default ports for HTTP and HTTPS.
+
+```go
+req, _ := http.NewRequest("GET", "https://origin.example/data", nil)
+req.Host = "tenant.example"
+// The key is scoped to tenant.example as well as the URL.
+```
+
 ### Real-World Examples
 
 **API with Language Support:**
@@ -383,6 +391,18 @@ resp2, _ := client.Do(req2)  // ❌ Always cache miss! Vary: * prevents match
 - ✅ **Wildcard support**: Correct Vary: * handling per specification
 - ✅ **Developer-friendly**: Flexible whitespace handling reduces cache misses
 
+## Request Deduplication
+
+When `EnableDeduplication` is enabled, in-flight requests share an origin request only when their cache key, method, Host override, and complete request-header maps match exactly. The fingerprint uses length-prefixed field names and values, preserving empty values and field-line boundaries. This intentionally favors safety: requests that are equivalent on the wire but represented differently in Go can take separate origin requests.
+
+Each caller can cancel its own wait; canceling the initiating caller does not fail other participants. Each caller gets an independent body. A response with `Vary: *` is returned to the initiating caller while other participants make their own requests, because the wildcard can depend on information outside the request fields. Requests with a body bypass deduplication.
+
+`MaxCacheableResponseSize` bounds both the cache write buffer and the body buffer used to share a response (10 MiB by default). When a response exceeds a nonzero limit, the initiating caller gets the complete response as a stream, including the probed prefix, and other participants make independent requests. Setting the limit to zero explicitly permits unlimited buffering for deduplicated responses as well as caching.
+
+## Authorization Requests in Shared Caches
+
+With `IsPublicCache = true`, a request containing `Authorization` can use a cached response only when its response includes `public`, `must-revalidate`, or `s-maxage`. The check applies to entries originally stored by anonymous requests too. Without one of these directives, the cache bypasses the entry and contacts the origin; stale-serving paths do not make the entry eligible. `CacheKeyHeaders` can additionally isolate entries by credential when the application requires per-user separation.
+
 ## must-understand Directive Support (RFC 9111 Section 5.2.2.3)
 
 The `must-understand` directive is a new cache directive introduced in RFC 9111 that allows responses to be cached even when they would normally be prohibited by other directives, **if and only if** the cache understands the response's status code.
@@ -393,6 +413,8 @@ The `must-understand` directive modifies the caching behavior as follows:
 
 1. **Known Status Codes**: If the response status code is "understood" by the cache (see list below), the response CAN be cached even if `no-store` is present
 2. **Unknown Status Codes**: If the response status code is NOT understood, the response MUST NOT be cached, regardless of other directives
+
+This override applies to `no-store` on the **response**. A request's `Cache-Control: no-store` still prevents storing the response to that request; RFC 9111 separately allows an already stored response to satisfy a request carrying this directive.
 
 ### Understood Status Codes
 

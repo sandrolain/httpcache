@@ -337,7 +337,7 @@ func canStore(req *http.Request, reqCacheControl, respCacheControl cacheControl,
 	// A shared cache MUST NOT use a cached response to a request with an Authorization
 	// header field unless the response contains a Cache-Control field with the "public",
 	// "must-revalidate", or "s-maxage" response directive.
-	if isPublicCache && req.Header.Get("Authorization") != "" {
+	if isPublicCache && len(req.Header.Values("Authorization")) > 0 {
 		_, hasPublic := respCacheControl[cacheControlPublic]
 		_, hasMustRevalidate := respCacheControl[cacheControlMustRevalidate]
 		_, hasSMaxAge := respCacheControl[cacheControlSMaxAge]

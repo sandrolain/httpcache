@@ -21,11 +21,11 @@ transport.IsPublicCache = true  // Default: false (private cache)
 // RFC 9111 has obsoleted the Warning header field
 transport.DisableWarningHeader = true  // Default: false (enabled for backward compatibility)
 
-// Enable request deduplication for parallel requests to the same resource
-// Multiple concurrent requests to the same URL will be coalesced into a single network request
+// Enable request deduplication for equivalent concurrent requests
+// Requests coalesce only when their complete request headers also match
 transport.EnableDeduplication = true  // Default: false
 
-// Limit maximum cacheable response size to prevent memory exhaustion
+// Bound how much of a response body is buffered for caching
 // Responses larger than this size will be served normally but not cached
 transport.MaxCacheableResponseSize = 5 * 1024 * 1024  // 5MB (default: 10MB, 0 = unlimited)
 
@@ -233,14 +233,14 @@ resp, _ = client.Get("https://example.com/api")
 
 ### Memory Protection with MaxCacheableResponseSize
 
-By default, httpcache limits the size of cacheable responses to **10MB** to prevent memory exhaustion from large response bodies. This protection is critical for production environments where large files (videos, archives, etc.) could cause Out-Of-Memory (OOM) errors.
+By default, httpcache buffers at most **10MB** of a response body for caching. When the limit is exceeded, buffering stops and the response continues streaming to the caller without being cached.
 
 **Default Behavior:**
 
 - Responses ≤ 10MB: Cached normally
 - Responses > 10MB: Served normally but **NOT cached**
 - The limit can be configured via `WithMaxCacheableResponseSize()` option
-- Set to `0` to disable the limit (use with caution)
+- Set to `0` for unlimited buffering
 
 **Example: Using Default 10MB Limit**
 
@@ -281,14 +281,13 @@ resp, _ = client.Get("https://api.example.com/large")  // 8MB
 // ❌ NOT cached (exceeds 5MB limit)
 ```
 
-**Example: Unlimited Size (Dangerous)**
+**Example: Unlimited Size**
 
 ```go
-// NOT RECOMMENDED for production!
 transport := httpcache.NewTransport(cache,
     httpcache.WithMaxCacheableResponseSize(0),  // 0 = unlimited
 )
-// ⚠️ Risk of OOM if large responses are cached
+// The response body is buffered without a size limit while it is read.
 ```
 
 **Example: Adaptive Sizing Based on Environment**
@@ -315,7 +314,7 @@ transport := httpcache.NewTransport(cache,
 
 1. As response body is read, total bytes are tracked
 2. When `MaxCacheableResponseSize` is exceeded:
-   - Internal buffer is immediately released (`buf.Reset()`)
+   - The cache buffer is discarded and no more body bytes are buffered for storage
    - Streaming continues normally to client
    - Response is NOT stored in cache
    - Warning is logged (if logger is configured)
@@ -512,10 +511,11 @@ This implements RFC 9111 Section 5.2.2.6 (Cache-Control: private directive).
 
 **Shared/Public Cache (`IsPublicCache = true`):**
 
-- ❌ **MUST NOT cache** responses to requests with `Authorization` header **unless** the response contains one of:
+- The cache does not store a response to an `Authorization` request unless the response contains one of:
   - `Cache-Control: public`
   - `Cache-Control: must-revalidate`
   - `Cache-Control: s-maxage=<seconds>`
+- The same directives control whether a cached response can satisfy an authorized request. An anonymous response without one of them is bypassed for an authorized request, even if it is fresh.
 
 **Example: Private Cache with Authorization (default)**
 
@@ -592,7 +592,7 @@ resp2, _ := client.Do(req)
 
 **⚠️ Important Security Notes:**
 
-1. **User-Specific Data**: If using a shared cache for user-specific authenticated endpoints, you MUST also configure `CacheKeyHeaders` to separate cache entries per user:
+1. **Credential-Specific Data**: If entries must be isolated by credential, configure `CacheKeyHeaders` to separate cache entries per user:
 
    ```go
    cache := diskcache.New("/tmp/cache")
@@ -604,11 +604,11 @@ resp2, _ := client.Do(req)
    // Cache-Control: public, max-age=3600
    ```
 
-2. **Without CacheKeyHeaders**: All users would share the same cached response (security risk!)
+2. Without `CacheKeyHeaders`, requests use the ordinary URL/Vary key. If the response includes a permission directive, a shared cache may reuse that representation across authorized requests. Use `CacheKeyHeaders` when credential-specific isolation is required.
 
 3. **Best Practice**: For user-specific data in shared caches:
-   - Use `CacheKeyHeaders = []string{"Authorization"}` to separate entries per user
-   - Ensure server responds with `Cache-Control: public` or `must-revalidate` or `s-maxage`
+   - Use `CacheKeyHeaders = []string{"Authorization"}` when entries must be isolated by credential
+   - Shared reuse of an authorized response still requires the server to permit it with `Cache-Control: public`, `must-revalidate`, or `s-maxage`
    - Consider using private cache mode if caching authenticated data for single user
 
 **Comparison Table:**
@@ -616,7 +616,7 @@ resp2, _ := client.Do(req)
 | Cache Type | Authorization Request | Default Behavior | With `public` directive |
 |------------|----------------------|------------------|------------------------|
 | Private Cache (`IsPublicCache=false`) | ✅ Cached | ✅ Cached | ✅ Cached |
-| Shared Cache (`IsPublicCache=true`) | ❌ NOT cached | ❌ NOT cached | ✅ Cached |
+| Shared Cache (`IsPublicCache=true`) | Not stored without permission directive | Not stored without permission directive | May be stored and reused, subject to freshness and other directives |
 
 See also: [Cache Key Headers](#cache-key-headers) for separating cache entries per user in shared caches.
 
@@ -810,10 +810,14 @@ http://api.example.com/data|Accept-Language:en|Authorization:Bearer token1
 
 **Important Notes:**
 
-- Header names are case-insensitive (automatically canonicalized)
-- Headers are sorted alphabetically for consistent key generation
-- Only non-empty header values are included in the key
-- Empty `CacheKeyHeaders` slice maintains backward compatibility (headers not included)
+- Header names are case-insensitive and configured names are canonicalized.
+- Headers are sorted for consistent key generation.
+- Ordinary single, non-empty values keep the existing URL-escaped key format.
+- An absent value is omitted. An explicitly empty value and a value supplied on multiple field lines use a versioned, length-prefixed key segment so their presence and boundaries are preserved.
+- Those empty and multi-line cases can miss an older cache entry once after upgrading, then use the new key format. No configuration change is needed.
+- An empty `CacheKeyHeaders` slice leaves request headers out of the cache key.
+
+`CacheKeyHeaders` is an additional cache-key scope; it does not replace `Vary` matching. Use `Header.Set` and `Header.Add` to populate request fields. `CacheKeyHeaders` preserves explicitly empty and repeated field values in its key, while `Vary` matching uses field-aware normalization for supported fields and exact line encoding for unknown fields.
 
 **⚠️ Interaction with Server `Vary` Header:**
 
@@ -915,13 +919,13 @@ transport.ShouldCache = func(resp *http.Response) bool {
 
 ## Vary Header Support
 
-⚠️ **Current Limitation**: The `Vary` response header is currently used for **validation only**, not for creating separate cache entries.
+httpcache validates `Vary` fields on reuse. Set `EnableVarySeparation` to `true` to store variants under separate keys; with the default `false`, variants share the URL key and a new variant can replace the prior entry. A response with `Vary: *` is not reusable for another request and is not shared with other in-flight requests through deduplication. Known request fields use supported field-aware normalization; unknown `Vary` fields are compared exactly, including individual field lines. An absent field differs from a present empty field. Legacy entries for unknown `Vary` fields without presence metadata may be fetched or revalidated once after upgrading.
 
-See [How It Works](./how-it-works.md) for details on Vary header handling.
+See [How It Works](./how-it-works.md) for details on Vary matching.
 
 ## Request Deduplication
 
-When multiple goroutines make concurrent requests to the same slow endpoint, each request typically goes to the server before the cache is populated. The `EnableDeduplication` option coalesces these parallel requests into a single network request using [golang.org/x/sync/singleflight](https://pkg.go.dev/golang.org/x/sync/singleflight).
+When multiple goroutines make equivalent concurrent requests to the same slow endpoint, the `EnableDeduplication` option can coalesce them into one network request. The key includes the cache key, method, Host override, and an exact fingerprint of the complete request-header map. Empty values and individual field lines are preserved; requests whose header maps differ are not coalesced, even when those differences would not change the HTTP meaning.
 
 **Problem:**
 
@@ -950,12 +954,12 @@ client := transport.Client()
 // With deduplication enabled:
 // 5 goroutines start simultaneously
 // First goroutine makes the request
-// Other 4 wait and share the same response
-// Result: Only 1 request to the slow server
+// Other 4 wait and receive independent response bodies
+// Small responses without Vary: * can use one request
 for i := 0; i < 5; i++ {
     go func() {
         resp, _ := client.Get("https://slow-api.example.com/data")
-        // All goroutines can independently read resp.Body
+// Each caller can independently read its response body
     }()
 }
 ```
@@ -963,10 +967,12 @@ for i := 0; i < 5; i++ {
 **How It Works:**
 
 1. Multiple goroutines request the same cacheable URL
-2. First goroutine performs the HTTP request
-3. Subsequent goroutines wait for the first request to complete
-4. All goroutines receive their own copy of the response with independent body readers
-5. Only one network request is made, reducing server load and latency
+2. One caller performs the HTTP request
+3. Other callers wait for the shared result; each caller can cancel its own wait independently
+4. Callers receive independent response bodies
+5. One request serves the group when the response can be safely shared
+
+The upstream request is not canceled just because the initiating caller cancels while other callers are still participating. Responses marked `Vary: *` and responses larger than the configured sharing limit are returned to the initiating caller; other participants make independent requests.
 
 **Benefits:**
 
@@ -980,6 +986,10 @@ for i := 0; i < 5; i++ {
 - Only applies to **cacheable** requests (GET/HEAD without Range headers)
 - POST, PUT, DELETE, and other non-cacheable methods are not deduplicated
 - Each goroutine gets an independent response body that can be read without conflicts
+- Header differences prevent requests from being coalesced
+- A caller's cancellation does not cancel other callers waiting for the result
+- `MaxCacheableResponseSize` also bounds response buffering for deduplication; above the limit, other participants retry independently while the initiating caller streams the response
+- Setting `MaxCacheableResponseSize` to zero explicitly allows unlimited buffering
 - Default is `false` for backward compatibility
 - Particularly useful for high-traffic scenarios or slow backends
 
